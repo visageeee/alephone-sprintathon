@@ -311,6 +311,7 @@ extern void shutdown_dialogs();
 
 extern bool load_dialog_theme(bool force_reload = false);
 extern bool load_default_dialog_theme();
+extern bool load_builtin_dialog_theme();
 
 extern uint32 get_dialog_player_color(size_t colorIndex); // ZZZ: added
 extern void play_dialog_sound(int which);

@@ -379,7 +379,7 @@ void handle_preferences(void)
 	write_preferences();
 	struct preferences_theme_guard
 	{
-		preferences_theme_guard() { load_default_dialog_theme(); }
+		preferences_theme_guard() { load_builtin_dialog_theme(); }
 		~preferences_theme_guard() { load_dialog_theme(true); }
 	} theme_guard;
 	struct preferences_resolution_guard
@@ -522,6 +522,11 @@ void handle_preferences(void)
 		embedded_fps_index, embedded_fps_labels);
 	graphics_display->dual_add(graphics_fps_w->label("Framerate Target"), d);
 	graphics_display->dual_add(graphics_fps_w, d);
+	w_toggle *graphics_skip_intro_w = new w_toggle(
+		graphics_preferences->skip_intro);
+	graphics_display->dual_add(
+		graphics_skip_intro_w->label("Skip Intros and Fades"), d);
+	graphics_display->dual_add(graphics_skip_intro_w, d);
 
 	table_placer *graphics_view =
 		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
@@ -996,6 +1001,8 @@ void handle_preferences(void)
 		embedded_fps_values[graphics_fps_w->get_selection()];
 	embedded_graphics_changed |= embedded_fps != graphics_preferences->fps_target;
 	graphics_preferences->fps_target = embedded_fps;
+	graphics_preferences->skip_intro =
+		graphics_skip_intro_w->get_selection();
 	const bool embedded_fix_h_not_v =
 		!graphics_limit_vertical_w->get_selection();
 	embedded_graphics_changed |= embedded_fix_h_not_v !=
@@ -5086,6 +5093,7 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("software_sdl_driver", graphics_preferences->software_sdl_driver);
 	root.put_attr("fps_target", graphics_preferences->fps_target);
 	root.put_attr("pickup_flash", graphics_preferences->pickup_flash);
+	root.put_attr("skip_intro", graphics_preferences->skip_intro);
 	root.put_attr("anisotropy_level", graphics_preferences->OGL_Configure.AnisotropyLevel);
 	root.put_attr("multisamples", graphics_preferences->OGL_Configure.Multisamples);
 	root.put_attr("wait_for_vsync", graphics_preferences->OGL_Configure.WaitForVSync);
@@ -5629,6 +5637,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->software_sdl_driver = _sw_driver_default;
 	preferences->fps_target = 60;
 	preferences->pickup_flash = true;
+	preferences->skip_intro = false;
 
 	preferences->movie_export_video_quality = 50;
 	preferences->movie_export_audio_quality = 50;
@@ -5724,7 +5733,7 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->classic_vertical_aim = false;
 	preferences->classic_aim_speed_limits = false;
 	preferences->sprintathon_enabled = true;
-	preferences->sprintathon_mouselook_mode = 2;
+	preferences->sprintathon_mouselook_mode = 4;
 	preferences->sprintathon_jump = true;
 	preferences->sprintathon_crouch = true;
 	preferences->sprintathon_sprint = true;
@@ -6126,6 +6135,7 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("software_sdl_driver", graphics_preferences->software_sdl_driver);
 	root.read_attr("fps_target", graphics_preferences->fps_target);
 	root.read_attr("pickup_flash", graphics_preferences->pickup_flash);
+	root.read_attr("skip_intro", graphics_preferences->skip_intro);
 	root.read_attr("anisotropy_level", graphics_preferences->OGL_Configure.AnisotropyLevel);
 	root.read_attr("multisamples", graphics_preferences->OGL_Configure.Multisamples);
 	root.read_attr("wait_for_vsync", graphics_preferences->OGL_Configure.WaitForVSync);

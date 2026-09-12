@@ -101,6 +101,7 @@ struct graphics_preferences_data
 
 	int16 ephemera_quality;
 	bool pickup_flash;
+	bool skip_intro;
 };
 
 enum {

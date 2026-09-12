@@ -64,6 +64,7 @@ Jan 31, 2001 (Loren Petrich):
 #include "fades.h"
 #include "screen.h"
 #include "interface.h"
+#include "preferences.h"
 #include "map.h" // for TICKS_PER_SECOND
 #include "InfoTree.h"
 
@@ -361,6 +362,21 @@ void explicit_start_fade(
 	struct color_table *animated_color_table,
 	bool game_in_progress)
 {
+	if (graphics_preferences && graphics_preferences->skip_intro &&
+		(type == _start_cinematic_fade_in ||
+		 type == _cinematic_fade_in ||
+		 type == _long_cinematic_fade_in ||
+		 type == _cinematic_fade_out ||
+		 type == _end_cinematic_fade_out))
+	{
+		SET_FADE_ACTIVE_STATUS(fade, false);
+		fade->type = NONE;
+		last_fade_type = NONE;
+		recalculate_and_display_color_table(
+			NONE, 0, original_color_table, animated_color_table, false);
+		return;
+	}
+
 	struct fade_definition *definition= get_fade_definition(type);
 	// LP change: idiot-proofing
 	if (!definition) return;

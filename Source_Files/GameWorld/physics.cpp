@@ -1105,7 +1105,7 @@ static void physics_update(
 				player->facing,
 				&player->camera_location,
 				player->camera_polygon_index,
-				FIXED_ONE/4);
+				(FIXED_ONE*7)/16);
 		}
 		else
 		{
@@ -1207,9 +1207,9 @@ static void physics_update(
 							std::max<_fixed>(1,
 								constants->maximum_forward_velocity)));
 				const _fixed kick_damage_scale= PIN(
-					(FIXED_ONE*3)/16+speed_ratio/16,
-					(FIXED_ONE*3)/16,
-					(FIXED_ONE*5)/16);
+					(FIXED_ONE*7)/16+speed_ratio/2,
+					(FIXED_ONE*7)/16,
+					(FIXED_ONE*23)/16);
 
 				const bool hit_monster= sprintathon_slide_attack(
 					player->monster_index,

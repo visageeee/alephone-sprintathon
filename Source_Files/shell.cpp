@@ -752,7 +752,7 @@ short get_level_number_from_user(void)
 	// HUD plugins must not replace its fonts, colors, spacing, or controls.
 	struct level_dialog_theme_guard
 	{
-		level_dialog_theme_guard() { load_default_dialog_theme(); }
+		level_dialog_theme_guard() { load_builtin_dialog_theme(); }
 		~level_dialog_theme_guard() { load_dialog_theme(true); }
 	} theme_guard;
 	struct level_dialog_resolution_guard

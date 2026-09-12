@@ -395,7 +395,7 @@ void initialize_game_state(
 
 	if (!shell_options.editor && shell_options.replay_directory.empty())
 	{
-		if (shell_options.skip_intro)
+		if (shell_options.skip_intro || graphics_preferences->skip_intro)
 		{
 			display_main_menu();
 		}

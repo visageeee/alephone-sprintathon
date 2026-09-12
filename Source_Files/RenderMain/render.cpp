@@ -451,11 +451,18 @@ void render_view(
 		RenderVisTree.view = view;
 		RenderVisTree.conservative_full_circle = false;
 #ifdef HAVE_OPENGL
+		int32 signed_view_pitch = view->pitch;
+		if (signed_view_pitch > HALF_CIRCLE)
+			signed_view_pitch -= FULL_CIRCLE;
+		const bool sprintathon_near_vertical_view =
+			std::abs(signed_view_pitch) >= FULL_CIRCLE/8;
+
 		RenderVisTree.conservative_full_circle =
 			OGL_IsActive() &&
 			!view->mimic_sw_perspective &&
 			input_preferences->sprintathon_enabled &&
-			input_preferences->sprintathon_mouselook_mode > 0;
+			input_preferences->sprintathon_mouselook_mode > 0 &&
+			sprintathon_near_vertical_view;
 #endif
 		RenderVisTree.build_render_tree();
 		

@@ -105,7 +105,7 @@ static FileSpecifier theme_path;
 static std::map<int, theme_widget> dialog_theme;
 
 // Prototypes
-static bool load_theme(FileSpecifier &theme);
+static bool load_theme(FileSpecifier &theme, bool parse_external_theme = true);
 static void unload_theme(void);
 static void set_theme_defaults(void);
 
@@ -673,7 +673,15 @@ bool load_default_dialog_theme()
 	return load_theme(default_theme);
 }
 
-bool load_theme(FileSpecifier &theme)
+bool load_builtin_dialog_theme()
+{
+	// Preferences and level selection deliberately use the neutral built-in
+	// widget definitions. Do not search scenario or plugin paths here.
+	FileSpecifier no_external_theme;
+	return load_theme(no_external_theme, false);
+}
+
+bool load_theme(FileSpecifier &theme, bool parse_external_theme)
 {
 	// Unload previous theme
 	unload_theme();
@@ -681,21 +689,25 @@ bool load_theme(FileSpecifier &theme)
 	// Set defaults, the theme overrides these
 	set_theme_defaults();
 
-	// Parse theme MML script
-	FileSpecifier theme_mml = theme + "theme2.mml";
-	bool success = parse_theme_file(theme_mml);
-	if (success)
+	bool success = true;
+	if (parse_external_theme)
 	{
-		theme_path = theme;
+		// Parse theme MML script
+		FileSpecifier theme_mml = theme + "theme2.mml";
+		success = parse_theme_file(theme_mml);
+		if (success)
+		{
+			theme_path = theme;
 
-		// Open resource file
-		FileSpecifier theme_rsrc = theme + "resources";
-		theme_rsrc.Open(theme_resources);
+			// Open resource file
+			FileSpecifier theme_rsrc = theme + "resources";
+			theme_rsrc.Open(theme_resources);
+		}
 	}
 	clear_game_error();
 
 	// Load fonts
-	if (success)
+	if (parse_external_theme && success)
 		data_search_path.insert(data_search_path.begin(), theme);
 	for (std::map<int, theme_widget>::iterator i = dialog_theme.begin(); i != dialog_theme.end(); ++i)
 	{
@@ -708,7 +720,7 @@ bool load_theme(FileSpecifier &theme)
 		} else
 			i->second.font = 0;
 	}
-	if (success)
+	if (parse_external_theme && success)
 		data_search_path.erase(data_search_path.begin());
 
 	// Load images
