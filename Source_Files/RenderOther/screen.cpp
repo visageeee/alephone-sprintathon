@@ -1235,6 +1235,27 @@ static void darken_world_window(void);
 
 void update_world_view_camera()
 {
+	/*
+	 * Add a restrained speed cue without disturbing scenario FOV effects.
+	 * View_AdjustFOV() performs the interpolation, so entering and leaving a
+	 * sprint never causes an abrupt zoom.
+	 */
+	static float movement_fov_bonus= 0.0f;
+	const float movement_fov_target=
+		(input_preferences->sprintathon_enabled &&
+		 current_player->sprinting) ? 5.0f : 0.0f;
+	movement_fov_bonus +=
+		(movement_fov_target-movement_fov_bonus)*0.06f;
+	if (fabsf(movement_fov_target-movement_fov_bonus)<0.01f)
+		movement_fov_bonus= movement_fov_target;
+
+	if (!current_player->extravision_duration &&
+		!world_view->tunnel_vision_active)
+	{
+		world_view->target_field_of_view=
+			NORMAL_FIELD_OF_VIEW+movement_fov_bonus;
+	}
+
 	world_view->yaw = current_player->facing;
 	world_view->pitch = current_player->elevation+
 		current_player->sprintathon_camera_pitch;

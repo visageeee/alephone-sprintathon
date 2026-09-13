@@ -181,6 +181,12 @@ void initialize_player_physics_variables(
 	variables->ledge_height= INT16_MAX;
 	variables->actual_height= constants->height;
 	variables->jump_grace_ticks= 0;
+	player->jump_buffer_ticks= 0;
+	player->dodge_last_direction= 0;
+	player->dodge_tap_window= 0;
+	player->dodge_key_was_down= false;
+	player->dodge_command_was_down= false;
+	player->dodge_ticks_remaining= 0;
 	player->crouch_key_was_down= false;
 	player->reload_key_was_down= false;
 	player->slide_punch_pending= false;
@@ -622,10 +628,46 @@ static void physics_update(
 	const bool modern_long_jump = modern_jump && modern_crouch && input_preferences->sprintathon_long_jump;
 	const bool modern_wall_run = sprintathon && input_preferences->sprintathon_wall_run;
 	const bool modern_slide = sprintathon && input_preferences->sprintathon_slide;
+	const bool modern_dodge = sprintathon && input_preferences->sprintathon_dodge;
 	const bool modern_wall_jump = modern_jump && input_preferences->sprintathon_wall_jump;
 	const bool modern_swimming = sprintathon && input_preferences->sprintathon_swimming;
 	const bool modern_ledge_grab = modern_jump && input_preferences->sprintathon_ledge_grab;
 	const _fixed maximum_elevation = sprintathon_mouselook_limit(constants);
+
+	// A wall run is traversal along a wall, not a reward for hitting it head-on.
+	// wall_push points away from the contacted wall. Compare the component of
+	// current motion into that normal with motion along the wall, allowing a
+	// contact angle of roughly 56 degrees from the wall plane.
+	const angle wall_run_facing= FIXED_INTEGERAL_PART(variables->direction);
+	const int64_t wall_run_motion_x=
+		((static_cast<int64_t>(variables->velocity)*
+			cosine_table[wall_run_facing]-
+		  static_cast<int64_t>(variables->perpendicular_velocity)*
+			sine_table[wall_run_facing])>>TRIG_SHIFT)+
+		variables->external_velocity.i;
+	const int64_t wall_run_motion_y=
+		((static_cast<int64_t>(variables->velocity)*
+			sine_table[wall_run_facing]+
+		  static_cast<int64_t>(variables->perpendicular_velocity)*
+			cosine_table[wall_run_facing])>>TRIG_SHIFT)+
+		variables->external_velocity.j;
+	const int64_t wall_run_normal_motion=
+		wall_run_motion_x*variables->wall_push_i+
+		wall_run_motion_y*variables->wall_push_j;
+	const int64_t wall_run_tangent_motion=
+		wall_run_motion_x*variables->wall_push_j-
+		wall_run_motion_y*variables->wall_push_i;
+	const int64_t wall_run_normal_magnitude=
+		wall_run_normal_motion<0 ? -wall_run_normal_motion :
+		wall_run_normal_motion;
+	const int64_t wall_run_tangent_magnitude=
+		wall_run_tangent_motion<0 ? -wall_run_tangent_motion :
+		wall_run_tangent_motion;
+	const bool shallow_wall_contact=
+		(variables->wall_push_i!=0 || variables->wall_push_j!=0) &&
+		wall_run_normal_motion<=0 &&
+		wall_run_tangent_magnitude>0 &&
+		2*wall_run_normal_magnitude<=3*wall_run_tangent_magnitude;
 	// Lean the viewpoint away from the wall during a wall run. The collision
 	// correction vector points away from the wall; projecting it onto the
 	// player's right vector tells us which way the camera should roll.
@@ -635,7 +677,7 @@ static void physics_update(
 		(variables->flags&_HORIZONTAL_COLLISION_BIT) &&
 		(variables->flags&_ABOVE_GROUND_BIT) &&
 		!(variables->flags&_FEET_BELOW_MEDIA_BIT) &&
-		(variables->wall_push_i!=0 || variables->wall_push_j!=0);
+		shallow_wall_contact;
 	const bool sprint_sway_active=
 		sprintathon && player->sprinting &&
 		(!(variables->flags&_ABOVE_GROUND_BIT) || sprint_wall_running) &&
@@ -667,12 +709,17 @@ static void physics_update(
 	// Ease in quickly and return a little more gently. Keep a one-unit minimum
 	// step so the fixed-angle value always reaches its target.
 	int16 target_camera_pitch= 0;
-	if (modern_slide &&
-		(player->slide_ticks_remaining>0 ||
-		 player->flying_kick_landing_ticks>0))
+	if ((modern_slide &&
+		 (player->slide_ticks_remaining>0 ||
+		  player->flying_kick_landing_ticks>0)) ||
+		(sprintathon && player->dodge_ticks_remaining>0))
 	{
-		// A stronger sideways lean and upward tilt during the slide.
-		target_wall_run_roll= (FULL_CIRCLE*9)/360;
+		// A stronger sideways lean and upward tilt during low movement.
+		if (player->dodge_ticks_remaining>0)
+			target_wall_run_roll=
+				(FULL_CIRCLE*12*player->dodge_last_direction)/360;
+		else
+			target_wall_run_roll= (FULL_CIRCLE*9)/360;
 		target_camera_pitch= (FULL_CIRCLE*7)/360;
 	}
 	// Airborne sprint sway disappears on the first airborne tick.
@@ -732,6 +779,7 @@ static void physics_update(
 	 * stair transitions and permits jumping just after walking off an edge.
 	 */
 	constexpr uint8 jump_grace_limit = 4;
+	constexpr uint8 jump_buffer_limit = 5;
 
 	const bool touching_ground =
 		delta_z <= CLOSE_ENOUGH_TO_FLOOR;
@@ -785,6 +833,25 @@ static void physics_update(
 	}
 
 	/*
+	 * Remember a fresh Jump press made just before landing. The normal held
+	 * latch still prevents repeated jumps, while this short buffer makes a
+	 * slightly early press fire on the first authoritative ground tick.
+	 */
+	const bool fresh_jump_press =
+		modern_jump && (action_flags&_swim) &&
+		!(variables->flags&_JUMP_HELD_BIT);
+	if (fresh_jump_press && !touching_ground &&
+		variables->jump_grace_ticks>jump_grace_limit &&
+		!(variables->flags&(_FEET_BELOW_MEDIA_BIT |
+			_WATER_MANTLING_BIT | _DRY_MANTLING_BIT)))
+	{
+		player->jump_buffer_ticks= jump_buffer_limit;
+	}
+	const bool consume_buffered_jump =
+		modern_jump && touching_ground &&
+		player->jump_buffer_ticks>0;
+
+	/*
 	 * Experimental hold-to-crouch. The microphone/aux-trigger action
 	 * is reused because the original action packet has no spare bits.
 	 */
@@ -797,7 +864,8 @@ static void physics_update(
 
 		const _fixed target_height =
 			(player->slide_ticks_remaining > 0 ||
-			 player->flying_kick_active) ?
+			 player->flying_kick_active ||
+			 player->dodge_ticks_remaining > 0) ?
 				sliding_height :
 			(action_flags & _microphone_button) ?
 				crouching_height :
@@ -839,6 +907,69 @@ static void physics_update(
 		if (action_flags&_turning_left) action_flags|= _sidestepping_left;
 		if (action_flags&_turning_right) action_flags|= _sidestepping_right;
 		action_flags&= ~_turning;
+	}
+
+	/* Double-tap sidestep, or use either dedicated Dodge command. */
+	if (player->dodge_tap_window>0)
+		--player->dodge_tap_window;
+	const int8 direct_dodge_direction=
+		(modern_dodge && !(action_flags&_absolute_yaw_mode)) ?
+		((action_flags&_looking_left) ? -1 :
+		 (action_flags&_looking_right) ? 1 : 0) : 0;
+	const int8 sidestep_dodge_direction=
+		(action_flags&_sidestepping_left) ? -1 :
+		(action_flags&_sidestepping_right) ? 1 : 0;
+	const int8 dodge_direction= direct_dodge_direction!=0 ?
+		direct_dodge_direction : sidestep_dodge_direction;
+	if (direct_dodge_direction!=0)
+		action_flags&= ~_looking;
+	else
+		player->dodge_command_was_down= false;
+	if (dodge_direction==0)
+	{
+		player->dodge_key_was_down= false;
+	}
+	else if (modern_dodge &&
+		(!player->dodge_key_was_down ||
+		 (direct_dodge_direction!=0 && !player->dodge_command_was_down)))
+	{
+		const bool can_dodge=
+			touching_ground &&
+			!(variables->flags&_FEET_BELOW_MEDIA_BIT) &&
+			player->dodge_ticks_remaining==0 &&
+			player->slide_ticks_remaining==0 &&
+			player->slide_recovery_ticks==0 &&
+			!player->flying_kick_active &&
+			player->flying_kick_landing_ticks==0;
+		if (can_dodge &&
+			(direct_dodge_direction!=0 ||
+			 (player->dodge_last_direction==dodge_direction &&
+			  player->dodge_tap_window>0)))
+		{
+			const angle facing=
+				NORMALIZE_ANGLE(FIXED_INTEGERAL_PART(variables->direction));
+			const _fixed dodge_speed=
+				(constants->maximum_perpendicular_velocity*5)/2;
+			variables->velocity= 0;
+			variables->perpendicular_velocity= 0;
+			variables->external_velocity.i=
+				(-sine_table[facing]*dodge_speed*dodge_direction)>>
+				TRIG_SHIFT;
+			variables->external_velocity.j=
+				(cosine_table[facing]*dodge_speed*dodge_direction)>>
+				TRIG_SHIFT;
+			variables->external_velocity.k= -FIXED_ONE/32;
+			player->dodge_ticks_remaining= 8;
+			player->dodge_tap_window= 0;
+		}
+		else
+		{
+			player->dodge_last_direction= dodge_direction;
+			player->dodge_tap_window= 8;
+		}
+		player->dodge_key_was_down= true;
+		if (direct_dodge_direction!=0)
+			player->dodge_command_was_down= true;
 	}
 	// Sprintathon reuses Move -> Look as Sprint; restore its legacy behavior when disabled.
 	if (!sprintathon && (action_flags&_moving) && (action_flags&_look_dont_turn) &&
@@ -992,7 +1123,9 @@ static void physics_update(
 			((modern_swimming && (variables->flags&_FEET_BELOW_MEDIA_BIT)) ||
 			 (modern_swimming && (variables->flags&_WATER_MANTLING_BIT)) ||
 			 (modern_ledge_grab && (variables->flags&_DRY_MANTLING_BIT)) ||
-			 (modern_wall_run && player->sprinting && (variables->flags&_HORIZONTAL_COLLISION_BIT))) :
+			 (modern_wall_run && player->sprinting &&
+			  (variables->flags&_HORIZONTAL_COLLISION_BIT) &&
+			  shallow_wall_contact)) :
 			 (variables->flags&_HEAD_BELOW_MEDIA_BIT)))
 	{
 		if (action_flags&_absolute_position_mode)
@@ -1301,6 +1434,15 @@ static void physics_update(
 		player->slide_recovery_ticks--;
 	}
 
+	if (player->dodge_ticks_remaining>0)
+	{
+		variables->velocity= 0;
+		variables->perpendicular_velocity= 0;
+		--player->dodge_ticks_remaining;
+		if (player->dodge_ticks_remaining==0)
+			player->slide_recovery_ticks= 16;
+	}
+
 	const bool dry_grab_requested =
 		(action_flags&_swim) &&
 		((action_flags&_moving_forward) || (action_flags&_absolute_position_mode));
@@ -1332,6 +1474,7 @@ static void physics_update(
 		player->sprinting &&
 		delta_z > 0 &&
 		(variables->flags & _HORIZONTAL_COLLISION_BIT) &&
+		shallow_wall_contact &&
 		!(variables->flags & _FEET_BELOW_MEDIA_BIT);
 
 	if (can_wall_jump)
@@ -1409,6 +1552,7 @@ static void physics_update(
 		}
 		if (modern_wall_run && player->sprinting &&
 			(variables->flags&_HORIZONTAL_COLLISION_BIT) &&
+			shallow_wall_contact &&
 			!(variables->flags&_FEET_BELOW_MEDIA_BIT))
 		{
 			gravity= std::max<_fixed>(1, gravity/5);
@@ -1445,7 +1589,8 @@ static void physics_update(
 	 * persistent mantle which continues above the water until the wall
 	 * clears, allowing traversal of high pool ledges.
 	 */
-	if (sprintathon && (action_flags & _swim))
+	if (sprintathon &&
+		((action_flags & _swim) || consume_buffered_jump))
 	{
 		const bool feet_in_water =
 			variables->flags & _FEET_BELOW_MEDIA_BIT;
@@ -1579,8 +1724,10 @@ static void physics_update(
 					(PLAYER_MAXIMUM_SUIT_OXYGEN*8)/100;
 
 			if (can_jump &&
-				!(variables->flags & _JUMP_HELD_BIT))
+				(consume_buffered_jump ||
+				 !(variables->flags & _JUMP_HELD_BIT)))
 			{
+				player->jump_buffer_ticks= 0;
 				variables->external_velocity.k = FIXED_ONE / 13;
 
 				// Charge once per accepted ground/coyote-time jump. Holding the
@@ -1629,6 +1776,13 @@ static void physics_update(
 		variables->flags &=
 			(uint16)~(_JUMP_HELD_BIT | _WATER_MANTLING_BIT |
 				_SUBMERGED_GROUND_JUMP_BIT);
+	}
+	if (player->jump_buffer_ticks>0)
+	{
+		if (consume_buffered_jump)
+			player->jump_buffer_ticks= 0;
+		else
+			--player->jump_buffer_ticks;
 	}
 	if ((!sprintathon || !modern_swimming) && (action_flags&_swim) &&
 		(variables->flags&_HEAD_BELOW_MEDIA_BIT) &&
@@ -1796,7 +1950,7 @@ static void physics_update(
 		modern_wall_run && player->sprinting &&
 		(variables->flags&_HORIZONTAL_COLLISION_BIT) &&
 		(variables->flags&_ABOVE_GROUND_BIT) &&
-		(variables->wall_push_i!=0 || variables->wall_push_j!=0);
+		shallow_wall_contact;
 	const bool grounded_for_footsteps=
 		!(variables->flags&_ABOVE_GROUND_BIT);
 	const bool directional_input_for_footsteps=

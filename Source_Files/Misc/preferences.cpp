@@ -193,6 +193,9 @@ struct embedded_controls_state
 	key_binding_map shell_keys;
 	key_binding_map hotkeys;
 	bool always_run;
+	w_slider *mouse_h_sensitivity;
+	w_slider *mouse_v_sensitivity;
+	w_select *mouselook_range;
 };
 
 static placeable *build_embedded_controls(
@@ -886,6 +889,7 @@ void handle_preferences(void)
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(jump_w, sprintathon_jump, "Jumping");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(crouch_w, sprintathon_crouch, "Crouch / Kick / Slide");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(slide_w, sprintathon_slide, "Sprint Sliding");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(dodge_w, sprintathon_dodge, "Dodging");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(long_jump_w, sprintathon_long_jump, "Crouch Long-Jump");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(wall_run_w, sprintathon_wall_run, "Wall-Running");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(wall_jump_w, sprintathon_wall_jump, "Wall-Jumping");
@@ -908,15 +912,6 @@ void handle_preferences(void)
 		input_preferences->sprintathon_oxygen_recovery_percent);
 	sprintathon_settings->dual_add(oxygen_recovery_w->label("Oxygen Recovery"), d);
 	sprintathon_settings->dual_add(oxygen_recovery_w, d);
-	static const char* mouselook_range_labels[] = {
-		"Original (30 degrees)", "45 degrees", "60 degrees", "75 degrees",
-		"Full Vertical", nullptr
-	};
-	w_select *mouselook_w = new w_select(
-		input_preferences->sprintathon_mouselook_mode,
-		mouselook_range_labels);
-	sprintathon_settings->dual_add(mouselook_w->label("Mouselook Range"), d);
-	sprintathon_settings->dual_add(mouselook_w, d);
 	sprintathon_page->add(sprintathon_settings, true);
 	pages->add(sprintathon_page, true);
 
@@ -924,7 +919,10 @@ void handle_preferences(void)
 		input_preferences->key_bindings,
 		input_preferences->shell_key_bindings,
 		input_preferences->hotkey_bindings,
-		(input_preferences->modifiers & _inputmod_interchange_run_walk) != 0
+		(input_preferences->modifiers & _inputmod_interchange_run_walk) != 0,
+		nullptr,
+		nullptr,
+		nullptr
 	};
 	pages->add(build_embedded_controls(d, controls_state), true);
 	pages->choose_tab(category_pages[0]);
@@ -1221,13 +1219,13 @@ void handle_preferences(void)
 	}
 
 	input_preferences->sprintathon_enabled = enabled_w->get_selection();
-	input_preferences->sprintathon_mouselook_mode = mouselook_w->get_selection();
 #define STORE_EMBEDDED_SPRINTATHON_TOGGLE(field, widget) \
 	input_preferences->field = widget->get_selection()
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_jump, jump_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_crouch, crouch_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_sprint, sprint_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_dodge, dodge_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_long_jump, long_jump_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_wall_run, wall_run_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_wall_jump, wall_jump_w);
@@ -2772,7 +2770,7 @@ const int NUM_KEYS = 21;
 
 static const char *action_name[NUM_KEYS] = {
 	"Move Forward", "Move Backward", "Turn Left", "Turn Right", "Sidestep Left", "Sidestep Right",
-	"Glance Left", "Glance Right", "Look Up", "Look Down", "Jump / Swim",
+	"Dodge Left", "Dodge Right", "Look Up", "Look Down", "Jump / Swim",
 	"Previous Weapon", "Next Weapon", "Trigger", "2nd Trigger",
 	"Reload", "Run/Swim", "Sprint",
 	"Action", "Auto Map", "Crouch/Kick/Slide"
@@ -3532,6 +3530,7 @@ static void sprintathon_dialog(void *arg)
 	options->dual_add(oxygen_recovery_w->label("Oxygen Recovery"), d);
 	options->dual_add(oxygen_recovery_w, d);
 	ADD_SPRINTATHON_TOGGLE(slide_w, sprintathon_slide, "Sprint Sliding");
+	ADD_SPRINTATHON_TOGGLE(dodge_w, sprintathon_dodge, "Dodging");
 	ADD_SPRINTATHON_TOGGLE(long_jump_w, sprintathon_long_jump, "Crouch Long-Jump");
 	ADD_SPRINTATHON_TOGGLE(wall_run_w, sprintathon_wall_run, "Wall-Running");
 	ADD_SPRINTATHON_TOGGLE(wall_jump_w, sprintathon_wall_jump, "Wall-Jumping");
@@ -3579,6 +3578,7 @@ static void sprintathon_dialog(void *arg)
 		input_preferences->sprintathon_oxygen_recovery_percent =
 			oxygen_recovery_w->get_selection() + 10;
 		STORE_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_dodge, dodge_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_long_jump, long_jump_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_wall_run, wall_run_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_wall_jump, wall_jump_w);
@@ -3814,7 +3814,7 @@ static placeable *build_embedded_controls(
 	page->min_width(scale_dialog_value(430));
 	tab_placer *tabs = new tab_placer;
 	const vector<string> control_tab_labels = {
-		"GAME CONTROLS", "HOTKEYS", "OTHER"
+		"GAME CONTROLS", "MOUSELOOK", "HOTKEYS", "OTHER"
 	};
 	page->dual_add(new w_tab(control_tab_labels, tabs), d);
 
@@ -3825,6 +3825,8 @@ static placeable *build_embedded_controls(
 		{false, "Move Backward", embedded_game_binding, 1},
 		{false, "Sidestep Left", embedded_game_binding, 4},
 		{false, "Sidestep Right", embedded_game_binding, 5},
+		{false, "Dodge Left", embedded_game_binding, 6},
+		{false, "Dodge Right", embedded_game_binding, 7},
 		{false, "Sprint", embedded_game_binding, 17},
 		{false, "Jump / Swim", embedded_game_binding, 10},
 		{false, "Crouch / Slide / Kick", embedded_game_binding, 20},
@@ -3854,8 +3856,6 @@ static placeable *build_embedded_controls(
 		{true, "Other", embedded_game_binding, 0},
 		{false, "Turn Left", embedded_game_binding, 2},
 		{false, "Turn Right", embedded_game_binding, 3},
-		{false, "Glance Left", embedded_game_binding, 6},
-		{false, "Glance Right", embedded_game_binding, 7},
 		{false, "Look Up", embedded_game_binding, 8},
 		{false, "Look Down", embedded_game_binding, 9}
 	};
@@ -3885,6 +3885,50 @@ static placeable *build_embedded_controls(
 			game_grid->refresh();
 		}, nullptr), d);
 	tabs->add(game, true);
+
+	vertical_placer *mouselook = new vertical_placer;
+	mouselook->center_vertically();
+	table_placer *mouselook_table =
+		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
+	mouselook_table->row_space(scale_dialog_value(8));
+	mouselook_table->col_flags(0, placeable::kAlignRight);
+
+	float h_sensitivity =
+		static_cast<float>(input_preferences->sens_horizontal) / FIXED_ONE;
+	if (h_sensitivity <= 0.0f) h_sensitivity = 1.0f;
+	int h_slider_position = static_cast<int>(
+		(std::log(h_sensitivity) - kMinSensitivityLog) *
+		(1000.0f / kSensitivityLogRange) + 0.5f);
+	state.mouse_h_sensitivity =
+		new w_sens_slider(1000, h_slider_position);
+	mouselook_table->dual_add(
+		state.mouse_h_sensitivity->label("Horizontal Sensitivity"), d);
+	mouselook_table->dual_add(state.mouse_h_sensitivity, d);
+
+	float v_sensitivity =
+		static_cast<float>(input_preferences->sens_vertical) / FIXED_ONE;
+	if (v_sensitivity <= 0.0f) v_sensitivity = 1.0f;
+	int v_slider_position = static_cast<int>(
+		(std::log(v_sensitivity) - kMinSensitivityLog) *
+		(1000.0f / kSensitivityLogRange) + 0.5f);
+	state.mouse_v_sensitivity =
+		new w_sens_slider(1000, v_slider_position);
+	mouselook_table->dual_add(
+		state.mouse_v_sensitivity->label("Vertical Sensitivity"), d);
+	mouselook_table->dual_add(state.mouse_v_sensitivity, d);
+
+	static const char *mouselook_range_labels[] = {
+		"Original (30 degrees)", "45 degrees", "60 degrees", "75 degrees",
+		"Full Vertical", nullptr
+	};
+	state.mouselook_range = new w_select(
+		input_preferences->sprintathon_mouselook_mode,
+		mouselook_range_labels);
+	mouselook_table->dual_add(
+		state.mouselook_range->label("Mouselook Range"), d);
+	mouselook_table->dual_add(state.mouselook_range, d);
+	mouselook->add(mouselook_table, true);
+	tabs->add(mouselook, true);
 
 	std::vector<embedded_binding_row> hotkey_rows;
 	for (int i = 0; i < NUMBER_OF_HOTKEYS; ++i)
@@ -3937,6 +3981,28 @@ static void save_embedded_controls(const embedded_controls_state& state)
 		input_preferences->modifiers |= _inputmod_interchange_run_walk;
 	else
 		input_preferences->modifiers &= ~_inputmod_interchange_run_walk;
+
+	if (state.mouse_h_sensitivity)
+	{
+		const int position = state.mouse_h_sensitivity->get_selection();
+		const float log_value = kMinSensitivityLog +
+			static_cast<float>(position) *
+			(kSensitivityLogRange / 1000.0f);
+		input_preferences->sens_horizontal =
+			static_cast<_fixed>(std::exp(log_value) * FIXED_ONE);
+	}
+	if (state.mouse_v_sensitivity)
+	{
+		const int position = state.mouse_v_sensitivity->get_selection();
+		const float log_value = kMinSensitivityLog +
+			static_cast<float>(position) *
+			(kSensitivityLogRange / 1000.0f);
+		input_preferences->sens_vertical =
+			static_cast<_fixed>(std::exp(log_value) * FIXED_ONE);
+	}
+	if (state.mouselook_range)
+		input_preferences->sprintathon_mouselook_mode =
+			state.mouselook_range->get_selection();
 }
 
 static void controls_dialog(void *arg)
@@ -5371,6 +5437,7 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_oxygen_recovery_percent",
 		input_preferences->sprintathon_oxygen_recovery_percent);
 	root.put_attr("sprintathon_slide", input_preferences->sprintathon_slide);
+	root.put_attr("sprintathon_dodge", input_preferences->sprintathon_dodge);
 	root.put_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
 	root.put_attr("sprintathon_wall_run", input_preferences->sprintathon_wall_run);
 	root.put_attr("sprintathon_wall_jump", input_preferences->sprintathon_wall_jump);
@@ -5740,6 +5807,7 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_sprint_drain_percent = 125;
 	preferences->sprintathon_oxygen_recovery_percent = 200;
 	preferences->sprintathon_slide = true;
+	preferences->sprintathon_dodge = true;
 	preferences->sprintathon_long_jump = true;
 	preferences->sprintathon_wall_run = true;
 	preferences->sprintathon_wall_jump = true;
@@ -6327,6 +6395,7 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr_bounded<int16>("sprintathon_oxygen_recovery_percent",
 		input_preferences->sprintathon_oxygen_recovery_percent, 10, 400);
 	root.read_attr("sprintathon_slide", input_preferences->sprintathon_slide);
+	root.read_attr("sprintathon_dodge", input_preferences->sprintathon_dodge);
 	root.read_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
 	root.read_attr("sprintathon_wall_run", input_preferences->sprintathon_wall_run);
 	root.read_attr("sprintathon_wall_jump", input_preferences->sprintathon_wall_jump);

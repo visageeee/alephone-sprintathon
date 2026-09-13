@@ -425,6 +425,12 @@ struct player_data
 
 	bool run_key;				// not serialized, used by HUD
 	bool sprinting;				// not serialized, lowers first-person weapon
+	uint8 jump_buffer_ticks;			// slightly early Jump press awaiting ground contact
+	int8 dodge_last_direction;		// -1 left, +1 right, 0 until first tap
+	uint8 dodge_tap_window;			// ticks remaining for the matching second tap
+	bool dodge_key_was_down;			// require release between directional taps
+	bool dodge_command_was_down;		// dedicated dodge keys have their own latch
+	uint8 dodge_ticks_remaining;		// active low sideways throw
 	uint16 sprint_ticks_remaining;		// legacy, retained for layout compatibility
 	uint16 sprint_cooldown_ticks;		// legacy, retained for layout compatibility
 	bool sprint_key_was_down;			// requires release before restarting
