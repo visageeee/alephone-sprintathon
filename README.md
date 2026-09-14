@@ -8,26 +8,76 @@ Sacrilegious features include JUMPING, CROUCHING, SPRINTING, SWIMMING ABOVE THE 
 
 ![Sprintathon gameplay](mthon.webp)
 
+## Download
+
+The easiest way to play Sprintathon on Linux is with the prebuilt Flatpak bundle:
+
+**[Download the latest Sprintathon release](https://github.com/visageeee/alephone-sprintathon/releases/latest)**
+
+Install the downloaded bundle with:
+
+```bash
+flatpak install --user ./Sprintathon-*-x86_64.flatpak
+```
+Launch Sprintathon from your application menu or run:
+
+```bash
+flatpak run io.github.visageeee.Sprintathon
+```
+
+The packaged launcher lets you select which installed Marathon scenario to play.
+
 ## Features
 
-All gameplay additions can be toggled from the **Sprintathon** preferences panel.
+Gameplay additions can be configured from the **Sprintathon** preferences panel. Most movement features can be enabled or disabled individually.
 
-- Full unrestricted mouselook
-- Smoother mouse aiming
-- Jumping with coyote time
+### Parkour Movement
+
+- Jumping! With "coyote time"
 - Crouching and crouch long-jumps
-- Sprinting that repurposes the oxygen system into a recharging stamina meter
+- Sprinting with a recharging stamina meter
 - Sprint-slide attack
-- Jump kicks and wall kicks
+- Dodge dives
+- Jump kicks and roundhouse kicks
+- Wall kicks for parkour
 - Wall-running and wall-jumping
-- "Realistic" Reloading
-- Improved weapon sway
-- Modernized swimming and surface movement
+- Modernized swimming - No more bobbing
 - Water and dry ledge-grabbing
-- Optional global fog
-- Revamped Preferences panel and Level Select
+- Mantling
 
-Movement features can be enabled or disabled individually, allowing Sprintathon to range from mostly traditional Marathon movement to the complete modernized movement set.
+### Camera and presentation
+
+- **Full unrestricted vertical mouselook with added smoothing**
+- Weapon sway
+- Legs
+- Footstep sounds synced with movement
+- Stronger movement and impact feedback
+- Optional global fog
+- Revamped Preferences and Level Select interfaces
+
+### Combat
+
+- Magazine-based reloading
+- Sprint, slide and airborne attacks
+- Bullet time with audiovisual feedback
+
+
+Movement features can be combined freely, allowing Sprintathon to range from mostly traditional Marathon movement to the complete modernized moveset.
+
+## Bullet time
+
+Bullet time temporarily slows the action while leaving the player responsive.
+
+While active, Sprintathon applies:
+
+- Radial motion blur
+- Increased contrast and color grading
+- Slight FOV narrowing
+- Slowed gameplay sounds
+- Sound effects
+
+
+If enabled Bullet time is triggered with the "B" key 
 
 ## Full unrestricted mouselook
 
