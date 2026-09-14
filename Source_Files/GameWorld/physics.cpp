@@ -196,6 +196,7 @@ void initialize_player_physics_variables(
 	player->dodge_command_was_down= false;
 	player->dodge_ticks_remaining= 0;
 	player->dodge_bullet_time_phase= 0;
+	player->back_dodge_recovery_ticks= 0;
 	player->crouch_key_was_down= false;
 	player->reload_key_was_down= false;
 	player->slide_punch_pending= false;
@@ -657,7 +658,8 @@ static void physics_update(
 	const bool sprintathon = input_preferences->sprintathon_enabled;
 	const bool bullet_time= sprintathon_bullet_time_active();
 	bool advance_dodge_animation= true;
-	if (player->dodge_ticks_remaining>0 && bullet_time)
+	if ((player->dodge_ticks_remaining>0 ||
+		 player->back_dodge_recovery_ticks>0) && bullet_time)
 	{
 		player->dodge_bullet_time_phase+= 35;
 		if (player->dodge_bullet_time_phase<100)
@@ -753,18 +755,25 @@ static void physics_update(
 	// Ease in quickly and return a little more gently. Keep a one-unit minimum
 	// step so the fixed-angle value always reaches its target.
 	int16 target_camera_pitch= 0;
+	const bool back_dodging=
+		player->dodge_ticks_remaining>0 &&
+		player->dodge_last_direction==2;
 	if ((modern_slide &&
 		 (player->slide_ticks_remaining>0 ||
 		  player->flying_kick_landing_ticks>0)) ||
 		(sprintathon && player->dodge_ticks_remaining>0))
 	{
-		// A stronger sideways lean and upward tilt during low movement.
+		// Back-dodging pitches downward without a sideways roll.
 		if (player->dodge_ticks_remaining>0)
-			target_wall_run_roll=
-				(FULL_CIRCLE*12*player->dodge_last_direction)/360;
+		{
+			if (!back_dodging)
+				target_wall_run_roll=
+					(FULL_CIRCLE*12*player->dodge_last_direction)/360;
+		}
 		else
 			target_wall_run_roll= (FULL_CIRCLE*9)/360;
-		target_camera_pitch= (FULL_CIRCLE*7)/360;
+		target_camera_pitch= back_dodging ?
+			(FULL_CIRCLE*11)/360 : (FULL_CIRCLE*7)/360;
 	}
 	// Airborne sprint sway disappears on the first airborne tick.
 	if (sprintathon && player->sprinting &&
@@ -907,19 +916,42 @@ static void physics_update(
 	 * Experimental hold-to-crouch. The microphone/aux-trigger action
 	 * is reused because the original action packet has no spare bits.
 	 */
-	if (modern_crouch && !PLAYER_IS_DEAD(player))
+	if ((modern_crouch || modern_dodge) && !PLAYER_IS_DEAD(player))
 	{
 		const _fixed standing_height = constants->height;
 		const _fixed crouching_height = constants->height / 2;
 		const _fixed sliding_height =
 			(constants->height * 7) / 16;
+		const _fixed back_dodge_height =
+			(constants->height * 5) / 16;
+		constexpr int back_recovery_duration = 26;
+		constexpr int back_pause_duration = 6;
+		_fixed back_recovery_height = standing_height;
+
+		if (player->back_dodge_recovery_ticks > 0)
+		{
+			const int rising_ticks =
+				back_recovery_duration - back_pause_duration;
+			const int remaining_rise_ticks = std::min<int>(
+				player->back_dodge_recovery_ticks,
+				rising_ticks);
+
+			back_recovery_height =
+				back_dodge_height +
+				((standing_height - back_dodge_height) *
+				 (rising_ticks - remaining_rise_ticks)) /
+				rising_ticks;
+		}
 
 		const _fixed target_height =
+			back_dodging ? back_dodge_height :
+			player->back_dodge_recovery_ticks > 0 ?
+				back_recovery_height :
 			(player->slide_ticks_remaining > 0 ||
 			 player->flying_kick_active ||
 			 player->dodge_ticks_remaining > 0) ?
 				sliding_height :
-			(action_flags & _microphone_button) ?
+			(modern_crouch && (action_flags & _microphone_button)) ?
 				crouching_height :
 				standing_height;
 		const _fixed crouch_step =
@@ -961,7 +993,7 @@ static void physics_update(
 		action_flags&= ~_turning;
 	}
 
-	/* Double-tap sidestep, or use either dedicated Dodge command. */
+	/* Double-tap left, right or backward; dedicated commands stay lateral. */
 	if (player->dodge_tap_window>0)
 		--player->dodge_tap_window;
 	const int8 direct_dodge_direction=
@@ -971,8 +1003,12 @@ static void physics_update(
 	const int8 sidestep_dodge_direction=
 		(action_flags&_sidestepping_left) ? -1 :
 		(action_flags&_sidestepping_right) ? 1 : 0;
+	const int8 backward_dodge_direction=
+		(action_flags&_moving_backward) &&
+		!(action_flags&_absolute_position_mode) ? 2 : 0;
 	const int8 dodge_direction= direct_dodge_direction!=0 ?
-		direct_dodge_direction : sidestep_dodge_direction;
+		direct_dodge_direction : sidestep_dodge_direction!=0 ?
+		sidestep_dodge_direction : backward_dodge_direction;
 	if (direct_dodge_direction!=0)
 		action_flags&= ~_looking;
 	else
@@ -1006,18 +1042,33 @@ static void physics_update(
 		{
 			const angle facing=
 				NORMALIZE_ANGLE(FIXED_INTEGERAL_PART(variables->direction));
-			const _fixed dodge_speed=
+			const bool backward= dodge_direction==2;
+			const _fixed dodge_speed= backward ?
+				constants->maximum_backward_velocity*4 :
 				(constants->maximum_perpendicular_velocity*5)/2;
 			variables->velocity= 0;
 			variables->perpendicular_velocity= 0;
-			variables->external_velocity.i=
-				(-sine_table[facing]*dodge_speed*dodge_direction)>>
-				TRIG_SHIFT;
-			variables->external_velocity.j=
-				(cosine_table[facing]*dodge_speed*dodge_direction)>>
-				TRIG_SHIFT;
-			variables->external_velocity.k= -FIXED_ONE/32;
-			player->dodge_ticks_remaining= 8;
+			if (backward)
+			{
+				variables->external_velocity.i=
+					-(cosine_table[facing]*dodge_speed)>>TRIG_SHIFT;
+				variables->external_velocity.j=
+					-(sine_table[facing]*dodge_speed)>>TRIG_SHIFT;
+				// A short upward hop; gravity brings the player back down.
+				variables->external_velocity.k= FIXED_ONE/16;
+				player->back_dodge_recovery_ticks= 0;
+			}
+			else
+			{
+				variables->external_velocity.i=
+					(-sine_table[facing]*dodge_speed*dodge_direction)>>
+					TRIG_SHIFT;
+				variables->external_velocity.j=
+					(cosine_table[facing]*dodge_speed*dodge_direction)>>
+					TRIG_SHIFT;
+				variables->external_velocity.k= -FIXED_ONE/32;
+			}
+			player->dodge_ticks_remaining= backward ? 12 : 8;
 			player->dodge_bullet_time_phase= 0;
 			player->dodge_last_direction= dodge_direction;
 			player->dodge_tap_window= 0;
@@ -1507,7 +1558,24 @@ static void physics_update(
 		if (advance_dodge_animation)
 			--player->dodge_ticks_remaining;
 		if (player->dodge_ticks_remaining==0)
-			player->slide_recovery_ticks= 16;
+		{
+			if (player->dodge_last_direction==2)
+			{
+				// Land decisively instead of retaining a long external glide.
+				variables->external_velocity.i= 0;
+				variables->external_velocity.j= 0;
+				variables->external_velocity.k= 0;
+				player->back_dodge_recovery_ticks= 26;
+				player->slide_recovery_ticks= 26;
+			}
+			else
+				player->slide_recovery_ticks= 16;
+		}
+	}
+	else if (player->back_dodge_recovery_ticks>0 &&
+		advance_dodge_animation)
+	{
+		--player->back_dodge_recovery_ticks;
 	}
 
 	const bool dry_grab_requested =

@@ -13,6 +13,7 @@ EXTRA_DIST = \
 	snd/speedup.ogg                                                            \
 	snd/wallkick.ogg                                                           \
 	snd/kickhit.ogg                                                            \
+	gfx/frontlegs.png                                                         \
 	gfx/slidelegs.png                                                          	snd/slide.ogg                                                              \
 	data/AlephSansMono-Bold.ttf                                                 \
 	data/AlephSansMonoLicense.txt                                               \
