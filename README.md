@@ -1,10 +1,10 @@
 # Sprintathon
 
-**It’s a Marathon, but also a sprint!**
+**It's a Marathon, but also a sprint!**
 
 Sprintathon is a gameplay-focused fork of [Aleph One](https://github.com/Aleph-One-Marathon/alephone) that brings parkour movement, unrestricted mouselook, reloading, bullet time, and other highly subjective modernizations to the Marathon engine.
 
-It remains compatible with Marathon scenarios—but playing them as intended is another matter.
+It remains compatible with Marathon scenarios - but playing them as intended is another matter.
 
 Blasphemous features include **JUMPING, CROUCHING, SPRINTING, SLIDING, WALL-RUNNING, DODGE DIVES, RELOADING, BULLET TIME,** and even **SWIMMING ABOVE THE WATER SURFACE**.
 
@@ -69,7 +69,7 @@ Movement features can be combined freely, allowing Sprintathon to range from mos
 
 ## Full unrestricted mouselook
 
-Sprintathon’s extended mouselook uses true 3D camera rotation at every angle, including straight up and down. Aleph One’s original renderer relies on a forward-facing 2D portal system, which caused missing polygons, black corners, and smearing at steep viewing angles. Sprintathon expands visibility checks around the full horizon, bypasses incompatible legacy clipping planes, and lets OpenGL’s 3D frustum and depth buffer handle clipping and occlusion. Strict sprite depth testing also prevents enemies and effects from appearing through walls.
+Sprintathon's extended mouselook uses true 3D camera rotation at every angle, including straight up and down. Aleph One's original renderer relies on a forward-facing 2D portal system, which caused missing polygons, black corners, and smearing at steep viewing angles. Sprintathon expands visibility checks around the full horizon, bypasses incompatible legacy clipping planes, and lets OpenGL's 3D frustum and depth buffer handle clipping and occlusion. Strict sprite depth testing also prevents enemies and effects from appearing through walls.
 
 
 ## Bullet time
@@ -147,7 +147,7 @@ autoreconf -i
 make -j"$(nproc)"
 ```
 
-The resulting executable is `Source_Files/alephone`. Installation is optional:
+The resulting executable is `Source_Files/sprintathon`. Installation is optional:
 
 ```bash
 sudo make install
@@ -190,20 +190,20 @@ Aleph One requires Marathon scenario data, including files such as `Map`, `Shape
 If you store them in `~/Games/Marathon`, pass that scenario directory to the locally compiled executable:
 
 ```bash
-./Source_Files/alephone ~/Games/Marathon
+./Source_Files/sprintathon ~/Games/Marathon
 ```
 
-Be sure to run `./Source_Files/alephone`, older system installations could reside at `/usr/local/bin/alephone`.
+Be sure to run `./Source_Files/sprintathon`; older Aleph One or Sprintathon builds may still be installed as `/usr/local/bin/alephone`.
 
 ## Controls
 
 Configure bindings from the in-game keyboard preferences. Sprintathon adds or repurposes bindings for:
 
-- **Space** — Jump / Swim
-- **C** — Crouch
-- **Left Shift** — Sprint
-- **R** — Reload
-- **Q / E** — Previous / Next Weapon
+- **Space** - Jump / Swim
+- **C** - Crouch
+- **Left Shift** - Sprint
+- **R** - Reload
+- **Q / E** - Previous / Next Weapon
 
 The exact keys are user-configurable.
 
