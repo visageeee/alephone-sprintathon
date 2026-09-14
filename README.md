@@ -152,6 +152,7 @@ sudo make install
 ```
 
 ### Windows
+Sprintathon is yet to be tested on anything but Linux. If you build it for other systems please provide feedback on how well it runs.
 
 Install Visual Studio 2022 with the **Desktop development with C++** workload,
 Git and [vcpkg](https://github.com/microsoft/vcpkg). Bootstrap vcpkg and enable
@@ -169,6 +170,7 @@ source tree in short paths without spaces avoids several dependency build
 problems.
 
 ### macOS
+Sprintathon is yet to be tested on anything but Linux. If you build it for other systems please provide feedback on how well it runs.
 
 Install Xcode command-line tools and vcpkg, then clone Sprintathon with
 submodules. Aleph One provides `vcpkg/install-arm-osx.sh` and
@@ -215,7 +217,7 @@ Global fog is configured separately in the OpenGL graphics preferences.
 
 ## Project status
 
-Sprintathon is experimental. Gameplay behavior, networking compatibility, saved preferences, and scenario-specific interactions may still require testing.
+Sprintathon is experimental. Gameplay behavior, networking compatibility, saved preferences, and scenario-specific interactions still require testing.
 
 
 ## Upstream project
