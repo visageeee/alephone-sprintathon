@@ -27,6 +27,7 @@ modules:
   - name: sprintathon-launcher
     buildsystem: simple
     build-commands:
+      - mv /app/bin/sprintathon /app/bin/sprintathon-engine
       - cc -O2 sprintathon-game-selector.c -o sprintathon-game-selector $(pkg-config --cflags --libs gtk+-3.0)
       - install -Dm755 sprintathon-game-selector /app/bin/sprintathon-game-selector
       - install -Dm755 sprintathon.sh /app/bin/sprintathon

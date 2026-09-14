@@ -1249,7 +1249,7 @@ void update_world_view_camera()
 		(input_preferences->sprintathon_enabled &&
 		 current_player->sprinting) ? 5.0f : 0.0f;
 	const float bullet_time_fov_target=
-		sprintathon_bullet_time_active() ? -4.0f : 0.0f;
+		sprintathon_bullet_time_active() ? -7.0f : 0.0f;
 	movement_fov_bonus +=
 		(movement_fov_target-movement_fov_bonus)*0.06f;
 	bullet_time_fov_offset +=
@@ -2108,15 +2108,16 @@ static GLhandleARB sprintathon_radial_blur_program()
 		"void main() {\n"
 		"  vec2 radial = blur_uv - vec2(0.5);\n"
 		"  vec2 shaped = radial * vec2(aspect_ratio, 1.0);\n"
-		"  float edge = smoothstep(0.18, 0.62, length(shaped));\n"
+		"  float edge = smoothstep(0.12, 0.58, length(shaped));\n"
 		"  vec4 original = texture2D(frame_texture, blur_uv);\n"
 		"  vec4 blurred = original;\n"
 		"  for (int i = 1; i <= 16; ++i) {\n"
-		"    float distance = float(i) * 0.0018 * effect_amount;\n"
+		"    float distance = float(i) * 0.0036 * effect_amount;\n"
 		"    blurred += texture2D(frame_texture, blur_uv - radial * distance);\n"
 		"  }\n"
 		"  blurred /= 17.0;\n"
-		"  gl_FragColor = mix(original, blurred, edge * effect_amount);\n"
+		"  float strength = min(1.0, edge * effect_amount * 1.2);\n"
+		"  gl_FragColor = mix(original, blurred, strength);\n"
 		"}\n";
 
 	GLint compiled= GL_FALSE;
@@ -2181,16 +2182,24 @@ static void draw_sprintathon_bullet_time_effect()
 		return;
 	}
 
-	const SDL_Rect r= Screen::instance()->window_rect();
-	if (r.w<=0 || r.h<=0)
+	/* Work in physical framebuffer pixels. Scenario HUDs can change the logical
+	 * surface and leave it smaller than the OpenGL drawable. */
+	const GLsizei pixel_width= MainScreenPixelWidth();
+	const GLsizei pixel_height= MainScreenPixelHeight();
+	if (pixel_width<=0 || pixel_height<=0)
 		return;
 	static GLuint captured_frame= 0;
 	static GLsizei texture_width= 0, texture_height= 0;
-	const GLfloat left= static_cast<GLfloat>(r.x);
-	const GLfloat right= static_cast<GLfloat>(r.x+r.w);
-	const GLfloat top= static_cast<GLfloat>(r.y);
-	const GLfloat bottom= static_cast<GLfloat>(r.y+r.h);
+	const GLfloat right= static_cast<GLfloat>(pixel_width);
+	const GLfloat bottom= static_cast<GLfloat>(pixel_height);
 	glPushAttrib(GL_ALL_ATTRIB_BITS);
+
+	/* HUD implementations and scenario plugins may leave a small sub-viewport
+	 * active after their final draw.  A full-screen post-process drawn through
+	 * that viewport appears enlarged and anchored in one corner.  Use the whole
+	 * drawable here; GL_ALL_ATTRIB_BITS restores the scenario viewport below. */
+	glViewport(0, 0, pixel_width, pixel_height);
+
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_ALPHA_TEST);
 	glDisable(GL_FOG);
@@ -2202,8 +2211,8 @@ static void draw_sprintathon_bullet_time_effect()
 	glMatrixMode(GL_PROJECTION);
 	glPushMatrix();
 	glLoadIdentity();
-	glOrtho(0.0, GLdouble(main_surface->w), GLdouble(main_surface->h),
-		0.0, 0.0, 1.0);
+	glOrtho(0.0, GLdouble(pixel_width), GLdouble(pixel_height), 0.0,
+		0.0, 1.0);
 	glMatrixMode(GL_MODELVIEW);
 	glPushMatrix();
 	glLoadIdentity();
@@ -2217,17 +2226,16 @@ static void draw_sprintathon_bullet_time_effect()
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	const GLint capture_y= main_surface->h-(r.y+r.h);
-	if (texture_width!=r.w || texture_height!=r.h)
+	if (texture_width!=pixel_width || texture_height!=pixel_height)
 	{
 		glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGB,
-			r.x, capture_y, r.w, r.h, 0);
-		texture_width= r.w;
-		texture_height= r.h;
+			0, 0, pixel_width, pixel_height, 0);
+		texture_width= pixel_width;
+		texture_height= pixel_height;
 	}
 	else
 		glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
-			r.x, capture_y, r.w, r.h);
+			0, 0, pixel_width, pixel_height);
 
 	/* Average framebuffer samples in the fragment shader.  Unlike layered
 	 * fixed-function quads, this produces continuous blur rather than ghosts. */
@@ -2241,13 +2249,13 @@ static void draw_sprintathon_bullet_time_effect()
 			glGetUniformLocationARB(blur_program, "effect_amount"), amount);
 		glUniform1fARB(
 			glGetUniformLocationARB(blur_program, "aspect_ratio"),
-			static_cast<GLfloat>(r.w)/r.h);
+			static_cast<GLfloat>(pixel_width)/pixel_height);
 		glColor4f(1.f, 1.f, 1.f, 1.f);
 		glBegin(GL_QUADS);
-		glTexCoord2f(0.f, 1.f); glVertex2f(left, top);
-		glTexCoord2f(1.f, 1.f); glVertex2f(right, top);
+		glTexCoord2f(0.f, 1.f); glVertex2f(0.f, 0.f);
+		glTexCoord2f(1.f, 1.f); glVertex2f(right, 0.f);
 		glTexCoord2f(1.f, 0.f); glVertex2f(right, bottom);
-		glTexCoord2f(0.f, 0.f); glVertex2f(left, bottom);
+		glTexCoord2f(0.f, 0.f); glVertex2f(0.f, bottom);
 		glEnd();
 		glUseProgramObjectARB(0);
 	}
@@ -2258,7 +2266,12 @@ static void draw_sprintathon_bullet_time_effect()
 	glDisable(GL_TEXTURE_2D);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glColor4f(0.90f, 0.24f, 0.035f, 0.065f*amount);
-	OGL_RenderRect(r);
+	glBegin(GL_QUADS);
+	glVertex2f(0.f, 0.f);
+	glVertex2f(right, 0.f);
+	glVertex2f(right, bottom);
+	glVertex2f(0.f, bottom);
+	glEnd();
 
 	glPopMatrix();
 	glMatrixMode(GL_PROJECTION);

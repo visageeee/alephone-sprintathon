@@ -231,3 +231,4 @@ For upstream documentation, licensing, credits, and additional platform-specific
 ## License
 
 Sprintathon retains Aleph One's existing licensing. See the repository's license and copyright files for details.
+

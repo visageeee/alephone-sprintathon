@@ -259,6 +259,7 @@ static bool spawn_with_all_weapons = false;
 // Sprint oxygen is integer-valued. Preserve the 35% bullet-time rate without
 // rounding the per-tick cost down (or draining it in visible bursts).
 static uint32 sprintathon_oxygen_drain_fraction[MAXIMUM_NUMBER_OF_PLAYERS]= {};
+static uint32 sprintathon_bullet_time_drain_fraction[MAXIMUM_NUMBER_OF_PLAYERS]= {};
 
 void set_spawn_with_all_weapons(bool enabled)
 {
@@ -760,6 +761,8 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 				(12 * TICKS_PER_SECOND) *
 				input_preferences->sprintathon_sprint_drain_percent + 99) /
 			100;
+		const bool sprint_drains_stamina =
+			input_preferences->sprintathon_stamina_sprint;
 		const int16 sprint_start_oxygen =
 			PLAYER_MAXIMUM_SUIT_OXYGEN / 5;
 		const bool crouch_key_down =
@@ -839,7 +842,8 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 		if (sprint_requested &&
 		    !player->sprint_key_was_down &&
 		    !player->sprint_blocked_until_release &&
-		    player->suit_oxygen >= sprint_start_oxygen)
+		    (!sprint_drains_stamina ||
+		     player->suit_oxygen >= sprint_start_oxygen))
 		{
 			player->sprint_key_was_down = true;
 		}
@@ -849,7 +853,7 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 			sprint_requested &&
 			player->sprint_key_was_down &&
 			!player->sprint_blocked_until_release &&
-			player->suit_oxygen > 0;
+			(!sprint_drains_stamina || player->suit_oxygen > 0);
 
 		const uint16 sprint_ramp_duration =
 			(TICKS_PER_SECOND * 4) / 5;
@@ -909,7 +913,7 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 
 		if(!inPredictive)
 		{
-			if (player->sprinting)
+			if (player->sprinting && sprint_drains_stamina)
 			{
 				int16 oxygen_cost_this_tick= sprint_oxygen_cost;
 				if (sprintathon_bullet_time_active())
@@ -936,6 +940,34 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 			}
 			else
 				sprintathon_oxygen_drain_fraction[player_index]= 0;
+
+			const bool bullet_time_drains_stamina =
+				player_index==current_player_index &&
+				input_preferences->sprintathon_stamina_bullet_time &&
+				sprintathon_bullet_time_active() &&
+				!PLAYER_IS_DEAD(player);
+			if (bullet_time_drains_stamina)
+			{
+				const uint32 bullet_time_drain_denominator =
+					15*TICKS_PER_SECOND;
+				sprintathon_bullet_time_drain_fraction[player_index]+=
+					PLAYER_MAXIMUM_SUIT_OXYGEN;
+				const int16 oxygen_cost_this_tick= static_cast<int16>(
+					sprintathon_bullet_time_drain_fraction[player_index]/
+					bullet_time_drain_denominator);
+				sprintathon_bullet_time_drain_fraction[player_index]%=
+					bullet_time_drain_denominator;
+				if (oxygen_cost_this_tick>0)
+				{
+					player->suit_oxygen= FLOOR(
+						player->suit_oxygen-oxygen_cost_this_tick, 0);
+					mark_oxygen_display_as_dirty();
+				}
+				if (player->suit_oxygen==0)
+					set_sprintathon_bullet_time(false);
+			}
+			else
+				sprintathon_bullet_time_drain_fraction[player_index]= 0;
 
 			if (!reload_key_down)
 				player->reload_key_was_down= false;
@@ -994,7 +1026,13 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 							(24 * TICKS_PER_SECOND) *
 							input_preferences->sprintathon_oxygen_recovery_percent + 99) /
 						100;
-					player_settings.OxygenChange = player->sprinting ? 0 :
+					const bool stamina_use_blocks_recovery =
+						(player->sprinting &&
+						 input_preferences->sprintathon_stamina_sprint) ||
+						(sprintathon_bullet_time_active() &&
+						 input_preferences->sprintathon_stamina_bullet_time);
+					player_settings.OxygenChange =
+						stamina_use_blocks_recovery ? 0 :
 						MAX(player_settings.OxygenChange,
 							sprint_oxygen_recovery);
 				}

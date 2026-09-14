@@ -431,6 +431,7 @@ struct player_data
 	bool dodge_key_was_down;			// require release between directional taps
 	bool dodge_command_was_down;		// dedicated dodge keys have their own latch
 	uint8 dodge_ticks_remaining;		// active low sideways throw
+	uint8 dodge_bullet_time_phase;		// 35% animation cadence accumulator
 	uint16 sprint_ticks_remaining;		// legacy, retained for layout compatibility
 	uint16 sprint_cooldown_ticks;		// legacy, retained for layout compatibility
 	bool sprint_key_was_down;			// requires release before restarting

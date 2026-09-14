@@ -195,6 +195,7 @@ void initialize_player_physics_variables(
 	player->dodge_key_was_down= false;
 	player->dodge_command_was_down= false;
 	player->dodge_ticks_remaining= 0;
+	player->dodge_bullet_time_phase= 0;
 	player->crouch_key_was_down= false;
 	player->reload_key_was_down= false;
 	player->slide_punch_pending= false;
@@ -655,6 +656,17 @@ static void physics_update(
 	const bool player_is_local = (player == local_player);
 	const bool sprintathon = input_preferences->sprintathon_enabled;
 	const bool bullet_time= sprintathon_bullet_time_active();
+	bool advance_dodge_animation= true;
+	if (player->dodge_ticks_remaining>0 && bullet_time)
+	{
+		player->dodge_bullet_time_phase+= 35;
+		if (player->dodge_bullet_time_phase<100)
+			advance_dodge_animation= false;
+		else
+			player->dodge_bullet_time_phase-= 100;
+	}
+	else
+		player->dodge_bullet_time_phase= 0;
 	const bool modern_jump = sprintathon && input_preferences->sprintathon_jump;
 	const bool modern_crouch = sprintathon && input_preferences->sprintathon_crouch;
 	const bool modern_long_jump = modern_jump && modern_crouch && input_preferences->sprintathon_long_jump;
@@ -762,14 +774,16 @@ static void physics_update(
 		player->sprintathon_camera_roll= 0;
 	}
 	const int16 roll_difference= target_wall_run_roll-player->sprintathon_camera_roll;
-	if (roll_difference!=0)
+	if (roll_difference!=0 &&
+		(player->dodge_ticks_remaining==0 || advance_dodge_animation))
 	{
 		int16 roll_step= roll_difference/(target_wall_run_roll ? 3 : 5);
 		if (roll_step==0) roll_step= roll_difference>0 ? 1 : -1;
 		player->sprintathon_camera_roll+= roll_step;
 	}
 	const int16 pitch_difference= target_camera_pitch-player->sprintathon_camera_pitch;
-	if (pitch_difference!=0)
+	if (pitch_difference!=0 &&
+		(player->dodge_ticks_remaining==0 || advance_dodge_animation))
 	{
 		int16 pitch_step= pitch_difference/(target_camera_pitch ? 3 : 5);
 		if (pitch_step==0) pitch_step= pitch_difference>0 ? 1 : -1;
@@ -820,11 +834,14 @@ static void physics_update(
 	// fresh-crouch latch here so a kick cannot be lost to stale contact flags.
 	if (player->flying_kick_requested)
 	{
+		const bool kick_drains_stamina =
+			input_preferences->sprintathon_stamina_kick;
 		const int16 minimum_move_oxygen=
 			(PLAYER_MAXIMUM_SUIT_OXYGEN*8)/100;
 		if (modern_slide && !touching_ground &&
 			!(variables->flags&_FEET_BELOW_MEDIA_BIT) &&
-			player->suit_oxygen>=minimum_move_oxygen &&
+			(!kick_drains_stamina ||
+			 player->suit_oxygen>=minimum_move_oxygen) &&
 			!player->flying_kick_active &&
 			(!player->flying_kick_recovery_pending ||
 			 (player->wall_kick_rearm_pending &&
@@ -841,11 +858,14 @@ static void physics_update(
 
 			// Charge once when the airborne kick is actually accepted, not
 			// continuously while crouch remains held.
-			const int16 flying_kick_oxygen_cost=
-				(PLAYER_MAXIMUM_SUIT_OXYGEN*8)/100;
-			player->suit_oxygen= std::max<int16>(
-				0, player->suit_oxygen-flying_kick_oxygen_cost);
-			player->flying_kick_oxygen_recharge_delay= 10;
+			if (kick_drains_stamina)
+			{
+				const int16 flying_kick_oxygen_cost=
+					(PLAYER_MAXIMUM_SUIT_OXYGEN*8)/100;
+				player->suit_oxygen= std::max<int16>(
+					0, player->suit_oxygen-flying_kick_oxygen_cost);
+				player->flying_kick_oxygen_recharge_delay= 10;
+			}
 		}
 		player->flying_kick_requested= false;
 	}
@@ -965,8 +985,14 @@ static void physics_update(
 		(!player->dodge_key_was_down ||
 		 (direct_dodge_direction!=0 && !player->dodge_command_was_down)))
 	{
+		const bool dodge_drains_stamina =
+			input_preferences->sprintathon_stamina_dodge;
+		const int16 dodge_oxygen_cost =
+			(PLAYER_MAXIMUM_SUIT_OXYGEN*8)/100;
 		const bool can_dodge=
 			touching_ground &&
+			(!dodge_drains_stamina ||
+			 player->suit_oxygen>=dodge_oxygen_cost) &&
 			!(variables->flags&_FEET_BELOW_MEDIA_BIT) &&
 			player->dodge_ticks_remaining==0 &&
 			player->slide_ticks_remaining==0 &&
@@ -992,7 +1018,15 @@ static void physics_update(
 				TRIG_SHIFT;
 			variables->external_velocity.k= -FIXED_ONE/32;
 			player->dodge_ticks_remaining= 8;
+			player->dodge_bullet_time_phase= 0;
+			player->dodge_last_direction= dodge_direction;
 			player->dodge_tap_window= 0;
+			if (dodge_drains_stamina)
+			{
+				player->suit_oxygen= std::max<int16>(
+					0, player->suit_oxygen-dodge_oxygen_cost);
+				player->flying_kick_oxygen_recharge_delay= 10;
+			}
 		}
 		else
 		{
@@ -1470,7 +1504,8 @@ static void physics_update(
 	{
 		variables->velocity= 0;
 		variables->perpendicular_velocity= 0;
-		--player->dodge_ticks_remaining;
+		if (advance_dodge_animation)
+			--player->dodge_ticks_remaining;
 		if (player->dodge_ticks_remaining==0)
 			player->slide_recovery_ticks= 16;
 	}
@@ -1750,10 +1785,13 @@ static void physics_update(
 		}
 		else if (modern_jump && (!feet_in_water || touching_ground))
 		{
+			const bool jump_drains_stamina =
+				input_preferences->sprintathon_stamina_jump;
 			const bool can_jump =
 				variables->jump_grace_ticks <= jump_grace_limit &&
-				player->suit_oxygen >=
-					(PLAYER_MAXIMUM_SUIT_OXYGEN*8)/100;
+				(!jump_drains_stamina ||
+				 player->suit_oxygen >=
+					(PLAYER_MAXIMUM_SUIT_OXYGEN*8)/100);
 
 			if (can_jump &&
 				(consume_buffered_jump ||
@@ -1764,11 +1802,14 @@ static void physics_update(
 
 				// Charge once per accepted ground/coyote-time jump. Holding the
 				// key, swimming, mantling and wall jumping do not repeat this cost.
-				const int16 jump_oxygen_cost=
-					(PLAYER_MAXIMUM_SUIT_OXYGEN*5)/100;
-				player->suit_oxygen= std::max<int16>(
-					0, player->suit_oxygen-jump_oxygen_cost);
-				player->flying_kick_oxygen_recharge_delay= 10;
+				if (jump_drains_stamina)
+				{
+					const int16 jump_oxygen_cost=
+						(PLAYER_MAXIMUM_SUIT_OXYGEN*5)/100;
+					player->suit_oxygen= std::max<int16>(
+						0, player->suit_oxygen-jump_oxygen_cost);
+					player->flying_kick_oxygen_recharge_delay= 10;
+				}
 
 				if (feet_in_water)
 					variables->flags |= _SUBMERGED_GROUND_JUMP_BIT;

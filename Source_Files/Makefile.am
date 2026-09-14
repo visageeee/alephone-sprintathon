@@ -9,7 +9,7 @@ else
 if MAKE_WINDOWS
 bin_PROGRAMS = AlephOne Marathon Marathon2 MarathonInfinity
 else
-bin_PROGRAMS = alephone
+bin_PROGRAMS = sprintathon
 if BUILD_ALEPHONE_TESTS
 bin_PROGRAMS += alephone_tests
 endif
@@ -32,6 +32,9 @@ alephone_LDADD = \
   ModelView/libmodelview.a Network/libnetwork.a Network/Metaserver/libmetaserver.a \
   RenderMain/librendermain.a RenderOther/librenderother.a Sound/libsound.a \
   TCPMess/libtcpmess.a XML/libxml.a
+
+sprintathon_SOURCES = $(alephone_SOURCES)
+sprintathon_LDADD = $(alephone_LDADD)
 
 standalone_hub_SOURCES = shell.h shell.cpp shell_misc.cpp shell_options.h shell_options.cpp Network/StandaloneHub/standalone_hub_main.cpp
 

@@ -243,6 +243,11 @@ struct input_preferences_data
 	bool sprintathon_sprint;
 	int16 sprintathon_sprint_drain_percent;
 	int16 sprintathon_oxygen_recovery_percent;
+	bool sprintathon_stamina_sprint;
+	bool sprintathon_stamina_jump;
+	bool sprintathon_stamina_kick;
+	bool sprintathon_stamina_dodge;
+	bool sprintathon_stamina_bullet_time;
 	bool sprintathon_slide;
 	bool sprintathon_dodge;
 	bool sprintathon_long_jump;

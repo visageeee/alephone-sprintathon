@@ -397,6 +397,7 @@ extern void update_world_view_camera();
 
 static bool sSprintathonBulletTimeActive= false;
 static std::shared_ptr<SoundPlayer> sSprintathonHeartbeat;
+static uint32 sSprintathonHeartbeatStartTick= 0;
 
 bool sprintathon_bullet_time_active(void)
 {
@@ -407,6 +408,8 @@ static void play_sprintathon_time_sound(
 	const char *source_path, const char *installed_name)
 {
 	FileSpecifier sound(source_path);
+	if (!sound.Exists())
+		sound= FileSpecifier(std::string("../")+source_path);
 	if (!sound.Exists() && !sound.SetNameWithPath(installed_name))
 		sound= FileSpecifier(
 			get_data_path(kPathDefaultData)+"/Sprintathon/"+installed_name);
@@ -420,6 +423,8 @@ static void play_sprintathon_time_sound(
 static std::shared_ptr<SoundPlayer> play_sprintathon_heartbeat()
 {
 	FileSpecifier sound("snd/heartbeat.ogg");
+	if (!sound.Exists())
+		sound= FileSpecifier("../snd/heartbeat.ogg");
 	if (!sound.Exists() && !sound.SetNameWithPath("heartbeat.ogg"))
 		sound= FileSpecifier(
 			get_data_path(kPathDefaultData)+"/Sprintathon/heartbeat.ogg");
@@ -433,27 +438,28 @@ static std::shared_ptr<SoundPlayer> play_sprintathon_heartbeat()
 static void maintain_sprintathon_heartbeat()
 {
 	if (sSprintathonBulletTimeActive &&
+		machine_tick_count()>=sSprintathonHeartbeatStartTick &&
 		(!sSprintathonHeartbeat || !sSprintathonHeartbeat->IsActive()))
 		sSprintathonHeartbeat= play_sprintathon_heartbeat();
 }
 
-static void set_sprintathon_bullet_time(bool active)
+void set_sprintathon_bullet_time(bool active)
 {
 	if (sSprintathonBulletTimeActive==active)
 		return;
 
 	sSprintathonBulletTimeActive= active;
-	play_sprintathon_time_sound(
-		active ? "snd/slowdown.ogg" : "snd/speedup.ogg",
-		active ? "slowdown.ogg" : "speedup.ogg");
-
 	if (active)
-		sSprintathonHeartbeat= play_sprintathon_heartbeat();
+	{
+		play_sprintathon_time_sound("snd/slowdown.ogg", "slowdown.ogg");
+		sSprintathonHeartbeatStartTick= machine_tick_count()+600;
+	}
 	else
 	{
 		if (sSprintathonHeartbeat)
 			sSprintathonHeartbeat->AskStop();
 		sSprintathonHeartbeat.reset();
+		play_sprintathon_time_sound("snd/speedup.ogg", "speedup.ogg");
 	}
 }
 

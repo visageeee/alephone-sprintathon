@@ -875,6 +875,14 @@ void handle_preferences(void)
 		new vertical_placer(get_theme_space(ITEM_WIDGET));
 	sprintathon_page->center_vertically();
 	sprintathon_page->min_width(scale_dialog_value(430));
+	tab_placer *sprintathon_tabs = new tab_placer;
+	const vector<string> sprintathon_tab_labels = {
+		"MOVEMENT", "STAMINA"
+	};
+	sprintathon_page->dual_add(
+		new w_tab(sprintathon_tab_labels, sprintathon_tabs), d);
+	vertical_placer *sprintathon_movement_page = new vertical_placer;
+	sprintathon_movement_page->center_vertically();
 	table_placer *sprintathon_settings =
 		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
 	sprintathon_settings->row_space(scale_dialog_value(4));
@@ -888,6 +896,7 @@ void handle_preferences(void)
 	sprintathon_settings->dual_add(widget, d)
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(jump_w, sprintathon_jump, "Jumping");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(crouch_w, sprintathon_crouch, "Crouch / Kick / Slide");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprint_w, sprintathon_sprint, "Sprinting");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(slide_w, sprintathon_slide, "Sprint Sliding");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(dodge_w, sprintathon_dodge, "Dodging");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(long_jump_w, sprintathon_long_jump, "Crouch Long-Jump");
@@ -902,18 +911,36 @@ void handle_preferences(void)
 		101, input_preferences->sprintathon_footstep_volume_percent);
 	sprintathon_settings->dual_add(footstep_volume_w->label("Footstep Volume"), d);
 	sprintathon_settings->dual_add(footstep_volume_w, d);
-	w_toggle *sprint_w = new w_toggle(input_preferences->sprintathon_sprint);
-	sprintathon_settings->dual_add(sprint_w->label("Sprinting"), d);
-	sprintathon_settings->dual_add(sprint_w, d);
+	sprintathon_movement_page->add(sprintathon_settings, true);
+	sprintathon_tabs->add(sprintathon_movement_page, true);
+
+	vertical_placer *sprintathon_stamina_page = new vertical_placer;
+	sprintathon_stamina_page->center_vertically();
+	table_placer *sprintathon_stamina_settings =
+		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
+	sprintathon_stamina_settings->row_space(scale_dialog_value(4));
+	sprintathon_stamina_settings->col_flags(0, placeable::kAlignRight);
+#define ADD_EMBEDDED_STAMINA_TOGGLE(widget, field, label_text) \
+	w_toggle *widget = new w_toggle(input_preferences->field); \
+	sprintathon_stamina_settings->dual_add(widget->label(label_text), d); \
+	sprintathon_stamina_settings->dual_add(widget, d)
+	ADD_EMBEDDED_STAMINA_TOGGLE(stamina_sprint_w, sprintathon_stamina_sprint, "Sprinting Drains Stamina");
+	ADD_EMBEDDED_STAMINA_TOGGLE(stamina_jump_w, sprintathon_stamina_jump, "Jumping Drains Stamina");
+	ADD_EMBEDDED_STAMINA_TOGGLE(stamina_kick_w, sprintathon_stamina_kick, "Kicks Drain Stamina");
+	ADD_EMBEDDED_STAMINA_TOGGLE(stamina_dodge_w, sprintathon_stamina_dodge, "Dodging Drains Stamina");
+	ADD_EMBEDDED_STAMINA_TOGGLE(stamina_bullet_time_w, sprintathon_stamina_bullet_time, "Bullet Time Drains Stamina");
+#undef ADD_EMBEDDED_STAMINA_TOGGLE
 	w_slider *sprint_drain_w = new w_sprintathon_rate_slider(
 		input_preferences->sprintathon_sprint_drain_percent);
-	sprintathon_settings->dual_add(sprint_drain_w->label("Sprint Oxygen Drain"), d);
-	sprintathon_settings->dual_add(sprint_drain_w, d);
+	sprintathon_stamina_settings->dual_add(sprint_drain_w->label("Sprint Drain Rate"), d);
+	sprintathon_stamina_settings->dual_add(sprint_drain_w, d);
 	w_slider *oxygen_recovery_w = new w_sprintathon_rate_slider(
 		input_preferences->sprintathon_oxygen_recovery_percent);
-	sprintathon_settings->dual_add(oxygen_recovery_w->label("Oxygen Recovery"), d);
-	sprintathon_settings->dual_add(oxygen_recovery_w, d);
-	sprintathon_page->add(sprintathon_settings, true);
+	sprintathon_stamina_settings->dual_add(oxygen_recovery_w->label("Stamina Recovery Rate"), d);
+	sprintathon_stamina_settings->dual_add(oxygen_recovery_w, d);
+	sprintathon_stamina_page->add(sprintathon_stamina_settings, true);
+	sprintathon_tabs->add(sprintathon_stamina_page, true);
+	sprintathon_page->add(sprintathon_tabs, true);
 	pages->add(sprintathon_page, true);
 
 	embedded_controls_state controls_state = {
@@ -1234,6 +1261,11 @@ void handle_preferences(void)
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_ledge_grab, ledge_grab_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_footsteps, footsteps_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_bullet_time, bullet_time_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_sprint, stamina_sprint_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_jump, stamina_jump_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_kick, stamina_kick_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_dodge, stamina_dodge_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_bullet_time, stamina_bullet_time_w);
 #undef STORE_EMBEDDED_SPRINTATHON_TOGGLE
 	input_preferences->sprintathon_footstep_volume_percent =
 		footstep_volume_w->get_selection();
@@ -3525,12 +3557,17 @@ static void sprintathon_dialog(void *arg)
 	ADD_SPRINTATHON_TOGGLE(sprint_w, sprintathon_sprint, "Sprinting");
 	w_slider *sprint_drain_w = new w_sprintathon_rate_slider(
 		input_preferences->sprintathon_sprint_drain_percent);
-	options->dual_add(sprint_drain_w->label("Sprint Oxygen Drain"), d);
+	options->dual_add(sprint_drain_w->label("Sprint Drain Rate"), d);
 	options->dual_add(sprint_drain_w, d);
 	w_slider *oxygen_recovery_w = new w_sprintathon_rate_slider(
 		input_preferences->sprintathon_oxygen_recovery_percent);
-	options->dual_add(oxygen_recovery_w->label("Oxygen Recovery"), d);
+	options->dual_add(oxygen_recovery_w->label("Stamina Recovery Rate"), d);
 	options->dual_add(oxygen_recovery_w, d);
+	ADD_SPRINTATHON_TOGGLE(stamina_sprint_w, sprintathon_stamina_sprint, "Sprinting Drains Stamina");
+	ADD_SPRINTATHON_TOGGLE(stamina_jump_w, sprintathon_stamina_jump, "Jumping Drains Stamina");
+	ADD_SPRINTATHON_TOGGLE(stamina_kick_w, sprintathon_stamina_kick, "Kicks Drain Stamina");
+	ADD_SPRINTATHON_TOGGLE(stamina_dodge_w, sprintathon_stamina_dodge, "Dodging Drains Stamina");
+	ADD_SPRINTATHON_TOGGLE(stamina_bullet_time_w, sprintathon_stamina_bullet_time, "Bullet Time Drains Stamina");
 	ADD_SPRINTATHON_TOGGLE(slide_w, sprintathon_slide, "Sprint Sliding");
 	ADD_SPRINTATHON_TOGGLE(dodge_w, sprintathon_dodge, "Dodging");
 	ADD_SPRINTATHON_TOGGLE(long_jump_w, sprintathon_long_jump, "Crouch Long-Jump");
@@ -3589,6 +3626,11 @@ static void sprintathon_dialog(void *arg)
 		STORE_SPRINTATHON_TOGGLE(sprintathon_ledge_grab, ledge_grab_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_footsteps, footsteps_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_bullet_time, bullet_time_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_sprint, stamina_sprint_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_jump, stamina_jump_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_kick, stamina_kick_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_dodge, stamina_dodge_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_bullet_time, stamina_bullet_time_w);
 #undef STORE_SPRINTATHON_TOGGLE
 		input_preferences->sprintathon_footstep_volume_percent =
 			footstep_volume_w->get_selection();
@@ -5440,6 +5482,11 @@ InfoTree input_preferences_tree()
 		input_preferences->sprintathon_sprint_drain_percent);
 	root.put_attr("sprintathon_oxygen_recovery_percent",
 		input_preferences->sprintathon_oxygen_recovery_percent);
+	root.put_attr("sprintathon_stamina_sprint", input_preferences->sprintathon_stamina_sprint);
+	root.put_attr("sprintathon_stamina_jump", input_preferences->sprintathon_stamina_jump);
+	root.put_attr("sprintathon_stamina_kick", input_preferences->sprintathon_stamina_kick);
+	root.put_attr("sprintathon_stamina_dodge", input_preferences->sprintathon_stamina_dodge);
+	root.put_attr("sprintathon_stamina_bullet_time", input_preferences->sprintathon_stamina_bullet_time);
 	root.put_attr("sprintathon_slide", input_preferences->sprintathon_slide);
 	root.put_attr("sprintathon_dodge", input_preferences->sprintathon_dodge);
 	root.put_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
@@ -5811,6 +5858,11 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_sprint = true;
 	preferences->sprintathon_sprint_drain_percent = 125;
 	preferences->sprintathon_oxygen_recovery_percent = 200;
+	preferences->sprintathon_stamina_sprint = true;
+	preferences->sprintathon_stamina_jump = true;
+	preferences->sprintathon_stamina_kick = true;
+	preferences->sprintathon_stamina_dodge = true;
+	preferences->sprintathon_stamina_bullet_time = true;
 	preferences->sprintathon_slide = true;
 	preferences->sprintathon_dodge = true;
 	preferences->sprintathon_long_jump = true;
@@ -6400,6 +6452,11 @@ void parse_input_preferences(InfoTree root, std::string version)
 		input_preferences->sprintathon_sprint_drain_percent, 10, 400);
 	root.read_attr_bounded<int16>("sprintathon_oxygen_recovery_percent",
 		input_preferences->sprintathon_oxygen_recovery_percent, 10, 400);
+	root.read_attr("sprintathon_stamina_sprint", input_preferences->sprintathon_stamina_sprint);
+	root.read_attr("sprintathon_stamina_jump", input_preferences->sprintathon_stamina_jump);
+	root.read_attr("sprintathon_stamina_kick", input_preferences->sprintathon_stamina_kick);
+	root.read_attr("sprintathon_stamina_dodge", input_preferences->sprintathon_stamina_dodge);
+	root.read_attr("sprintathon_stamina_bullet_time", input_preferences->sprintathon_stamina_bullet_time);
 	root.read_attr("sprintathon_slide", input_preferences->sprintathon_slide);
 	root.read_attr("sprintathon_dodge", input_preferences->sprintathon_dodge);
 	root.read_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
