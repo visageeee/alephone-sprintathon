@@ -541,7 +541,8 @@ void team_damage_from_player_data(void);
 // ZZZ: this now takes a set of ActionQueues as a parameter so the caller can redirect
 // the update routine's input.  Also, now callers can request a 'predictive update',
 // which changes less state, in an effort to make partial state saving/restoration successful.
-void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive); /* assumes ∂t==1 tick */
+void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
+	bool advance_slow_time= true); /* assumes ∂t==1 tick */
 void decode_hotkeys(ModifiableActionQueues& action_queues);
 
 // handle pausing Marathon 1 terminals

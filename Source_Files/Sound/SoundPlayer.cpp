@@ -19,6 +19,32 @@
 #include "SoundPlayer.h"
 #include "OpenALManager.h"
 #include "SoundManager.h"
+#include "map.h"
+
+#include <algorithm>
+
+static float sprintathon_sound_pitch_multiplier()
+{
+	static float current_pitch= 1.f;
+	static float transition_start_pitch= 1.f;
+	static float previous_target= 1.f;
+	static uint64_t transition_start_tick= 0;
+	const float target= sprintathon_bullet_time_active() ? 0.70f : 1.f;
+	const uint64_t now= SoundManager::GetCurrentAudioTick();
+
+	if (target!=previous_target)
+	{
+		transition_start_pitch= current_pitch;
+		transition_start_tick= now;
+		previous_target= target;
+	}
+
+	const float progress= std::min(
+		static_cast<float>(now-transition_start_tick)/1000.f, 1.f);
+	current_pitch= transition_start_pitch+
+		(target-transition_start_pitch)*progress;
+	return current_pitch;
+}
 
 constexpr SoundBehavior SoundPlayer::sound_behavior_parameters[];
 constexpr SoundBehavior SoundPlayer::sound_obstructed_or_muffled_behavior_parameters[];
@@ -150,14 +176,22 @@ bool SoundPlayer::LoadParametersUpdates() {
 
 	if (rewindLastPriority > 0) rewind_parameters.Set(bestRewindParameters);
 
-	return lastPriority > 0 || rewindLastPriority > 0 || softStop;
+	/* Existing looping ambient players normally stop updating their OpenAL
+	 * parameters once synchronized. Keep them live while bullet-time pitch is
+	 * active, and during the one-second return to normal pitch. */
+	const bool bullet_time_pitch_update=
+		sprintathon_bullet_time_active() ||
+		sprintathon_sound_pitch_multiplier()<0.999f;
+	return lastPriority > 0 || rewindLastPriority > 0 || softStop ||
+		bullet_time_pitch_update;
 }
 
 //This is called everytime we process a player in the queue with this source
 SetupALResult SoundPlayer::SetUpALSourceIdle() {
 
 	const auto& soundParameters = parameters.Get();
-	alSourcef(audio_source->source_id, AL_PITCH, soundParameters.pitch);
+	alSourcef(audio_source->source_id, AL_PITCH,
+		soundParameters.pitch*sprintathon_sound_pitch_multiplier());
 	SetupALResult result = {true, true};
 	bool softStopDone = false;
 

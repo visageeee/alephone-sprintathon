@@ -114,6 +114,7 @@ Feb 8, 2003 (Woody Zenfell):
 // for screen_mode :(
 #include "screen.h"
 #include "shell.h"
+#include "vbl.h"
 
 #include "Console.h"
 #include "Movie.h"
@@ -394,9 +395,71 @@ enum {
 
 extern void update_world_view_camera();
 
+static bool sSprintathonBulletTimeActive= false;
+static std::shared_ptr<SoundPlayer> sSprintathonHeartbeat;
+
+bool sprintathon_bullet_time_active(void)
+{
+	return sSprintathonBulletTimeActive;
+}
+
+static void play_sprintathon_time_sound(
+	const char *source_path, const char *installed_name)
+{
+	FileSpecifier sound(source_path);
+	if (!sound.Exists() && !sound.SetNameWithPath(installed_name))
+		sound= FileSpecifier(
+			get_data_path(kPathDefaultData)+"/Sprintathon/"+installed_name);
+	if (sound.Exists())
+	{
+		SoundParameters parameters;
+		SoundManager::instance()->PlayExternalSound(sound, parameters);
+	}
+}
+
+static std::shared_ptr<SoundPlayer> play_sprintathon_heartbeat()
+{
+	FileSpecifier sound("snd/heartbeat.ogg");
+	if (!sound.Exists() && !sound.SetNameWithPath("heartbeat.ogg"))
+		sound= FileSpecifier(
+			get_data_path(kPathDefaultData)+"/Sprintathon/heartbeat.ogg");
+	if (!sound.Exists())
+		return std::shared_ptr<SoundPlayer>();
+
+	SoundParameters parameters;
+	return SoundManager::instance()->PlayExternalSound(sound, parameters);
+}
+
+static void maintain_sprintathon_heartbeat()
+{
+	if (sSprintathonBulletTimeActive &&
+		(!sSprintathonHeartbeat || !sSprintathonHeartbeat->IsActive()))
+		sSprintathonHeartbeat= play_sprintathon_heartbeat();
+}
+
+static void set_sprintathon_bullet_time(bool active)
+{
+	if (sSprintathonBulletTimeActive==active)
+		return;
+
+	sSprintathonBulletTimeActive= active;
+	play_sprintathon_time_sound(
+		active ? "snd/slowdown.ogg" : "snd/speedup.ogg",
+		active ? "slowdown.ogg" : "speedup.ogg");
+
+	if (active)
+		sSprintathonHeartbeat= play_sprintathon_heartbeat();
+	else
+	{
+		if (sSprintathonHeartbeat)
+			sSprintathonHeartbeat->AskStop();
+		sSprintathonHeartbeat.reset();
+	}
+}
+
 // ZZZ: split out from update_world()'s loop.
 static int
-update_world_elements_one_tick(bool& call_postidle)
+update_world_elements_one_tick(bool& call_postidle, bool advance_slow_world)
 {
 	if (m1_solo_player_in_terminal()) 
 	{
@@ -406,32 +469,29 @@ update_world_elements_one_tick(bool& call_postidle)
 	else
 	{
 		decode_hotkeys(*GameQueue);
-		L_Call_Idle();
-		call_postidle = true;
-		
-		update_lights();
-		update_medias();
-		update_platforms();
-		
-		update_control_panels(); // don't put after update_players
-		update_players(GameQueue, false);
-		move_projectiles();
-		move_monsters();
-		update_effects();
-		recreate_objects();
-		
-		handle_random_sound_image();
-		animate_scenery();
-
-		update_ephemera();
-		
-		// LP additions:
-		if (film_profile.animate_items)
+		call_postidle = advance_slow_world;
+		if (advance_slow_world)
 		{
-			animate_items();
+			L_Call_Idle();
+			update_lights();
+			update_medias();
+			update_platforms();
+			update_control_panels(); // don't put after update_players
 		}
-		
-		AnimTxtr_Update();
+		update_players(GameQueue, false, advance_slow_world);
+		if (advance_slow_world)
+		{
+			move_projectiles();
+			move_monsters();
+			update_effects();
+			recreate_objects();
+			handle_random_sound_image();
+			animate_scenery();
+			update_ephemera();
+			if (film_profile.animate_items)
+				animate_items();
+			AnimTxtr_Update();
+		}
 		ChaseCam_Update();
 		motion_sensor_scan();
 		check_m1_exploration();
@@ -523,7 +583,46 @@ update_world()
 			sMostRecentFlagsForPlayer[i] = GameQueue->peekActionFlags(i, 0);
 
 		bool call_postidle = true;
-		theUpdateResult = update_world_elements_one_tick(call_postidle);
+		static int bullet_time_phase= 0;
+		static bool bullet_time_key_was_down= false;
+		static bool bullet_time_has_toggled= false;
+		static uint32 bullet_time_last_toggle_tick= 0;
+		const Uint8 *keyboard_state= SDL_GetKeyboardState(nullptr);
+		const bool bullet_time_available=
+			input_preferences->sprintathon_enabled &&
+			input_preferences->sprintathon_bullet_time &&
+			!game_is_networked &&
+			!game_is_being_replayed();
+		const bool bullet_time_key_down=
+			bullet_time_available && keyboard_state[SDL_SCANCODE_B];
+		if (bullet_time_key_down && !bullet_time_key_was_down)
+		{
+			const uint32 now= machine_tick_count();
+			if (!bullet_time_has_toggled ||
+				now-bullet_time_last_toggle_tick>=1000)
+			{
+				set_sprintathon_bullet_time(!sSprintathonBulletTimeActive);
+				bullet_time_last_toggle_tick= now;
+				bullet_time_has_toggled= true;
+			}
+		}
+		bullet_time_key_was_down= bullet_time_key_down;
+		if (!bullet_time_available)
+			set_sprintathon_bullet_time(false);
+		maintain_sprintathon_heartbeat();
+		bool advance_slow_world= true;
+		if (sSprintathonBulletTimeActive)
+		{
+			bullet_time_phase+= 35;
+			if (bullet_time_phase<100)
+				advance_slow_world= false;
+			else
+				bullet_time_phase-= 100;
+		}
+		else bullet_time_phase= 0;
+
+		theUpdateResult = update_world_elements_one_tick(
+			call_postidle, advance_slow_world);
 
 		theElapsedTime++;
 		

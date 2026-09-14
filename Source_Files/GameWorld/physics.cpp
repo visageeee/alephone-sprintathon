@@ -131,6 +131,14 @@ static bool saved_divergence_warning;
 static struct physics_constants physics_models[NUMBER_OF_PHYSICS_MODELS];
 static fixed_yaw_pitch vir_aim_delta = {0, 0};
 
+static constexpr int SPRINTATHON_BULLET_TIME_PERCENT= 35;
+
+static _fixed sprintathon_scale_for_bullet_time(_fixed value)
+{
+	return static_cast<_fixed>(
+		(static_cast<int64_t>(value)*SPRINTATHON_BULLET_TIME_PERCENT)/100);
+}
+
 static constexpr _fixed EXPERIMENTAL_MAXIMUM_ELEVATION =
 	(QUARTER_CIRCLE * FIXED_ONE * 2) / 3; // 60 degrees
 
@@ -237,6 +245,29 @@ void update_player_physics_variables(
 	struct player_data *player= get_player_data(player_index);
 	struct physics_variables *variables= &player->variables;
 	struct physics_constants *constants= get_physics_constants_for_model(static_world->physics_model, action_flags);
+	struct physics_constants slowed_constants;
+	if (sprintathon_bullet_time_active())
+	{
+		/* Keep velocity limits and view rotation unchanged. Scaling the rates
+		 * and displacement instead gives physics a fractional dt while input
+		 * and camera sampling continue at the normal 30 Hz cadence. */
+		slowed_constants= *constants;
+		slowed_constants.acceleration=
+			sprintathon_scale_for_bullet_time(constants->acceleration);
+		slowed_constants.deceleration=
+			sprintathon_scale_for_bullet_time(constants->deceleration);
+		slowed_constants.airborne_deceleration=
+			sprintathon_scale_for_bullet_time(constants->airborne_deceleration);
+		slowed_constants.gravitational_acceleration=
+			sprintathon_scale_for_bullet_time(constants->gravitational_acceleration);
+		slowed_constants.climbing_acceleration=
+			sprintathon_scale_for_bullet_time(constants->climbing_acceleration);
+		slowed_constants.external_deceleration=
+			sprintathon_scale_for_bullet_time(constants->external_deceleration);
+		slowed_constants.step_delta=
+			sprintathon_scale_for_bullet_time(constants->step_delta);
+		constants= &slowed_constants;
+	}
 
 	physics_update(constants, variables, player, action_flags);
 	instantiate_physics_variables(constants, variables, player_index, false, !predictive);
@@ -623,6 +654,7 @@ static void physics_update(
 	
 	const bool player_is_local = (player == local_player);
 	const bool sprintathon = input_preferences->sprintathon_enabled;
+	const bool bullet_time= sprintathon_bullet_time_active();
 	const bool modern_jump = sprintathon && input_preferences->sprintathon_jump;
 	const bool modern_crouch = sprintathon && input_preferences->sprintathon_crouch;
 	const bool modern_long_jump = modern_jump && modern_crouch && input_preferences->sprintathon_long_jump;
@@ -1854,10 +1886,17 @@ static void physics_update(
 			(2 * sprint_ramp_duration);
 	}
 
-	new_position.x+=
+	_fixed movement_delta_x=
 		(movement_forward*cosine-movement_sideways*sine)>>TRIG_SHIFT;
-	new_position.y+=
+	_fixed movement_delta_y=
 		(movement_forward*sine+movement_sideways*cosine)>>TRIG_SHIFT;
+	if (bullet_time)
+	{
+		movement_delta_x= sprintathon_scale_for_bullet_time(movement_delta_x);
+		movement_delta_y= sprintathon_scale_for_bullet_time(movement_delta_y);
+	}
+	new_position.x+= movement_delta_x;
+	new_position.y+= movement_delta_y;
 	
 	/* set above/below floor flags, remember old flags */
 	variables->old_flags= variables->flags;
@@ -1876,6 +1915,29 @@ static void physics_update(
 	}
 	if (variables->external_velocity.k<0&&!(variables->old_flags&_BELOW_GROUND_BIT)&&!(variables->flags&_ABOVE_GROUND_BIT))
 	{
+		if (sprintathon)
+		{
+			// Add a brief visual-only downward dip on impact. Ignore tiny floor
+			// corrections, scale ordinary landings by their downward speed, and
+			// cap hard falls so they do not jerk the player's actual aim.
+			const _fixed landing_speed= -variables->external_velocity.k;
+			const _fixed landing_threshold= FIXED_ONE/96;
+			const _fixed landing_full_scale= FIXED_ONE/12;
+			if (landing_speed>landing_threshold)
+			{
+				const _fixed scaled_speed= std::min<_fixed>(
+					landing_speed-landing_threshold,
+					landing_full_scale-landing_threshold);
+				const int16 maximum_landing_dip= (FULL_CIRCLE*3)/360;
+				const int16 landing_dip= std::max<int16>(1,
+					static_cast<int16>(
+						(static_cast<int64_t>(maximum_landing_dip)*scaled_speed)/
+						(landing_full_scale-landing_threshold)));
+				player->sprintathon_camera_pitch= std::min<int16>(
+					(FULL_CIRCLE*8)/360,
+					player->sprintathon_camera_pitch+landing_dip);
+			}
+		}
 		variables->external_velocity.k/= -COEFFICIENT_OF_ABSORBTION;
 	}
 
@@ -1900,9 +1962,15 @@ static void physics_update(
 
 	/* change the player’s z position based on his vertical velocity (if we hit the ground coming down
 		then bounce and absorb most of the blow */
-	new_position.x+= variables->external_velocity.i;
-	new_position.y+= variables->external_velocity.j;
-	new_position.z+= variables->external_velocity.k;
+	new_position.x+= bullet_time ?
+		sprintathon_scale_for_bullet_time(variables->external_velocity.i) :
+		variables->external_velocity.i;
+	new_position.y+= bullet_time ?
+		sprintathon_scale_for_bullet_time(variables->external_velocity.j) :
+		variables->external_velocity.j;
+	new_position.z+= bullet_time ?
+		sprintathon_scale_for_bullet_time(variables->external_velocity.k) :
+		variables->external_velocity.k;
 	
 	{
 		short dx= variables->external_velocity.i, dy= variables->external_velocity.j;
@@ -1977,8 +2045,15 @@ static void physics_update(
 	}
 	else
 	{
-		const int footstep_interval= player->sprinting ? 7 :
+		const int normal_footstep_interval= player->sprinting ? 7 :
 			((action_flags&_run_dont_walk) ? 12 : 23);
+		// This countdown also drives the synchronized run/sprint weapon bob.
+		// Stretching it therefore keeps both footsteps and bob at the same 35%
+		// rate as movement during bullet time.
+		const int footstep_interval= bullet_time ?
+			(normal_footstep_interval*100+SPRINTATHON_BULLET_TIME_PERCENT-1)/
+				SPRINTATHON_BULLET_TIME_PERCENT :
+			normal_footstep_interval;
 
 		// Never retain a slower mode's long countdown after accelerating.
 		const uint8 cadence_countdown= static_cast<uint8>(

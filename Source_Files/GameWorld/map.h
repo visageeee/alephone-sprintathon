@@ -1105,6 +1105,10 @@ bool entering_map(bool restoring_saved);
 // (used to return only the latter)
 std::pair<bool, int16> update_world(void);
 
+/* Sprintathon single-player time dilation. Player physics uses this to keep
+ * moving every render tick while advancing by the same fraction as the world. */
+bool sprintathon_bullet_time_active(void);
+
 // ZZZ: these really don't go here, but they live in marathon2.cpp where update_world() lives.....
 void reset_intermediate_action_queues();
 void set_prediction_wanted(bool inPrediction);

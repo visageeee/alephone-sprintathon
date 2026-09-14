@@ -256,6 +256,10 @@ short current_player_index = NONE;
 // One-shot option set by the level chooser for the next newly created player.
 static bool spawn_with_all_weapons = false;
 
+// Sprint oxygen is integer-valued. Preserve the 35% bullet-time rate without
+// rounding the per-tick cost down (or draining it in visible bursts).
+static uint32 sprintathon_oxygen_drain_fraction[MAXIMUM_NUMBER_OF_PLAYERS]= {};
+
 void set_spawn_with_all_weapons(bool enabled)
 {
 	spawn_with_all_weapons = enabled;
@@ -672,7 +676,8 @@ void decode_hotkeys(ModifiableActionQueues& action_queues)
 }
 
 /* assumes ∂t==1 tick */
-void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
+void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
+	bool advance_slow_time)
 {
 	struct player_data *player;
 	short player_index;
@@ -906,8 +911,21 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 		{
 			if (player->sprinting)
 			{
-				player->suit_oxygen = FLOOR(
-					player->suit_oxygen - sprint_oxygen_cost, 0);
+				int16 oxygen_cost_this_tick= sprint_oxygen_cost;
+				if (sprintathon_bullet_time_active())
+				{
+					sprintathon_oxygen_drain_fraction[player_index]+=
+						static_cast<uint32>(sprint_oxygen_cost)*35;
+					oxygen_cost_this_tick= static_cast<int16>(
+						sprintathon_oxygen_drain_fraction[player_index]/100);
+					sprintathon_oxygen_drain_fraction[player_index]%= 100;
+				}
+				else
+					sprintathon_oxygen_drain_fraction[player_index]= 0;
+
+				if (oxygen_cost_this_tick>0)
+					player->suit_oxygen = FLOOR(
+						player->suit_oxygen - oxygen_cost_this_tick, 0);
 				if (player->suit_oxygen == 0)
 				{
 					player->sprinting = false;
@@ -916,6 +934,8 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 				if (player_index == current_player_index)
 					mark_oxygen_display_as_dirty();
 			}
+			else
+				sprintathon_oxygen_drain_fraction[player_index]= 0;
 
 			if (!reload_key_down)
 				player->reload_key_was_down= false;
@@ -1037,14 +1057,16 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 						else revive_player(player_index);
 					}
 				}
-				update_player_weapons(player_index, 0);
+				if (advance_slow_time)
+					update_player_weapons(player_index, 0);
 				update_action_key(player_index, false);
 			}
 			else
 			{
 				/* do things live players do (get items, update weapons, check action key, breathe) */
 				swipe_nearby_items(player_index);
-				update_player_weapons(player_index, action_flags);
+				if (advance_slow_time)
+					update_player_weapons(player_index, action_flags);
 				update_action_key(player_index, (action_flags&_action_trigger_state) ? true : false);
 				if (action_flags&_toggle_map)
 					SET_PLAYER_MAP_STATUS(player, !PLAYER_HAS_MAP_OPEN(player));

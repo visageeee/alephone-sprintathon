@@ -140,6 +140,9 @@ static void DisplayPosition(SDL_Surface *s);
 static void DisplayMessages(SDL_Surface *s);
 static void DrawSurface(SDL_Surface *s, SDL_Rect &dest_rect, SDL_Rect &src_rect);
 static void clear_screen_margin();
+#ifdef HAVE_OPENGL
+static void draw_sprintathon_bullet_time_effect();
+#endif
 
 SDL_PixelFormat pixel_format_16, pixel_format_32;
 
@@ -1241,19 +1244,27 @@ void update_world_view_camera()
 	 * sprint never causes an abrupt zoom.
 	 */
 	static float movement_fov_bonus= 0.0f;
+	static float bullet_time_fov_offset= 0.0f;
 	const float movement_fov_target=
 		(input_preferences->sprintathon_enabled &&
 		 current_player->sprinting) ? 5.0f : 0.0f;
+	const float bullet_time_fov_target=
+		sprintathon_bullet_time_active() ? -4.0f : 0.0f;
 	movement_fov_bonus +=
 		(movement_fov_target-movement_fov_bonus)*0.06f;
+	bullet_time_fov_offset +=
+		(bullet_time_fov_target-bullet_time_fov_offset)*0.08f;
 	if (fabsf(movement_fov_target-movement_fov_bonus)<0.01f)
 		movement_fov_bonus= movement_fov_target;
+	if (fabsf(bullet_time_fov_target-bullet_time_fov_offset)<0.01f)
+		bullet_time_fov_offset= bullet_time_fov_target;
 
 	if (!current_player->extravision_duration &&
 		!world_view->tunnel_vision_active)
 	{
 		world_view->target_field_of_view=
-			NORMAL_FIELD_OF_VIEW+movement_fov_bonus;
+			NORMAL_FIELD_OF_VIEW+movement_fov_bonus+
+			bullet_time_fov_offset;
 	}
 
 	world_view->yaw = current_player->facing;
@@ -1608,6 +1619,8 @@ void render_screen(short ticks_elapsed)
 		{
 			darken_world_window();
 		}
+
+		draw_sprintathon_bullet_time_effect();
 
 		OGL_SwapBuffers();
 	}
@@ -2070,6 +2083,189 @@ static void darken_world_window(void)
 	MainScreenUpdateRects(1, &r);
 }
 
+#ifdef HAVE_OPENGL
+static GLhandleARB sprintathon_radial_blur_program()
+{
+	static GLhandleARB program= 0;
+	static bool attempted= false;
+	if (attempted)
+		return program;
+	attempted= true;
+
+	static const GLcharARB *vertex_source=
+		"#version 120\n"
+		"varying vec2 blur_uv;\n"
+		"void main() {\n"
+		"  gl_Position = ftransform();\n"
+		"  blur_uv = gl_MultiTexCoord0.xy;\n"
+		"}\n";
+	static const GLcharARB *fragment_source=
+		"#version 120\n"
+		"uniform sampler2D frame_texture;\n"
+		"uniform float effect_amount;\n"
+		"uniform float aspect_ratio;\n"
+		"varying vec2 blur_uv;\n"
+		"void main() {\n"
+		"  vec2 radial = blur_uv - vec2(0.5);\n"
+		"  vec2 shaped = radial * vec2(aspect_ratio, 1.0);\n"
+		"  float edge = smoothstep(0.18, 0.62, length(shaped));\n"
+		"  vec4 original = texture2D(frame_texture, blur_uv);\n"
+		"  vec4 blurred = original;\n"
+		"  for (int i = 1; i <= 16; ++i) {\n"
+		"    float distance = float(i) * 0.0018 * effect_amount;\n"
+		"    blurred += texture2D(frame_texture, blur_uv - radial * distance);\n"
+		"  }\n"
+		"  blurred /= 17.0;\n"
+		"  gl_FragColor = mix(original, blurred, edge * effect_amount);\n"
+		"}\n";
+
+	GLint compiled= GL_FALSE;
+	GLhandleARB vertex= glCreateShaderObjectARB(GL_VERTEX_SHADER_ARB);
+	glShaderSourceARB(vertex, 1, &vertex_source, nullptr);
+	glCompileShaderARB(vertex);
+	glGetObjectParameterivARB(vertex, GL_OBJECT_COMPILE_STATUS_ARB, &compiled);
+	if (!compiled)
+	{
+		glDeleteObjectARB(vertex);
+		return 0;
+	}
+
+	GLhandleARB fragment= glCreateShaderObjectARB(GL_FRAGMENT_SHADER_ARB);
+	glShaderSourceARB(fragment, 1, &fragment_source, nullptr);
+	glCompileShaderARB(fragment);
+	glGetObjectParameterivARB(fragment, GL_OBJECT_COMPILE_STATUS_ARB, &compiled);
+	if (!compiled)
+	{
+		glDeleteObjectARB(vertex);
+		glDeleteObjectARB(fragment);
+		return 0;
+	}
+
+	program= glCreateProgramObjectARB();
+	glAttachObjectARB(program, vertex);
+	glAttachObjectARB(program, fragment);
+	glLinkProgramARB(program);
+	glDeleteObjectARB(vertex);
+	glDeleteObjectARB(fragment);
+	GLint linked= GL_FALSE;
+	glGetObjectParameterivARB(program, GL_OBJECT_LINK_STATUS_ARB, &linked);
+	if (!linked)
+	{
+		glDeleteObjectARB(program);
+		program= 0;
+	}
+	return program;
+}
+
+static void draw_sprintathon_bullet_time_effect()
+{
+	static float amount= 0.f;
+	static float transition_start_amount= 0.f;
+	static float previous_target= 0.f;
+	static uint32 transition_start_tick= 0;
+	const uint32 now= machine_tick_count();
+	const float target= sprintathon_bullet_time_active() ? 1.f : 0.f;
+	if (target!=previous_target)
+	{
+		transition_start_amount= amount;
+		transition_start_tick= now;
+		previous_target= target;
+	}
+	const float progress= std::min(
+		static_cast<float>(now-transition_start_tick)/1000.f, 1.f);
+	amount= transition_start_amount+
+		(target-transition_start_amount)*progress;
+	if (amount<0.001f && target==0.f)
+	{
+		amount= 0.f;
+		return;
+	}
+
+	const SDL_Rect r= Screen::instance()->window_rect();
+	if (r.w<=0 || r.h<=0)
+		return;
+	static GLuint captured_frame= 0;
+	static GLsizei texture_width= 0, texture_height= 0;
+	const GLfloat left= static_cast<GLfloat>(r.x);
+	const GLfloat right= static_cast<GLfloat>(r.x+r.w);
+	const GLfloat top= static_cast<GLfloat>(r.y);
+	const GLfloat bottom= static_cast<GLfloat>(r.y+r.h);
+	glPushAttrib(GL_ALL_ATTRIB_BITS);
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_ALPHA_TEST);
+	glDisable(GL_FOG);
+	glDisable(GL_SCISSOR_TEST);
+	glDisable(GL_STENCIL_TEST);
+	glEnable(GL_BLEND);
+	glShadeModel(GL_SMOOTH);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+	glOrtho(0.0, GLdouble(main_surface->w), GLdouble(main_surface->h),
+		0.0, 0.0, 1.0);
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+
+	/* Capture the finished world/HUD once, immediately before buffer swap. */
+	glEnable(GL_TEXTURE_2D);
+	if (!captured_frame)
+		glGenTextures(1, &captured_frame);
+	glBindTexture(GL_TEXTURE_2D, captured_frame);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	const GLint capture_y= main_surface->h-(r.y+r.h);
+	if (texture_width!=r.w || texture_height!=r.h)
+	{
+		glCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGB,
+			r.x, capture_y, r.w, r.h, 0);
+		texture_width= r.w;
+		texture_height= r.h;
+	}
+	else
+		glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
+			r.x, capture_y, r.w, r.h);
+
+	/* Average framebuffer samples in the fragment shader.  Unlike layered
+	 * fixed-function quads, this produces continuous blur rather than ghosts. */
+	const GLhandleARB blur_program= sprintathon_radial_blur_program();
+	if (blur_program)
+	{
+		glUseProgramObjectARB(blur_program);
+		glUniform1iARB(
+			glGetUniformLocationARB(blur_program, "frame_texture"), 0);
+		glUniform1fARB(
+			glGetUniformLocationARB(blur_program, "effect_amount"), amount);
+		glUniform1fARB(
+			glGetUniformLocationARB(blur_program, "aspect_ratio"),
+			static_cast<GLfloat>(r.w)/r.h);
+		glColor4f(1.f, 1.f, 1.f, 1.f);
+		glBegin(GL_QUADS);
+		glTexCoord2f(0.f, 1.f); glVertex2f(left, top);
+		glTexCoord2f(1.f, 1.f); glVertex2f(right, top);
+		glTexCoord2f(1.f, 0.f); glVertex2f(right, bottom);
+		glTexCoord2f(0.f, 0.f); glVertex2f(left, bottom);
+		glEnd();
+		glUseProgramObjectARB(0);
+	}
+
+	/* Restore a restrained warm time-state grade as a plain translucent wash.
+	 * It is deliberately separate from the captured texture, so it cannot
+	 * create the repeated-frame artifact the old contrast pass produced. */
+	glDisable(GL_TEXTURE_2D);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glColor4f(0.90f, 0.24f, 0.035f, 0.065f*amount);
+	OGL_RenderRect(r);
+
+	glPopMatrix();
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+	glPopAttrib();
+}
+#endif
 
 /*
  *  Validate world window
