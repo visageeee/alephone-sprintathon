@@ -9,5 +9,8 @@ config-opts:
 sources:
   - type: dir
     path: ../..
+  - type: shell
+    commands:
+      - autoreconf -fi
 # TODO is there any point including icons/man/mime when it's not a standalone engine build?
 cleanup: [/lib/debug, /share/icons, /share/man, /share/mime]
