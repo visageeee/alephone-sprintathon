@@ -6,7 +6,7 @@ Sprintathon is a gameplay-focused fork of [Aleph One](https://github.com/Aleph-O
 
 It remains compatible with Marathon scenarios—but playing them as intended is another matter.
 
-Blasphemous features include **JUMPING, CROUCHING, SPRINTING, SLIDING, WALL-RUNNING, DODGE DIVESS, RELOADING, BULLET TIME,** and even **SWIMMING ABOVE THE WATER SURFACE**.
+Blasphemous features include **JUMPING, CROUCHING, SPRINTING, SLIDING, WALL-RUNNING, DODGE DIVES, RELOADING, BULLET TIME,** and even **SWIMMING ABOVE THE WATER SURFACE**.
 
 ![Sprintathon gameplay](mthon.webp)
 
