@@ -64,11 +64,17 @@ Gameplay additions can be configured from the **Sprintathon** preferences panel.
 
 Movement features can be combined freely, allowing Sprintathon to range from mostly traditional Marathon movement to the complete modernized moveset.
 
+
+## Full unrestricted mouselook
+
+Sprintathon’s extended mouselook uses true 3D camera rotation at every angle, including straight up and down. Aleph One’s original renderer relies on a forward-facing 2D portal system, which caused missing polygons, black corners, and smearing at steep viewing angles. Sprintathon expands visibility checks around the full horizon, bypasses incompatible legacy clipping planes, and lets OpenGL’s 3D frustum and depth buffer handle clipping and occlusion. Strict sprite depth testing also prevents enemies and effects from appearing through walls.
+
+
 ## Bullet time
 
 Bullet time temporarily slows the action while leaving the player responsive.
 
-While active, Sprintathon applies:
+While active it applies:
 
 - Radial motion blur
 - Increased contrast and color grading
@@ -76,12 +82,7 @@ While active, Sprintathon applies:
 - Slowed gameplay sounds
 - Sound effects
 
-
-If enabled Bullet time is triggered with the "B" key 
-
-## Full unrestricted mouselook
-
-Sprintathon’s extended mouselook uses true 3D camera rotation at every angle, including straight up and down. Aleph One’s original renderer relies on a forward-facing 2D portal system, which caused missing polygons, black corners, and smearing at steep viewing angles. Sprintathon expands visibility checks around the full horizon, bypasses incompatible legacy clipping planes, and lets OpenGL’s 3D frustum and depth buffer handle clipping and occlusion. Strict sprite depth testing also prevents enemies and effects from appearing through walls.
+If enabled Bullet time is triggered with the "B" key.
 
 
 ## Realistic Reloading
