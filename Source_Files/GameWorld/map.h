@@ -1108,7 +1108,7 @@ std::pair<bool, int16> update_world(void);
 /* Sprintathon single-player time dilation. Player physics uses this to keep
  * moving every render tick while advancing by the same fraction as the world. */
 bool sprintathon_bullet_time_active(void);
-void set_sprintathon_bullet_time(bool active);
+void set_sprintathon_bullet_time(bool active, bool play_transition_sound = true);
 
 // ZZZ: these really don't go here, but they live in marathon2.cpp where update_world() lives.....
 void reset_intermediate_action_queues();

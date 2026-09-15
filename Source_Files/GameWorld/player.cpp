@@ -767,10 +767,27 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 			PLAYER_MAXIMUM_SUIT_OXYGEN / 5;
 		const bool crouch_key_down =
 			(action_flags & _microphone_button) != 0;
+		const bool fresh_crouch_press=
+			crouch_key_down && !player->crouch_key_was_down;
+		const bool lateral_dodge=
+			player->dodge_last_direction==-1 ||
+			player->dodge_last_direction==1;
+
+		// Convert the first half of a sideways dodge into a cartwheel.
+		if (input_preferences->sprintathon_enabled &&
+			input_preferences->sprintathon_dodge &&
+			input_preferences->sprintathon_crouch &&
+			fresh_crouch_press && lateral_dodge &&
+			player->dodge_ticks_remaining>=4 &&
+			!player->cartwheel_active)
+		{
+			player->cartwheel_requested= true;
+		}
 
 		// Latch a fresh crouch press. physics_update() performs the reliable
 		// ground-contact test after movement state has been brought current.
-		if (input_preferences->sprintathon_enabled &&
+		if (!player->cartwheel_requested &&
+			input_preferences->sprintathon_enabled &&
 			input_preferences->sprintathon_slide &&
 			input_preferences->sprintathon_crouch &&
 			crouch_key_down &&

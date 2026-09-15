@@ -443,7 +443,7 @@ static void maintain_sprintathon_heartbeat()
 		sSprintathonHeartbeat= play_sprintathon_heartbeat();
 }
 
-void set_sprintathon_bullet_time(bool active)
+void set_sprintathon_bullet_time(bool active, bool play_transition_sound)
 {
 	if (sSprintathonBulletTimeActive==active)
 		return;
@@ -451,7 +451,8 @@ void set_sprintathon_bullet_time(bool active)
 	sSprintathonBulletTimeActive= active;
 	if (active)
 	{
-		play_sprintathon_time_sound("snd/slowdown.ogg", "slowdown.ogg");
+		if (play_transition_sound)
+			play_sprintathon_time_sound("snd/slowdown.ogg", "slowdown.ogg");
 		sSprintathonHeartbeatStartTick= machine_tick_count()+600;
 	}
 	else
@@ -459,7 +460,8 @@ void set_sprintathon_bullet_time(bool active)
 		if (sSprintathonHeartbeat)
 			sSprintathonHeartbeat->AskStop();
 		sSprintathonHeartbeat.reset();
-		play_sprintathon_time_sound("snd/speedup.ogg", "speedup.ogg");
+		if (play_transition_sound)
+			play_sprintathon_time_sound("snd/speedup.ogg", "speedup.ogg");
 	}
 }
 

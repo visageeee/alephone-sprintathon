@@ -906,6 +906,7 @@ void handle_preferences(void)
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(ledge_grab_w, sprintathon_ledge_grab, "Ledge-Grabbing");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(footsteps_w, sprintathon_footsteps, "Footstep Sounds");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(bullet_time_w, sprintathon_bullet_time, "Bullet Time (B)");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(dodge_bullet_time_w, sprintathon_dodge_bullet_time, "Automatic Dodge Bullet Time");
 #undef ADD_EMBEDDED_SPRINTATHON_TOGGLE
 	w_percentage_slider *footstep_volume_w = new w_percentage_slider(
 		101, input_preferences->sprintathon_footstep_volume_percent);
@@ -1261,6 +1262,7 @@ void handle_preferences(void)
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_ledge_grab, ledge_grab_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_footsteps, footsteps_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_bullet_time, bullet_time_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_dodge_bullet_time, dodge_bullet_time_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_sprint, stamina_sprint_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_jump, stamina_jump_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_kick, stamina_kick_w);
@@ -3577,6 +3579,7 @@ static void sprintathon_dialog(void *arg)
 	ADD_SPRINTATHON_TOGGLE(ledge_grab_w, sprintathon_ledge_grab, "Ledge-Grabbing");
 	ADD_SPRINTATHON_TOGGLE(footsteps_w, sprintathon_footsteps, "Footstep Sounds");
 	ADD_SPRINTATHON_TOGGLE(bullet_time_w, sprintathon_bullet_time, "Bullet Time (B)");
+	ADD_SPRINTATHON_TOGGLE(dodge_bullet_time_w, sprintathon_dodge_bullet_time, "Automatic Dodge Bullet Time");
 #undef ADD_SPRINTATHON_TOGGLE
 	w_percentage_slider *footstep_volume_w = new w_percentage_slider(
 		101, input_preferences->sprintathon_footstep_volume_percent);
@@ -3626,6 +3629,7 @@ static void sprintathon_dialog(void *arg)
 		STORE_SPRINTATHON_TOGGLE(sprintathon_ledge_grab, ledge_grab_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_footsteps, footsteps_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_bullet_time, bullet_time_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_dodge_bullet_time, dodge_bullet_time_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_sprint, stamina_sprint_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_jump, stamina_jump_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_kick, stamina_kick_w);
@@ -5496,6 +5500,7 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_ledge_grab", input_preferences->sprintathon_ledge_grab);
 	root.put_attr("sprintathon_footsteps", input_preferences->sprintathon_footsteps);
 	root.put_attr("sprintathon_bullet_time", input_preferences->sprintathon_bullet_time);
+	root.put_attr("sprintathon_dodge_bullet_time", input_preferences->sprintathon_dodge_bullet_time);
 	root.put_attr("sprintathon_footstep_volume_percent",
 		input_preferences->sprintathon_footstep_volume_percent);
 	root.put_attr("mouse_accel_type", input_preferences->mouse_accel_type);
@@ -5872,6 +5877,7 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_ledge_grab = true;
 	preferences->sprintathon_footsteps = true;
 	preferences->sprintathon_bullet_time = true;
+	preferences->sprintathon_dodge_bullet_time = false;
 	preferences->sprintathon_footstep_volume_percent = 100;
 
 	preferences->controller_aim_inverted = false;
@@ -6466,6 +6472,7 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_ledge_grab", input_preferences->sprintathon_ledge_grab);
 	root.read_attr("sprintathon_footsteps", input_preferences->sprintathon_footsteps);
 	root.read_attr("sprintathon_bullet_time", input_preferences->sprintathon_bullet_time);
+	root.read_attr("sprintathon_dodge_bullet_time", input_preferences->sprintathon_dodge_bullet_time);
 	root.read_attr_bounded<int16>("sprintathon_footstep_volume_percent",
 		input_preferences->sprintathon_footstep_volume_percent, 0, 100);
 	

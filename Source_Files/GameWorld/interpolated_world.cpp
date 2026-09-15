@@ -711,9 +711,9 @@ void interpolate_world_view(float heartbeat_fraction)
 	view->pitch = lerp_angle(prev->pitch,
 							 next->pitch,
 							 heartbeat_fraction);
-	view->roll = lerp(prev->roll,
-					  next->roll,
-					  heartbeat_fraction);
+	view->roll = lerp_angle(prev->roll,
+							next->roll,
+							heartbeat_fraction);
 		
 	view->virtual_yaw = lerp_fixed_angle(prev->virtual_yaw,
 										 next->virtual_yaw,

@@ -1270,7 +1270,8 @@ void update_world_view_camera()
 	world_view->yaw = current_player->facing;
 	world_view->pitch = current_player->elevation+
 		current_player->sprintathon_camera_pitch;
-	world_view->roll = current_player->sprintathon_camera_roll;
+	world_view->roll = current_player->sprintathon_camera_roll+
+		current_player->cartwheel_camera_roll;
 	world_view->maximum_depth_intensity = current_player->weapon_intensity;
 
 	world_view->origin = current_player->camera_location;

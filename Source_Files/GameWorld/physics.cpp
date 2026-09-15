@@ -197,6 +197,12 @@ void initialize_player_physics_variables(
 	player->dodge_ticks_remaining= 0;
 	player->dodge_bullet_time_phase= 0;
 	player->back_dodge_recovery_ticks= 0;
+	player->dodge_auto_bullet_time= false;
+	player->cartwheel_requested= false;
+	player->cartwheel_active= false;
+	player->cartwheel_direction= 0;
+	player->cartwheel_ticks_remaining= 0;
+	player->cartwheel_camera_roll= 0;
 	player->crouch_key_was_down= false;
 	player->reload_key_was_down= false;
 	player->slide_punch_pending= false;
@@ -659,7 +665,8 @@ static void physics_update(
 	const bool bullet_time= sprintathon_bullet_time_active();
 	bool advance_dodge_animation= true;
 	if ((player->dodge_ticks_remaining>0 ||
-		 player->back_dodge_recovery_ticks>0) && bullet_time)
+		 player->back_dodge_recovery_ticks>0 ||
+		 player->cartwheel_active) && bullet_time)
 	{
 		player->dodge_bullet_time_phase+= 35;
 		if (player->dodge_bullet_time_phase<100)
@@ -679,6 +686,30 @@ static void physics_update(
 	const bool modern_swimming = sprintathon && input_preferences->sprintathon_swimming;
 	const bool modern_ledge_grab = modern_jump && input_preferences->sprintathon_ledge_grab;
 	const _fixed maximum_elevation = sprintathon_mouselook_limit(constants);
+	if (player->dodge_auto_bullet_time &&
+		(!modern_dodge || PLAYER_IS_DEAD(player)))
+	{
+		if (player_is_local)
+			set_sprintathon_bullet_time(false, false);
+		player->dodge_auto_bullet_time= false;
+	}
+
+	if (player->cartwheel_requested)
+	{
+		const bool lateral_dodge=
+			player->dodge_last_direction==-1 ||
+			player->dodge_last_direction==1;
+		if (modern_dodge && lateral_dodge &&
+			player->dodge_ticks_remaining>=4 &&
+			!player->cartwheel_active)
+		{
+			player->cartwheel_active= true;
+			player->cartwheel_direction= player->dodge_last_direction;
+			player->cartwheel_ticks_remaining= 30;
+			player->cartwheel_camera_roll= 0;
+		}
+		player->cartwheel_requested= false;
+	}
 
 	// A wall run is traversal along a wall, not a reward for hitting it head-on.
 	// wall_push points away from the contacted wall. Compare the component of
@@ -766,7 +797,7 @@ static void physics_update(
 		// Back-dodging pitches downward without a sideways roll.
 		if (player->dodge_ticks_remaining>0)
 		{
-			if (!back_dodging)
+			if (!back_dodging && !player->cartwheel_active)
 				target_wall_run_roll=
 					(FULL_CIRCLE*12*player->dodge_last_direction)/360;
 		}
@@ -797,6 +828,50 @@ static void physics_update(
 		int16 pitch_step= pitch_difference/(target_camera_pitch ? 3 : 5);
 		if (pitch_step==0) pitch_step= pitch_difference>0 ? 1 : -1;
 		player->sprintathon_camera_pitch+= pitch_step;
+	}
+
+	if (player->cartwheel_active && advance_dodge_animation)
+	{
+		constexpr int cartwheel_duration= 30;
+		if (player->cartwheel_ticks_remaining>0)
+		{
+			--player->cartwheel_ticks_remaining;
+			const int elapsed=
+				cartwheel_duration-player->cartwheel_ticks_remaining;
+			const int32 progress=
+				(static_cast<int32>(elapsed)*FIXED_ONE)/cartwheel_duration;
+			const int32 progress_squared= static_cast<int32>(
+				(static_cast<int64_t>(progress)*progress)/FIXED_ONE);
+			const int32 smoothstep= static_cast<int32>(
+				(static_cast<int64_t>(progress_squared)*
+				 (3*FIXED_ONE-2*progress))/FIXED_ONE);
+			const int32 progress_cubed= static_cast<int32>(
+				(static_cast<int64_t>(progress_squared)*progress)/FIXED_ONE);
+			const int32 smootherstep= static_cast<int32>(
+				(static_cast<int64_t>(progress_cubed)*
+				 (10*FIXED_ONE-15*progress+6*progress_squared))/
+				 FIXED_ONE);
+
+			// Mostly retain the original curve, with a subtle stronger ease
+			// at each end and a little more speed through the middle.
+			const int32 eased= static_cast<int32>(
+				(3*static_cast<int64_t>(smoothstep)+smootherstep)/4);
+			player->cartwheel_camera_roll= static_cast<int32>(
+				(static_cast<int64_t>(player->cartwheel_direction)*
+				 FULL_CIRCLE*eased)/FIXED_ONE);
+		}
+		else
+		{
+			player->cartwheel_active= false;
+			player->cartwheel_direction= 0;
+			player->cartwheel_camera_roll= 0;
+			player->slide_recovery_ticks=
+				std::max<uint8>(player->slide_recovery_ticks, 12);
+		}
+	}
+	else if (!player->cartwheel_active)
+	{
+		player->cartwheel_camera_roll= 0;
 	}
 	if (!modern_swimming) variables->flags&= (uint16)~_WATER_MANTLING_BIT;
 	if (!modern_ledge_grab) variables->flags&= (uint16)~_DRY_MANTLING_BIT;
@@ -1072,6 +1147,15 @@ static void physics_update(
 			player->dodge_bullet_time_phase= 0;
 			player->dodge_last_direction= dodge_direction;
 			player->dodge_tap_window= 0;
+			if (player_is_local &&
+				input_preferences->sprintathon_bullet_time &&
+				input_preferences->sprintathon_dodge_bullet_time &&
+				!sprintathon_bullet_time_active())
+			{
+				set_sprintathon_bullet_time(true);
+				player->dodge_auto_bullet_time=
+					sprintathon_bullet_time_active();
+			}
 			if (dodge_drains_stamina)
 			{
 				player->suit_oxygen= std::max<int16>(
@@ -1576,6 +1660,17 @@ static void physics_update(
 		advance_dodge_animation)
 	{
 		--player->back_dodge_recovery_ticks;
+	}
+
+	if (player->dodge_auto_bullet_time &&
+		player->dodge_ticks_remaining==0 &&
+		player->back_dodge_recovery_ticks==0 &&
+		!player->cartwheel_active &&
+		player->slide_recovery_ticks==0)
+	{
+		if (player_is_local)
+			set_sprintathon_bullet_time(false, false);
+		player->dodge_auto_bullet_time= false;
 	}
 
 	const bool dry_grab_requested =

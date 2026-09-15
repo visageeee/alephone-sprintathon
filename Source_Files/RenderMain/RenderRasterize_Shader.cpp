@@ -1646,6 +1646,27 @@ void RenderRasterize_Shader::render_viewer_sprite_layer(RenderStep renderStep)
 		rect.x1 += weapon_sway_x;
 		rect.y0 += weapon_sway_y;
 		rect.y1 += weapon_sway_y;
+
+		/*
+		 * Keep the weapon upright and anchored at the bottom during a
+		 * cartwheel, but let it swing heavily against the camera rotation.
+		 */
+		if (current_player && current_player->cartwheel_active)
+		{
+			const angle cartwheel_phase= NORMALIZE_ANGLE(
+				static_cast<angle>(current_player->cartwheel_camera_roll));
+			const int cartwheel_sway_x= static_cast<int>(
+				(static_cast<int64_t>(view->screen_width)*
+				 sine_table[cartwheel_phase])/(5*TRIG_MAGNITUDE));
+			const int cartwheel_sway_y= static_cast<int>(
+				(static_cast<int64_t>(view->screen_height)*
+				 (TRIG_MAGNITUDE-cosine_table[cartwheel_phase]))/
+				 (14*TRIG_MAGNITUDE));
+			rect.x0 -= cartwheel_sway_x;
+			rect.x1 -= cartwheel_sway_x;
+			rect.y0 += cartwheel_sway_y;
+			rect.y1 += cartwheel_sway_y;
+		}
 		
 		// Smoothly lower the weapon while sprinting.
 		static float sprint_weapon_lower = 0.0f;
