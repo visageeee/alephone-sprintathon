@@ -180,9 +180,6 @@ submodules. Aleph One provides `vcpkg/install-arm-osx.sh` and
 installing the appropriate dependencies, open `Xcode/AlephOne.xcodeproj` in
 Xcode and build the desired target.
 
-The Windows and macOS paths have not yet received the same fresh-build testing
-as the Linux build. Please report Sprintathon-specific failures on GitHub.
-
 ## Running
 
 Aleph One requires Marathon scenario data, including files such as `Map`, `Shapes`, `Sounds`, and `Images`.
