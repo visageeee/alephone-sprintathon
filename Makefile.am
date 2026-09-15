@@ -9,12 +9,17 @@ AUTOMAKE_OPTIONS = 1.5 foreign dist-bzip2 no-dist-gzip
 EXTRA_DIST = \
 	snd/footstep2.ogg                                                          \
 	snd/footstep.ogg                                                           \
+	snd/footstep3.ogg                                                          \
+	snd/footstep4.ogg                                                          \
+	snd/footstep5.ogg                                                          \
+	snd/heartbeat.ogg                                                          \
 	snd/slowdown.ogg                                                           \
 	snd/speedup.ogg                                                            \
 	snd/wallkick.ogg                                                           \
 	snd/kickhit.ogg                                                            \
-	gfx/frontlegs.png                                                         \
-	gfx/slidelegs.png                                                          	snd/slide.ogg                                                              \
+	gfx/frontlegs.png                                                          \
+	gfx/slidelegs.png                                                          \
+	snd/slide.ogg                                                              \
 	data/AlephSansMono-Bold.ttf                                                 \
 	data/AlephSansMonoLicense.txt                                               \
 	data/powered-by-alephone.svg                                                \

@@ -166,19 +166,61 @@ C:\src\vcpkg\bootstrap-vcpkg.bat
 C:\src\vcpkg\vcpkg integrate install
 ```
 
-Clone Sprintathon with submodules, open `VisualStudio/AlephOne.sln`, select an
-x64 configuration and build the `AlephOne` project. Keeping both vcpkg and the
-source tree in short paths without spaces avoids several dependency build
-problems.
+Clone Sprintathon with submodules, open `VisualStudio/AlephOne.sln`, select
+`Release` and `x64`, then build the `AlephOne` project. The resulting executable
+is `VisualStudio/x64/Release/Sprintathon.exe`. Keeping both vcpkg and the source
+tree in short paths without spaces avoids several dependency build problems.
+
+To create a distributable package containing the executable, documentation and
+all Sprintathon graphics and sounds, open PowerShell in the `VisualStudio`
+directory after building and run:
+
+```powershell
+.\dist-windows.ps1 -x64 $true -a1 $true -output_path .\dist
+```
+
+Do not distribute the executable by itself: the generated package includes a
+`Sprintathon` data directory required by movement effects and audio cues.
 
 ### macOS
 Sprintathon is yet to be tested on anything but Linux. If you build it for other systems please provide feedback on how well it runs.
 
 Install Xcode command-line tools and vcpkg, then clone Sprintathon with
-submodules. Aleph One provides `vcpkg/install-arm-osx.sh` and
-`vcpkg/install-x64-osx.sh` for Apple Silicon and Intel respectively. After
-installing the appropriate dependencies, open `Xcode/AlephOne.xcodeproj` in
-Xcode and build the desired target.
+submodules. Run `vcpkg/install-arm-osx.sh` on Apple Silicon or
+`vcpkg/install-x64-osx.sh` on Intel to install the appropriate dependencies.
+
+Open `Xcode/AlephOne.xcodeproj`, select the **Aleph One** scheme and the
+**Release** configuration, then build. The scheme retains its upstream name,
+but its product is `Sprintathon.app`. Its application bundle automatically
+includes every Sprintathon graphic and sound under
+`Contents/Resources/Sprintathon`.
+
+A reproducible command-line build can instead use a local Derived Data folder:
+
+```bash
+cd Xcode
+xcodebuild \
+  -project AlephOne.xcodeproj \
+  -scheme "Aleph One" \
+  -configuration Release \
+  -derivedDataPath build \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+```
+
+The resulting application is
+`Xcode/build/Build/Products/Release/Sprintathon.app`. Create a distributable
+ZIP while preserving macOS metadata with:
+
+```bash
+ditto -c -k --sequesterRsrc --keepParent \
+  build/Build/Products/Release/Sprintathon.app \
+  Sprintathon-macOS.zip
+```
+
+This produces an unsigned build suitable for local testing. Public macOS
+distribution additionally requires signing with your Apple Developer identity
+and notarizing the resulting archive.
 
 ## Running
 
@@ -228,4 +270,3 @@ For upstream documentation, licensing, credits, and additional platform-specific
 ## License
 
 Sprintathon retains Aleph One's existing licensing. See the repository's license and copyright files for details.
-

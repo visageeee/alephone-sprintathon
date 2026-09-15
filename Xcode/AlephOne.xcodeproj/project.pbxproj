@@ -1914,7 +1914,7 @@
 		AEA85F5424DF275300BB7827 /* AlephOneSteam.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AlephOneSteam.entitlements; sourceTree = "<group>"; };
 		AEB4A2AD14296CAE00537AE7 /* Classic Marathon Infinity.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Classic Marathon Infinity.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AEBDC6DA2C4DF0780026DFF1 /* Classic Marathon Infinity Steam.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Classic Marathon Infinity Steam.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		AEC3C89609AD68AE003258E4 /* Aleph One.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Aleph One.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		AEC3C89609AD68AE003258E4 /* Sprintathon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sprintathon.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AEFD87C313EB84CF00C1E687 /* Classic Marathon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Classic Marathon.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		F53AB44B01F3CB1D01EF2901 /* AlephOne.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AlephOne.icns; sourceTree = "<group>"; };
 		F56AEB6B01F8AA1201780311 /* ImagesIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = ImagesIcon.icns; sourceTree = "<group>"; };
@@ -2142,7 +2142,7 @@
 			isa = PBXGroup;
 			children = (
 				4FADF1C62F37EB8C00643799 /* libalephone.a */,
-				AEC3C89609AD68AE003258E4 /* Aleph One.app */,
+				AEC3C89609AD68AE003258E4 /* Sprintathon.app */,
 				AEFD87C313EB84CF00C1E687 /* Classic Marathon.app */,
 				AE505D0B141D45E600915344 /* Classic Marathon 2.app */,
 				AEB4A2AD14296CAE00537AE7 /* Classic Marathon Infinity.app */,
@@ -3861,6 +3861,7 @@
 				AEC3C7CF09AD68AC003258E4 /* Sources */,
 				AEC3C7C209AD68AC003258E4 /* Resources */,
 				AEC3C87609AD68AC003258E4 /* Copy Default Theme */,
+				53A17A000000000000000001 /* Copy Sprintathon Assets */,
 				275F9A49217F7CBA00337B05 /* Add Version To Info.plist */,
 				AEC3C86F09AD68AC003258E4 /* Frameworks */,
 			);
@@ -3871,7 +3872,7 @@
 			);
 			name = "Aleph One";
 			productName = "SDL Application";
-			productReference = AEC3C89609AD68AE003258E4 /* Aleph One.app */;
+			productReference = AEC3C89609AD68AE003258E4 /* Sprintathon.app */;
 			productType = "com.apple.product-type.application";
 		};
 		AEFD85E813EB84CF00C1E687 /* Marathon 1 */ = {
@@ -4270,6 +4271,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "mkdir -p \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Resources/DataFiles/Themes/Default\"\nrsync -aC \"$SRCROOT/../data/default_theme/resources/\" \"$BUILT_PRODUCTS_DIR/$CONTENTS_FOLDER_PATH/Resources/DataFiles/Themes/Default\"\n";
+			showEnvVarsInLog = 0;
+		};
+		53A17A000000000000000001 /* Copy Sprintathon Assets */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Sprintathon Assets";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\ndestination=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Sprintathon\"\nmkdir -p \"$destination\"\nfor asset in \\\n  gfx/slidelegs.png \\\n  gfx/frontlegs.png \\\n  snd/slide.ogg \\\n  snd/kickhit.ogg \\\n  snd/wallkick.ogg \\\n  snd/footstep.ogg \\\n  snd/footstep2.ogg \\\n  snd/footstep3.ogg \\\n  snd/footstep4.ogg \\\n  snd/footstep5.ogg \\\n  snd/slowdown.ogg \\\n  snd/speedup.ogg \\\n  snd/heartbeat.ogg\ndo\n  source_path=\"$SRCROOT/../$asset\"\n  if [ ! -f \"$source_path\" ]; then\n    echo \"error: Missing Sprintathon runtime asset: $source_path\" >&2\n    exit 1\n  fi\n  cp -f \"$source_path\" \"$destination/\"\ndone\n";
 			showEnvVarsInLog = 0;
 		};
 		AEFD87AF13EB84CF00C1E687 /* Add Version To Info.plist */ = {
@@ -5198,8 +5214,8 @@
 				);
 				INFOPLIST_FILE = App_Resources/AlephOne/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.action-games";
-				PRODUCT_BUNDLE_IDENTIFIER = org.bungie.source.AlephOne;
-				PRODUCT_NAME = "Aleph One";
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.visageeee.Sprintathon;
+				PRODUCT_NAME = Sprintathon;
 				WRAPPER_EXTENSION = app;
 			};
 			name = Debug;
@@ -5346,8 +5362,8 @@
 				);
 				INFOPLIST_FILE = App_Resources/AlephOne/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.action-games";
-				PRODUCT_BUNDLE_IDENTIFIER = org.bungie.source.AlephOne;
-				PRODUCT_NAME = "Aleph One";
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.visageeee.Sprintathon;
+				PRODUCT_NAME = Sprintathon;
 				WRAPPER_EXTENSION = app;
 			};
 			name = Release;

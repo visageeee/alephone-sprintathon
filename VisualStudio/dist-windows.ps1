@@ -14,6 +14,30 @@ param(
 
 function GetCommonFiles() {
 	Copy-Item $exe_path -Destination $output_package_folder
+	$sprintathon_data_folder = Join-Path -Path $output_package_folder -ChildPath "Sprintathon"
+	New-Item -Path $sprintathon_data_folder -ItemType Directory -Force -ErrorAction Stop | Out-Null
+	$sprintathon_assets = @(
+		"gfx/slidelegs.png",
+		"gfx/frontlegs.png",
+		"snd/slide.ogg",
+		"snd/kickhit.ogg",
+		"snd/wallkick.ogg",
+		"snd/footstep.ogg",
+		"snd/footstep2.ogg",
+		"snd/footstep3.ogg",
+		"snd/footstep4.ogg",
+		"snd/footstep5.ogg",
+		"snd/slowdown.ogg",
+		"snd/speedup.ogg",
+		"snd/heartbeat.ogg"
+	)
+	foreach($asset in $sprintathon_assets) {
+		$asset_path = Join-Path -Path $root_directory -ChildPath $asset
+		if(!(Test-Path -Path $asset_path -PathType Leaf)) {
+			Write-Error "Missing Sprintathon runtime asset: ${asset_path}" -ErrorAction Stop
+		}
+		Copy-Item $asset_path -Destination $sprintathon_data_folder -ErrorAction Stop
+	}
 	Copy-Item (Join-Path -Path $root_directory -ChildPath "THANKS") -Destination (Join-Path -Path $output_package_folder -ChildPath "THANKS.txt")
 	Copy-Item (Join-Path -Path $root_directory -ChildPath "COPYING") -Destination (Join-Path -Path $output_package_folder -ChildPath "COPYING.txt")
 	Copy-Item (Join-Path -Path $root_directory -ChildPath "/docs/README.txt") -Destination (Join-Path -Path $output_package_folder -ChildPath "README.txt")
@@ -62,12 +86,12 @@ function Package {
 	
 	$os_target = if($x64) {""} else {"32"}
 	#we can already pack what we have if we wanna pack without data
-	if(($data -ne 1) -and ($package_name -ne "AlephOne")) {		
+	if(($data -ne 1) -and ($package_name -ne "Sprintathon")) {
 		$zip_name = "${package_fullname}-Exe-Win${os_target}.zip"
 		Compress-Archive -Path $output_package_folder -DestinationPath (Join-Path -Path $output_path -ChildPath $zip_name) -Force
 	}
 	
-	if(($data -ne 2) -or ($package_name -eq "AlephOne")) {
+	if(($data -ne 2) -or ($package_name -eq "Sprintathon")) {
 		switch($package_name) {
 		"Marathon" {
 			Copy-Item (Join-Path -Path $root_directory -ChildPath "/data/Scenarios/Marathon/*") -Destination $output_package_folder -Recurse -Exclude $array_exclude_copy
@@ -118,7 +142,7 @@ if(!(Test-Path -Path $output_path -PathType Container)) {
 $array_exclude_copy = @('Makefile','Makefile.*','*.svn','*.git')
 $array_exe_name = @()
 $array_package_name = @()
-if($a1) {$array_exe_name += "Aleph One.exe"; $array_package_name += "AlephOne"}
+if($a1) {$array_exe_name += "Sprintathon.exe"; $array_package_name += "Sprintathon"}
 if($m1) {$array_exe_name += "Classic Marathon.exe"; $array_package_name += "Marathon"}
 if($m2) {$array_exe_name += "Classic Marathon 2.exe"; $array_package_name += "Marathon2"}
 if($m3) {$array_exe_name += "Classic Marathon Infinity.exe"; $array_package_name += "MarathonInfinity"}

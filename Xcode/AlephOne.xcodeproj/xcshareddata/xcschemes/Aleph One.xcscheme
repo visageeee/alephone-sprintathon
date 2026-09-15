@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "AEC3C6FE09AD68AC003258E4"
-               BuildableName = "Aleph One.app"
+               BuildableName = "Sprintathon.app"
                BlueprintName = "Aleph One"
                ReferencedContainer = "container:AlephOne.xcodeproj">
             </BuildableReference>
@@ -45,7 +45,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AEC3C6FE09AD68AC003258E4"
-            BuildableName = "Aleph One.app"
+            BuildableName = "Sprintathon.app"
             BlueprintName = "Aleph One"
             ReferencedContainer = "container:AlephOne.xcodeproj">
          </BuildableReference>
@@ -62,7 +62,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AEC3C6FE09AD68AC003258E4"
-            BuildableName = "Aleph One.app"
+            BuildableName = "Sprintathon.app"
             BlueprintName = "Aleph One"
             ReferencedContainer = "container:AlephOne.xcodeproj">
          </BuildableReference>
