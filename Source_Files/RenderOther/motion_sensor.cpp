@@ -144,7 +144,7 @@ struct motion_sensor_definition {
 };
 
 struct motion_sensor_definition motion_sensor_settings = {
-	5,  // update_frequency
+	0,  // update_frequency: refresh tracked positions every game tick
 	15, // rescan_frequency
 	(8 * WORLD_ONE), // range
 	64 // scale

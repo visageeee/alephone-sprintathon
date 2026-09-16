@@ -61,6 +61,7 @@ public:
 	// rotate the output image about the center of destination rect
 	// (in degrees clockwise)
 	float rotation;
+	bool flip_horizontal;
 	
 	// set default cropping rectangle
 	Image_Rect crop_rect;

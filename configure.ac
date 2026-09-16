@@ -1,4 +1,4 @@
-shecdnl Process this file with autoconf to produce a configure script.
+dnl Process this file with autoconf to produce a configure script.
 dnl Written by Christian Bauer and the Aleph One developers.
 
 AC_INIT([Aleph One],m4_esyscmd([grep '^#define A1_DATE_VERSION' Source_Files/Misc/alephversion.h | sed -e 's/\(.*\"\)\(.*\)\(\"\)/\2/g' | tr -d '\n']),[https://github.com/Aleph-One-Marathon/alephone/issues],[AlephOne],[https://alephone.lhowon.org/])
@@ -313,6 +313,7 @@ tools/Makefile
 tools/headertest/GNUmakefile
 data/Makefile
 data/default_theme/Makefile
+data/sprintathon_hud/Makefile
 data/icons/Makefile
 ])
 AC_OUTPUT

@@ -658,6 +658,12 @@ static int Lua_Shape_Get_Rotation(lua_State *L)
 	return 1;
 }
 
+static int Lua_Shape_Get_Flip_Horizontal(lua_State *L)
+{
+	lua_pushboolean(L, Lua_Shape::Object(L, 1)->flip_horizontal);
+	return 1;
+}
+
 static int Lua_Shape_Get_Crop_Rect(lua_State *L)
 {
 	Lua_Shape_Crop_Rect::Push(L, Lua_Shape::Index(L, 1));
@@ -683,6 +689,7 @@ const luaL_Reg Lua_Shape_Get[] = {
 {"unscaled_height", Lua_Shape_Get_Unscaled_Height},
 {"tint_color", Lua_Shape_Get_Tint},
 {"rotation", Lua_Shape_Get_Rotation},
+{"flip_horizontal", Lua_Shape_Get_Flip_Horizontal},
 {"crop_rect", Lua_Shape_Get_Crop_Rect},
 {"rescale", L_TableFunction<Lua_Shape_Rescale>},
 {"draw", L_TableFunction<Lua_Shape_Draw>},
@@ -704,9 +711,16 @@ static int Lua_Shape_Set_Rotation(lua_State *L)
 	return 0;
 }
 
+static int Lua_Shape_Set_Flip_Horizontal(lua_State *L)
+{
+	Lua_Shape::Object(L, 1)->flip_horizontal = lua_toboolean(L, 2);
+	return 0;
+}
+
 const luaL_Reg Lua_Shape_Set[] = {
 {"tint_color", Lua_Shape_Set_Tint},
 {"rotation", Lua_Shape_Set_Rotation},
+{"flip_horizontal", Lua_Shape_Set_Flip_Horizontal},
 {0, 0}
 };
 
@@ -1343,6 +1357,16 @@ static int Lua_HUDPlayer_Weapon_Trigger_Get_Total_Rounds(lua_State *L)
 	return 1;
 }
 
+static int Lua_HUDPlayer_Weapon_Trigger_Get_Magazines(lua_State *L)
+{
+	short count = get_player_weapon_magazine_count(
+		current_player_index,
+		Lua_HUDPlayer_Weapon_Trigger::WeaponIndex(L, 1),
+		Lua_HUDPlayer_Weapon_Trigger::Index(L, 1));
+	lua_pushinteger(L, count);
+	return 1;
+}
+
 static int Lua_HUDPlayer_Weapon_Trigger_Get_Ammo_Type(lua_State *L)
 {
 	int16 t = get_player_weapon_ammo_type(
@@ -1390,6 +1414,7 @@ static int Lua_HUDPlayer_Weapon_Trigger_Get_Energy(lua_State *L)
 const luaL_Reg Lua_HUDPlayer_Weapon_Trigger_Get[] = {
 {"rounds", Lua_HUDPlayer_Weapon_Trigger_Get_Rounds},
 {"total_rounds", Lua_HUDPlayer_Weapon_Trigger_Get_Total_Rounds},
+{"magazines", Lua_HUDPlayer_Weapon_Trigger_Get_Magazines},
 {"ammo_type", Lua_HUDPlayer_Weapon_Trigger_Get_Ammo_Type},
 {"weapon_drawn", Lua_HUDPlayer_Weapon_Trigger_Get_Weapon_Drawn},
 {"bullet_display", Lua_HUDPlayer_Weapon_Trigger_Get_Bullet},
@@ -1601,6 +1626,13 @@ static int Lua_HUDPlayer_Weapon_Get_Type(lua_State *L)
 	return 1;
 }
 
+static int Lua_HUDPlayer_Weapon_Get_Cycle_Order(lua_State *L)
+{
+	lua_pushinteger(L,
+		get_weapon_cycle_order(Lua_HUDPlayer_Weapon::Index(L, 1)));
+	return 1;
+}
+
 static int Lua_HUDPlayer_Weapon_Get_Name(lua_State *L)
 {
 	int weapon = Lua_HUDPlayer_Weapon::Index(L, 1);
@@ -1631,6 +1663,7 @@ static int Lua_HUDPlayer_Weapon_Get_Name(lua_State *L)
 }
 
 const luaL_Reg Lua_HUDPlayer_Weapon_Get[] = { 
+{"cycle_order", Lua_HUDPlayer_Weapon_Get_Cycle_Order},
 {"primary", get_hudweapon_trigger<_primary_weapon>},
 {"secondary", get_hudweapon_trigger<_secondary_weapon>},
 {"type", Lua_HUDPlayer_Weapon_Get_Type},

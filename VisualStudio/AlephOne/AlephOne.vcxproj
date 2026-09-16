@@ -960,6 +960,16 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Steam Marathon Infinity|x64'">true</ExcludedFromBuild>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup Condition="'$(Configuration)'=='Debug' Or '$(Configuration)'=='Release'">
+    <Content Include="..\..\data\sprintathon_hud\Plugin.xml">
+      <Link>Plugins\Sprintathon_HUD\Plugin.xml</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\data\sprintathon_hud\Sprintathon_HUD.lua">
+      <Link>Plugins\Sprintathon_HUD\Sprintathon_HUD.lua</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\LibAlephOne\LibAlephOne.vcxproj">
       <Project>{d1a548ff-f15f-43ca-8891-f4b367122282}</Project>

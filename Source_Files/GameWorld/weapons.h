@@ -198,11 +198,13 @@ void get_player_weapon_mode_and_type(short player_index, short *shape_weapon_typ
 
 /* For the game window to update properly */
 short get_player_desired_weapon(short player_index);
+short get_weapon_cycle_order(short weapon_type);
 
 /* This is pinned to the maximum I think I can hold.. */
 short get_player_weapon_ammo_count(short player_index, short which_weapon, short which_trigger);
 
 short get_player_weapon_ammo_maximum(short player_index, short which_weapon, short which_trigger);
+short get_player_weapon_magazine_count(short player_index, short which_weapon, short which_trigger);
 int16 get_player_weapon_ammo_type(short player_index, short which_weapon, short which_trigger);
 bool get_player_weapon_drawn(short player_index, short which_weapon, short which_trigger);
 

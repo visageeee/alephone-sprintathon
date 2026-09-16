@@ -1,6 +1,6 @@
 ## Process this file with automake to produce Makefile.in 
 
-SUBDIRS = default_theme icons
+SUBDIRS = default_theme sprintathon_hud icons
 
 mmldir = $(pkgdatadir)/MML
 mml_DATA = Interface_Rects.mml Transparent_Liquids.mml \

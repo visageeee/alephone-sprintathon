@@ -50,7 +50,7 @@ static bool shape_is_motion_blip(short collection, short frame_index)
 }
 
 
-Shape_Blitter::Shape_Blitter(short collection, short frame_index, short texture_type, short clut_index) : m_coll(BUILD_COLLECTION(collection, clut_index)), m_frame(frame_index), m_type(texture_type), m_surface(NULL), m_scaled_surface(NULL), tint_color_r(1.0), tint_color_g(1.0), tint_color_b(1.0), tint_color_a(1.0), rotation(0.0)
+Shape_Blitter::Shape_Blitter(short collection, short frame_index, short texture_type, short clut_index) : m_coll(BUILD_COLLECTION(collection, clut_index)), m_frame(frame_index), m_type(texture_type), m_surface(NULL), m_scaled_surface(NULL), tint_color_r(1.0), tint_color_g(1.0), tint_color_b(1.0), tint_color_a(1.0), rotation(0.0), flip_horizontal(false)
 {
 	m_src.x = m_src.y = m_src.w = m_src.h = 0;
 	m_scaled_src.x = m_scaled_src.y = m_scaled_src.w = m_scaled_src.h = 0;
@@ -180,6 +180,11 @@ void Shape_Blitter::OGL_Draw(const Image_Rect& dst)
             U_Scale *= crop_rect.w / static_cast<double>(m_scaled_src.w);
         if (crop_rect.h < m_scaled_src.h)
             V_Scale *= crop_rect.h / static_cast<double>(m_scaled_src.h);
+		if (flip_horizontal)
+		{
+			U_Offset += U_Scale;
+			U_Scale = -U_Scale;
+		}
 
 		OGL_RenderTexturedRect(dst.x, dst.y, dst.w, dst.h,
 							   U_Offset, V_Offset,
@@ -284,7 +289,32 @@ SDL_Surface *flip_surface(SDL_Surface *s, int width, int height)
 		SDL_SetPaletteColors(s2->format->palette, s->format->palette->colors, 0, s->format->palette->ncolors);
     
 	return s2;
-}	
+}
+
+static SDL_Surface *flip_surface_horizontal(SDL_Surface *s)
+{
+	if (!s) return 0;
+	SDL_Surface *flipped = SDL_CreateRGBSurfaceWithFormat(
+		SDL_SWSURFACE, s->w, s->h, s->format->BitsPerPixel,
+		s->format->format);
+	if (!flipped) return 0;
+
+	SDL_LockSurface(s);
+	SDL_LockSurface(flipped);
+	const int bytes_per_pixel = s->format->BytesPerPixel;
+	for (int y = 0; y < s->h; ++y)
+	{
+		const pixel8 *source = static_cast<const pixel8 *>(s->pixels) + y * s->pitch;
+		pixel8 *destination = static_cast<pixel8 *>(flipped->pixels) + y * flipped->pitch;
+		for (int x = 0; x < s->w; ++x)
+			SDL_memcpy(destination + x * bytes_per_pixel,
+				source + (s->w - x - 1) * bytes_per_pixel,
+				bytes_per_pixel);
+	}
+	SDL_UnlockSurface(flipped);
+	SDL_UnlockSurface(s);
+	return flipped;
+}
 
 void Shape_Blitter::SDL_Draw(SDL_Surface *dst_surface, const Image_Rect& dst)
 {
@@ -355,9 +385,17 @@ void Shape_Blitter::SDL_Draw(SDL_Surface *dst_surface, const Image_Rect& dst)
     if (!m_scaled_surface)
         return;
     
+	SDL_Surface *draw_surface = m_scaled_surface;
+	SDL_Surface *flipped_surface = 0;
+	if (flip_horizontal)
+	{
+		flipped_surface = flip_surface_horizontal(m_scaled_surface);
+		if (flipped_surface) draw_surface = flipped_surface;
+	}
 	SDL_Rect r = { int(crop_rect.x), int(crop_rect.y), int(crop_rect.w), int(crop_rect.h) };
 	SDL_Rect sdst = { int(dst.x), int(dst.y), int(dst.w), int(dst.h) };
-	SDL_BlitSurface(m_scaled_surface, &r, dst_surface, &sdst);
+	SDL_BlitSurface(draw_surface, &r, dst_surface, &sdst);
+	if (flipped_surface) SDL_FreeSurface(flipped_surface);
 }
 
 Shape_Blitter::~Shape_Blitter()

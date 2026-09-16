@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin name="Sprintathon HUD" version="0.1" description="Minimal full-screen HUD for Sprintathon" hud_lua="Sprintathon_HUD.lua"/>

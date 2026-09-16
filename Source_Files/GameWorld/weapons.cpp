@@ -1033,6 +1033,11 @@ short get_player_desired_weapon(
 	return player_weapons->desired_weapon;
 }
 
+short get_weapon_cycle_order(short weapon_type)
+{
+	return find_weapon_power_index(weapon_type);
+}
+
 short get_player_weapon_ammo_count(
 	short player_index, 
 	short which_weapon,
@@ -1086,6 +1091,49 @@ short get_player_weapon_ammo_maximum(
 	assert(which_trigger>=0 && which_trigger<NUMBER_OF_TRIGGERS);
 	
 	return trigger_definition->rounds_per_magazine;
+}
+
+short get_player_weapon_magazine_count(
+	short player_index,
+	short which_weapon,
+	short which_trigger)
+{
+	struct player_weapon_data *player_weapons= get_player_weapon_data(player_index);
+	struct player_data *player= get_player_data(player_index);
+	struct trigger_definition *trigger_definition=
+		get_trigger_definition(player_index, which_weapon, which_trigger);
+	const short ammunition_type= trigger_definition->ammunition_type;
+
+	if (ammunition_type==NONE || ammunition_type<0 ||
+		ammunition_type>=NUMBER_OF_ITEMS)
+		return 0;
+
+	short count= std::max<short>(0, player->items[ammunition_type]);
+	count+= static_cast<short>(
+		partial_magazines[player_index][ammunition_type].size());
+
+	// Include loaded magazines drawing from this ammunition pool. Only a
+	// two-fisted weapon can genuinely have two magazines loaded; alternate-fire
+	// triggers such as the fusion pistol share one physical battery.
+	struct weapon_definition *definition= get_weapon_definition(which_weapon);
+	bool loaded_magazine_counted= false;
+	for (short trigger_index= 0;
+		trigger_index<NUMBER_OF_TRIGGERS; ++trigger_index)
+	{
+		struct trigger_definition *candidate=
+			get_trigger_definition(player_index, which_weapon, trigger_index);
+		if (candidate->ammunition_type==ammunition_type &&
+			player_weapons->weapons[which_weapon]
+				.triggers[trigger_index].rounds_loaded>0)
+		{
+			if (definition->weapon_class==_twofisted_pistol_class ||
+				!loaded_magazine_counted)
+				++count;
+			loaded_magazine_counted= true;
+		}
+	}
+
+	return count;
 }
 
 int16 get_player_weapon_ammo_type(

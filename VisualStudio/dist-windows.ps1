@@ -38,6 +38,10 @@ function GetCommonFiles() {
 		}
 		Copy-Item $asset_path -Destination $sprintathon_data_folder -ErrorAction Stop
 	}
+	$sprintathon_hud_folder = Join-Path -Path $output_package_folder -ChildPath "Plugins/Sprintathon_HUD"
+	New-Item -Path $sprintathon_hud_folder -ItemType Directory -Force -ErrorAction Stop | Out-Null
+	Copy-Item (Join-Path -Path $root_directory -ChildPath "data/sprintathon_hud/Plugin.xml") -Destination $sprintathon_hud_folder -ErrorAction Stop
+	Copy-Item (Join-Path -Path $root_directory -ChildPath "data/sprintathon_hud/Sprintathon_HUD.lua") -Destination $sprintathon_hud_folder -ErrorAction Stop
 	Copy-Item (Join-Path -Path $root_directory -ChildPath "THANKS") -Destination (Join-Path -Path $output_package_folder -ChildPath "THANKS.txt")
 	Copy-Item (Join-Path -Path $root_directory -ChildPath "COPYING") -Destination (Join-Path -Path $output_package_folder -ChildPath "COPYING.txt")
 	Copy-Item (Join-Path -Path $root_directory -ChildPath "/docs/README.txt") -Destination (Join-Path -Path $output_package_folder -ChildPath "README.txt")
