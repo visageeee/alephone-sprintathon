@@ -439,6 +439,10 @@ struct player_data
 	int8 cartwheel_direction;		// -1 left, +1 right
 	uint8 cartwheel_ticks_remaining;	// visual roll timer
 	int32 cartwheel_camera_roll;		// unwrapped visual roll, in engine angle units
+	bool backflip_requested;			// fresh crouch during a backward dodge
+	bool backflip_active;			// camera is performing a full backward pitch
+	uint8 backflip_ticks_remaining;	// visual pitch timer
+	int32 backflip_camera_pitch;		// unwrapped visual pitch, in engine angle units
 	uint16 sprint_ticks_remaining;		// legacy, retained for layout compatibility
 	uint16 sprint_cooldown_ticks;		// legacy, retained for layout compatibility
 	bool sprint_key_was_down;			// requires release before restarting

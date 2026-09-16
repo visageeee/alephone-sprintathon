@@ -772,6 +772,8 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 		const bool lateral_dodge=
 			player->dodge_last_direction==-1 ||
 			player->dodge_last_direction==1;
+		const bool backward_dodge=
+			player->dodge_last_direction==2;
 
 		// Convert the first half of a sideways dodge into a cartwheel.
 		if (input_preferences->sprintathon_enabled &&
@@ -783,10 +785,19 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 		{
 			player->cartwheel_requested= true;
 		}
+		else if (input_preferences->sprintathon_enabled &&
+			input_preferences->sprintathon_dodge &&
+			input_preferences->sprintathon_crouch &&
+			fresh_crouch_press && backward_dodge &&
+			player->dodge_ticks_remaining>=6 &&
+			!player->backflip_active)
+		{
+			player->backflip_requested= true;
+		}
 
 		// Latch a fresh crouch press. physics_update() performs the reliable
 		// ground-contact test after movement state has been brought current.
-		if (!player->cartwheel_requested &&
+		if (!player->cartwheel_requested && !player->backflip_requested &&
 			input_preferences->sprintathon_enabled &&
 			input_preferences->sprintathon_slide &&
 			input_preferences->sprintathon_crouch &&

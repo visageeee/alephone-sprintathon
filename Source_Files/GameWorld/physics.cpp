@@ -203,6 +203,10 @@ void initialize_player_physics_variables(
 	player->cartwheel_direction= 0;
 	player->cartwheel_ticks_remaining= 0;
 	player->cartwheel_camera_roll= 0;
+	player->backflip_requested= false;
+	player->backflip_active= false;
+	player->backflip_ticks_remaining= 0;
+	player->backflip_camera_pitch= 0;
 	player->crouch_key_was_down= false;
 	player->reload_key_was_down= false;
 	player->slide_punch_pending= false;
@@ -666,7 +670,7 @@ static void physics_update(
 	bool advance_dodge_animation= true;
 	if ((player->dodge_ticks_remaining>0 ||
 		 player->back_dodge_recovery_ticks>0 ||
-		 player->cartwheel_active) && bullet_time)
+		 player->cartwheel_active || player->backflip_active) && bullet_time)
 	{
 		player->dodge_bullet_time_phase+= 35;
 		if (player->dodge_bullet_time_phase<100)
@@ -709,6 +713,18 @@ static void physics_update(
 			player->cartwheel_camera_roll= 0;
 		}
 		player->cartwheel_requested= false;
+	}
+	if (player->backflip_requested)
+	{
+		if (modern_dodge && player->dodge_last_direction==2 &&
+			player->dodge_ticks_remaining>=6 &&
+			!player->backflip_active)
+		{
+			player->backflip_active= true;
+			player->backflip_ticks_remaining= 30;
+			player->backflip_camera_pitch= 0;
+		}
+		player->backflip_requested= false;
 	}
 
 	// A wall run is traversal along a wall, not a reward for hitting it head-on.
@@ -803,8 +819,10 @@ static void physics_update(
 		}
 		else
 			target_wall_run_roll= (FULL_CIRCLE*9)/360;
-		target_camera_pitch= back_dodging ?
+		target_camera_pitch= back_dodging && !player->backflip_active ?
 			(FULL_CIRCLE*11)/360 : (FULL_CIRCLE*7)/360;
+		if (player->backflip_active)
+			target_camera_pitch= 0;
 	}
 	// Airborne sprint sway disappears on the first airborne tick.
 	if (sprintathon && player->sprinting &&
@@ -872,6 +890,54 @@ static void physics_update(
 	else if (!player->cartwheel_active)
 	{
 		player->cartwheel_camera_roll= 0;
+	}
+
+	if (player->backflip_active && advance_dodge_animation)
+	{
+		constexpr int backflip_duration= 30;
+		if (player->backflip_ticks_remaining>0)
+		{
+			--player->backflip_ticks_remaining;
+			if (player_is_local && input_preferences->sprintathon_footsteps)
+			{
+				if (player->backflip_ticks_remaining==5)
+					sprintathon_play_footstep_sound(
+						player->monster_index, false);
+				else if (player->backflip_ticks_remaining==3)
+					sprintathon_play_footstep_sound(
+						player->monster_index, true);
+			}
+			const int elapsed=
+				backflip_duration-player->backflip_ticks_remaining;
+			const int32 progress=
+				(static_cast<int32>(elapsed)*FIXED_ONE)/backflip_duration;
+			const int32 progress_squared= static_cast<int32>(
+				(static_cast<int64_t>(progress)*progress)/FIXED_ONE);
+			const int32 smoothstep= static_cast<int32>(
+				(static_cast<int64_t>(progress_squared)*
+				 (3*FIXED_ONE-2*progress))/FIXED_ONE);
+			const int32 progress_cubed= static_cast<int32>(
+				(static_cast<int64_t>(progress_squared)*progress)/FIXED_ONE);
+			const int32 smootherstep= static_cast<int32>(
+				(static_cast<int64_t>(progress_cubed)*
+				 (10*FIXED_ONE-15*progress+6*progress_squared))/
+				 FIXED_ONE);
+			const int32 eased= static_cast<int32>(
+				(3*static_cast<int64_t>(smoothstep)+smootherstep)/4);
+			player->backflip_camera_pitch= static_cast<int32>(
+				(static_cast<int64_t>(FULL_CIRCLE)*eased)/FIXED_ONE);
+		}
+		else
+		{
+			player->backflip_active= false;
+			player->backflip_camera_pitch= 0;
+			player->slide_recovery_ticks=
+				std::max<uint8>(player->slide_recovery_ticks, 12);
+		}
+	}
+	else if (!player->backflip_active)
+	{
+		player->backflip_camera_pitch= 0;
 	}
 	if (!modern_swimming) variables->flags&= (uint16)~_WATER_MANTLING_BIT;
 	if (!modern_ledge_grab) variables->flags&= (uint16)~_DRY_MANTLING_BIT;
@@ -1666,6 +1732,7 @@ static void physics_update(
 		player->dodge_ticks_remaining==0 &&
 		player->back_dodge_recovery_ticks==0 &&
 		!player->cartwheel_active &&
+		!player->backflip_active &&
 		player->slide_recovery_ticks==0)
 	{
 		if (player_is_local)
