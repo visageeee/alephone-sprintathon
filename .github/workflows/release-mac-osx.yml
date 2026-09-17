@@ -19,9 +19,16 @@ jobs:
         with:
           xcode_targets: "Aleph One"
 
-      - name: Package unsigned Sprintathon app
+      - name: Package Sprintathon app
         run: |
           test -d "Xcode/build/Release/Sprintathon.app"
+
+          codesign --force --deep --sign - --timestamp=none \
+            "Xcode/build/Release/Sprintathon.app"
+
+          codesign --verify --deep --strict --verbose=2 \
+            "Xcode/build/Release/Sprintathon.app"
+
           ditto -c -k --sequesterRsrc --keepParent \
             "Xcode/build/Release/Sprintathon.app" \
             "Sprintathon-macOS-universal.zip"
