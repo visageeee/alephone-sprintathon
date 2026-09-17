@@ -67,6 +67,10 @@ public:
 		U_PixelWidth,
 		U_PixelHeight,
 		U_FogMode,
+		U_MediaFogEnabled,
+		U_MediaFogTop,
+		U_MediaFogSoftness,
+		U_ObjectWorldZ,
 		NUMBER_OF_UNIFORM_LOCATIONS
 	};
 

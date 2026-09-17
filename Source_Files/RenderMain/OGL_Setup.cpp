@@ -253,6 +253,10 @@ void OGL_SetDefaults(OGL_ConfigureData& Data)
 	Data.WaitForVSync = true;
 	Data.Use_sRGB = false;
 	Data.Use_NPOT = false;
+	Data.ForceFogMediaRelative = true;
+	Data.ForceFogAnimatedDensity = false;
+	Data.ForceFogDepthDensity = true;
+	Data.ForceFogWeatherPreset = 0;
 
 	Data.BillboardXY = false;
 }

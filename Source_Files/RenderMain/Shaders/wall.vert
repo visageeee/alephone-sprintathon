@@ -3,6 +3,7 @@ R"(
 uniform float depth;
 varying vec3 viewXY;
 varying vec3 viewDir;
+varying float worldZ;
 varying vec4 vertexColor;
 varying float classicDepth;
 void main(void) {
@@ -24,6 +25,7 @@ void main(void) {
 	viewDir = tbnMatrix * (gl_ModelViewMatrix * gl_Vertex).xyz;
 	viewXY = -(gl_TextureMatrix[0] * vec4(viewDir.xyz, 1.0)).xyz;
 	viewDir = -viewDir;
+	worldZ = gl_Vertex.z;
 	vertexColor = gl_Color;
 }
 

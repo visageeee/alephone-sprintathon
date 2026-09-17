@@ -173,6 +173,64 @@ void RenderRasterize_Shader::render_tree() {
 		fogmode = fogdata->Mode;
 	}
 
+	float media_fog_enabled = 0.0f;
+	float media_fog_top = 0.0f;
+	float media_fog_softness = static_cast<float>(WORLD_ONE) * 0.5f;
+	const bool any_forced_fallback_fog = fogdata && !fogdata->IsPresent &&
+		TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_ForceFog);
+	const bool forced_fallback_fog = any_forced_fallback_fog &&
+		Get_OGL_ConfigureData().ForceFogMediaRelative &&
+		!(current_player->variables.flags & _HEAD_BELOW_MEDIA_BIT);
+	if (forced_fallback_fog)
+	{
+		const media_data* selected_media = nullptr;
+		// Use the highest media surface as one stable plane for the whole level.
+		// A camera-relative choice would follow the player between vertically
+		// stacked pools and prevent the player from ever entering the fog.
+		for (size_t media_index = 0;
+			media_index < MediaList.size();
+			++media_index)
+		{
+			const media_data* candidate = get_media_data(media_index);
+			if (candidate &&
+				(!selected_media || candidate->height > selected_media->height))
+			{
+				selected_media = candidate;
+			}
+		}
+
+		if (selected_media)
+		{
+			media_fog_top = static_cast<float>(
+				selected_media->height + WORLD_ONE / 2);
+			// Blend between global fog while immersed and height-limited fog
+			// above the layer, rather than popping at the surface.
+			const float camera_z = static_cast<float>(
+				current_player->camera_location.z);
+			const float transition_start =
+				media_fog_top - media_fog_softness * 0.5f;
+			float transition = A1_PIN(
+				(camera_z - transition_start) / media_fog_softness,
+				0.0f, 1.0f);
+			transition = transition * transition *
+				(3.0f - 2.0f * transition);
+			media_fog_enabled = transition;
+		}
+	}
+
+	// Landscapes cannot intersect a local height band. Mix them only while the
+	// viewer is inside global fallback fog, or when media-relative fog is off.
+	if (any_forced_fallback_fog)
+	{
+		static const float preset_landscape_mix[] = {0.20f, 0.55f, 0.35f, 0.40f};
+		const int preset = std::max(0, std::min(3,
+			static_cast<int>(Get_OGL_ConfigureData().ForceFogWeatherPreset)));
+		const float global_fog_blend =
+			Get_OGL_ConfigureData().ForceFogMediaRelative ?
+				1.0f - media_fog_enabled : 1.0f;
+		fogMix = preset_landscape_mix[preset] * global_fog_blend;
+	}
+
 	const float virtual_yaw = view->virtual_yaw * FixedAngleToRadians;
 	const float virtual_pitch = view->virtual_pitch * FixedAngleToRadians;
 
@@ -210,6 +268,9 @@ void RenderRasterize_Shader::render_tree() {
 	for (auto s : fog_mode_shaders) {
 		s->enable();
 		s->setFloat(Shader::U_FogMode, fogmode);
+		s->setFloat(Shader::U_MediaFogEnabled, media_fog_enabled);
+		s->setFloat(Shader::U_MediaFogTop, media_fog_top);
+		s->setFloat(Shader::U_MediaFogSoftness, media_fog_softness);
 	}
 	
 	Shader::disable();
@@ -387,6 +448,8 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 	s->setFloat(Shader::U_Pulsate, 0);
 	s->setFloat(Shader::U_Wobble, 0);
 	s->setFloat(Shader::U_Depth, offset);
+	s->setFloat(Shader::U_ObjectWorldZ,
+		static_cast<float>(rect.Position.z));
 	const bool sprintathon_strict_sprite_depth =
 		!view->mimic_sw_perspective &&
 		input_preferences->sprintathon_enabled &&

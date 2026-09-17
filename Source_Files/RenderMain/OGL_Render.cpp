@@ -147,6 +147,7 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 #include "interface.h"
 #include "render.h"
 #include "map.h"
+#include "media.h"
 #include "player.h"
 #include "OGL_Render.h"
 #include "OGL_Textures.h"
@@ -844,11 +845,84 @@ bool OGL_StartMain()
 	CurrFog = OGL_GetFogData(FogType);
 	if (FogActive())
 	{
+		OGL_ConfigureData& fog_config = Get_OGL_ConfigureData();
+		const bool forced_fallback = !CurrFog->IsPresent &&
+			TEST_FLAG(fog_config.Flags, OGL_Flag_ForceFog);
+		float effective_fog_depth = CurrFog->Depth;
+		rgb_color effective_fog_color = CurrFog->Color;
+
+		if (forced_fallback)
+		{
+			switch (fog_config.ForceFogWeatherPreset)
+			{
+				case 1: // Heavy Fog
+					effective_fog_color = {0xc800, 0xc800, 0xc800};
+					effective_fog_depth = 7.0f;
+					break;
+				case 2: // Toxic Haze
+					effective_fog_color = {0x9000, 0xb800, 0x6800};
+					effective_fog_depth = 9.0f;
+					break;
+				case 3: // Dust
+					effective_fog_color = {0xc800, 0xa000, 0x7000};
+					effective_fog_depth = 10.0f;
+					break;
+				default: // Neutral Mist
+					effective_fog_color = {0xe000, 0xe000, 0xe000};
+					effective_fog_depth = 16.0f;
+					break;
+			}
+
+			if (fog_config.ForceFogAnimatedDensity)
+			{
+				const double seconds = static_cast<double>(machine_tick_count()) /
+					MACHINE_TICKS_PER_SECOND;
+				// Overlapping cycles make the variation visible without reading
+				// as a regular on/off pulse.
+				const float density_wave = static_cast<float>(
+					1.0 + 0.32 * std::sin(seconds * 0.75) +
+					0.13 * std::sin(seconds * 0.27 + 1.7));
+				const float bounded_density = std::max(0.60f,
+					std::min(1.45f, density_wave));
+				effective_fog_depth /= bounded_density;
+			}
+
+			if (FogType == OGL_Fog_AboveLiquid &&
+				fog_config.ForceFogMediaRelative &&
+				fog_config.ForceFogDepthDensity)
+			{
+				const media_data* highest_media = nullptr;
+				for (size_t media_index = 0;
+					media_index < MediaList.size();
+					++media_index)
+				{
+					const media_data* candidate = get_media_data(media_index);
+					if (candidate && (!highest_media ||
+						candidate->height > highest_media->height))
+					{
+						highest_media = candidate;
+					}
+				}
+				if (highest_media)
+				{
+					const float fog_top = static_cast<float>(
+						highest_media->height + WORLD_ONE / 2);
+					const float depth_below = std::max(
+						0.0f,
+						(fog_top - current_player->camera_location.z) /
+							static_cast<float>(WORLD_ONE));
+					const float depth_density =
+						1.0f + std::min(2.0f, depth_below) * 0.75f;
+					effective_fog_depth /= depth_density;
+				}
+			}
+		}
+
 		glEnable(GL_FOG);
 		Using_sRGB = Wanting_sRGB;
-		CurrFogColor[0] = sRGB_frob(CurrFog->Color.red/65535.0F);
-		CurrFogColor[1] = sRGB_frob(CurrFog->Color.green/65535.0F);
-		CurrFogColor[2] = sRGB_frob(CurrFog->Color.blue/65535.0F);
+		CurrFogColor[0] = sRGB_frob(effective_fog_color.red/65535.0F);
+		CurrFogColor[1] = sRGB_frob(effective_fog_color.green/65535.0F);
+		CurrFogColor[2] = sRGB_frob(effective_fog_color.blue/65535.0F);
 		CurrFogColor[3] = 0;
 		Using_sRGB = false;
 		if (IsInfravisionActive())
@@ -864,17 +938,17 @@ bool OGL_StartMain()
 		{
 			glFogf(GL_FOG_DENSITY, 0.0F);
 			glFogf(GL_FOG_START, WORLD_ONE*CurrFog->Start);
-			glFogf(GL_FOG_END, WORLD_ONE*(CurrFog->Start + CurrFog->Depth));
+			glFogf(GL_FOG_END, WORLD_ONE*(CurrFog->Start + effective_fog_depth));
 		}
 		else if (CurrFog->Mode == OGL_Fog_Exp2)
 		{
-			glFogf(GL_FOG_DENSITY,1.0F/MAX(1,WORLD_ONE*CurrFog->Depth));
+			glFogf(GL_FOG_DENSITY,1.0F/MAX(1,WORLD_ONE*effective_fog_depth));
 			glFogf(GL_FOG_START, 0.0F);
 			glFogf(GL_FOG_END, 0.0F);
 		}
 		else
 		{
-			glFogf(GL_FOG_DENSITY,1.0F/MAX(1,WORLD_ONE*CurrFog->Depth));
+			glFogf(GL_FOG_DENSITY,1.0F/MAX(1,WORLD_ONE*effective_fog_depth));
 			glFogf(GL_FOG_START, 0.0F);
 			glFogf(GL_FOG_END, 0.0F);
 		}

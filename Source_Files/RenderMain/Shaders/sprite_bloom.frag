@@ -5,7 +5,11 @@ uniform float glow;
 uniform float bloomScale;
 uniform float bloomShift;
 uniform float fogMode;
+uniform float mediaFogEnabled;
+uniform float mediaFogTop;
+uniform float mediaFogSoftness;
 varying vec3 viewDir;
+varying float worldZ;
 varying vec4 vertexColor;
 varying float classicDepth;
 
@@ -33,6 +37,11 @@ void main (void) {
 	color.rgb = (color.rgb - 0.2) * 1.25;
 #endif
 	float fogFactor = getFogFactor(length(viewDir));
+	if (mediaFogEnabled > 0.0) {
+		float heightFog = clamp((mediaFogTop - worldZ) / mediaFogSoftness, 0.0, 1.0);
+		float heightMask = mix(1.0, heightFog, mediaFogEnabled);
+		fogFactor = 1.0 - (1.0 - fogFactor) * heightMask;
+	}
 	gl_FragColor = vec4(mix(vec3(0.0, 0.0, 0.0), color.rgb * intensity, fogFactor), vertexColor.a * color.a);
 }
 

@@ -8,8 +8,12 @@ uniform float pixelWidth;
 uniform float pixelHeight;
 uniform float transferFadeOut;
 uniform float fogMode;
+uniform float mediaFogEnabled;
+uniform float mediaFogTop;
+uniform float mediaFogSoftness;
 
 varying vec3 viewDir;
+varying float worldZ;
 varying vec4 vertexColor;
 
 float getFogFactor(float distance) {
@@ -56,6 +60,11 @@ void main(void) {
 	intensity = intensity * intensity;  // approximation of pow(intensity, 2.2)
 #endif
 	float fogFactor = getFogFactor(length(viewDir));
+	if (mediaFogEnabled > 0.0) {
+		float heightFog = clamp((mediaFogTop - worldZ) / mediaFogSoftness, 0.0, 1.0);
+		float heightMask = mix(1.0, heightFog, mediaFogEnabled);
+		fogFactor = 1.0 - (1.0 - fogFactor) * heightMask;
+	}
 	gl_FragColor = vec4(mix(gl_Fog.color.rgb, intensity, fogFactor), vertexColor.a * color.a);
 }
 

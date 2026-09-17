@@ -258,6 +258,10 @@ struct OGL_ConfigureData
 	bool Use_NPOT;
 
 	bool BillboardXY; // for when MimicSW is off
+	bool ForceFogMediaRelative; // height-limit forced fallback fog to level media
+	bool ForceFogAnimatedDensity;
+	bool ForceFogDepthDensity;
+	int16 ForceFogWeatherPreset;
 };
 
 OGL_ConfigureData& Get_OGL_ConfigureData();

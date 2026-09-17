@@ -613,8 +613,20 @@ void Plugins::enumerate() {
 	}
 #endif
 	
+	const DirectorySpecifier installed_data_dir(get_data_path(kPathDefaultData));
+	bool installed_plugins_searched = false;
 	for (std::vector<DirectorySpecifier>::const_iterator it = data_search_path.begin(); it != data_search_path.end(); ++it) {
 		DirectorySpecifier path = *it + "Plugins";
+		loader.ParseDirectory(path);
+		if (*it == installed_data_dir)
+			installed_plugins_searched = true;
+	}
+
+	// Keep packaged plugins visible when a command-line scenario replaces the
+	// installed data path, without also loading the installation's generic MML.
+	if (!installed_plugins_searched && installed_data_dir.GetPath()[0] != '\0')
+	{
+		DirectorySpecifier path = installed_data_dir + "Plugins";
 		loader.ParseDirectory(path);
 	}
 	std::sort(m_plugins.begin(), m_plugins.end());

@@ -46,6 +46,10 @@ protected:
 	ToggleWidget*		m_zBufferWidget;
 	ToggleWidget*		m_fogWidget;
 	ToggleWidget*		m_forceFogWidget;
+	ToggleWidget*		m_forceFogMediaRelativeWidget;
+	ToggleWidget*		m_forceFogAnimatedDensityWidget;
+	ToggleWidget*		m_forceFogDepthDensityWidget;
+	SelectorWidget*		m_forceFogWeatherPresetWidget;
 	ToggleWidget*		m_colourEffectsWidget;
 	ToggleWidget*		m_transparentLiquidsWidget;
 	ToggleWidget*		m_3DmodelsWidget;

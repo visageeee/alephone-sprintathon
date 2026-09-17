@@ -157,6 +157,10 @@ OpenGLDialog::~OpenGLDialog()
 	delete m_okWidget;
 	delete m_fogWidget;
 	delete m_forceFogWidget;
+	delete m_forceFogMediaRelativeWidget;
+	delete m_forceFogAnimatedDensityWidget;
+	delete m_forceFogDepthDensityWidget;
+	delete m_forceFogWeatherPresetWidget;
 	delete m_colourEffectsWidget;
 	delete m_transparentLiquidsWidget;
 	delete m_3DmodelsWidget;
@@ -196,6 +200,26 @@ void OpenGLDialog::OpenGLPrefsByRunning ()
 		graphics_preferences->OGL_Configure.Flags,
 		OGL_Flag_ForceFog);
 	binders.insert<bool> (m_forceFogWidget, &forceFogPref);
+	BoolPref forceFogMediaRelativePref (
+		graphics_preferences->OGL_Configure.ForceFogMediaRelative);
+	binders.insert<bool> (
+		m_forceFogMediaRelativeWidget,
+		&forceFogMediaRelativePref);
+	BoolPref forceFogAnimatedDensityPref (
+		graphics_preferences->OGL_Configure.ForceFogAnimatedDensity);
+	binders.insert<bool> (
+		m_forceFogAnimatedDensityWidget,
+		&forceFogAnimatedDensityPref);
+	BoolPref forceFogDepthDensityPref (
+		graphics_preferences->OGL_Configure.ForceFogDepthDensity);
+	binders.insert<bool> (
+		m_forceFogDepthDensityWidget,
+		&forceFogDepthDensityPref);
+	Int16Pref forceFogWeatherPresetPref (
+		graphics_preferences->OGL_Configure.ForceFogWeatherPreset);
+	binders.insert<int> (
+		m_forceFogWeatherPresetWidget,
+		&forceFogWeatherPresetPref);
 	BitPref colourEffectsPref (graphics_preferences->OGL_Configure.Flags, OGL_Flag_Fader);
 	binders.insert<bool> (m_colourEffectsWidget, &colourEffectsPref);
 	BitPref transparentLiquidsPref (graphics_preferences->OGL_Configure.Flags, OGL_Flag_LiqSeeThru);
@@ -327,6 +351,7 @@ public:
 		std::vector<std::string> labels;
 		labels.push_back("GENERAL");
 		labels.push_back("ADVANCED");
+		labels.push_back("FOG");
 		w_tab *tabs = new w_tab(labels, m_tabs);
 		placer->dual_add(tabs, m_dialog);
 		
@@ -335,16 +360,47 @@ public:
 		table_placer *general_table = new table_placer(2, get_theme_space(ITEM_WIDGET), true);
 		general_table->col_flags(0, placeable::kAlignRight);
 		general_table->col_flags(1, placeable::kAlignLeft);
+		table_placer *fog_table = new table_placer(2, get_theme_space(ITEM_WIDGET), true);
+		fog_table->col_flags(0, placeable::kAlignRight);
+		fog_table->col_flags(1, placeable::kAlignLeft);
 		
 		w_toggle *fog_w = new w_toggle(false);
-		general_table->dual_add(fog_w->label("Fog"), m_dialog);
-		general_table->dual_add(fog_w, m_dialog);
+		fog_table->dual_add(fog_w->label("Fog"), m_dialog);
+		fog_table->dual_add(fog_w, m_dialog);
 
 		w_toggle *force_fog_w = new w_toggle(false);
-		general_table->dual_add(
+		fog_table->dual_add(
 			force_fog_w->label("Fog in All Levels"),
 			m_dialog);
-		general_table->dual_add(force_fog_w, m_dialog);
+		fog_table->dual_add(force_fog_w, m_dialog);
+
+		w_toggle *force_fog_media_relative_w = new w_toggle(false);
+		fog_table->dual_add(
+			force_fog_media_relative_w->label("Media-relative Forced Fog"),
+			m_dialog);
+		fog_table->dual_add(force_fog_media_relative_w, m_dialog);
+
+		w_select_popup *force_fog_weather_preset_w = new w_select_popup();
+		std::vector<std::string> fog_weather_labels;
+		fog_weather_labels.push_back("Neutral Mist");
+		fog_weather_labels.push_back("Heavy Fog");
+		fog_weather_labels.push_back("Toxic Haze");
+		fog_weather_labels.push_back("Dust");
+		force_fog_weather_preset_w->set_labels(fog_weather_labels);
+		fog_table->dual_add(
+			force_fog_weather_preset_w->label("Weather Preset"), m_dialog);
+		fog_table->dual_add(force_fog_weather_preset_w, m_dialog);
+
+		w_toggle *force_fog_animated_density_w = new w_toggle(false);
+		fog_table->dual_add(
+			force_fog_animated_density_w->label("Animated Density"), m_dialog);
+		fog_table->dual_add(force_fog_animated_density_w, m_dialog);
+
+		w_toggle *force_fog_depth_density_w = new w_toggle(false);
+		fog_table->dual_add(
+			force_fog_depth_density_w->label("Density Increases with Depth"),
+			m_dialog);
+		fog_table->dual_add(force_fog_depth_density_w, m_dialog);
 
 		w_toggle *fader_w = new w_toggle(false);
 		general_table->dual_add(fader_w->label("Color Effects"), m_dialog);
@@ -530,6 +586,7 @@ public:
 
 		m_tabs->add(general_table, true);
 		m_tabs->add(advanced_placer, true);
+		m_tabs->add(fog_table, true);
 		placer->add(m_tabs, false);
 	
 		placer->add(new w_spacer(), true);
@@ -549,6 +606,14 @@ public:
 		
 		m_fogWidget = new ToggleWidget (fog_w);
 		m_forceFogWidget = new ToggleWidget (force_fog_w);
+		m_forceFogMediaRelativeWidget =
+			new ToggleWidget (force_fog_media_relative_w);
+		m_forceFogAnimatedDensityWidget =
+			new ToggleWidget (force_fog_animated_density_w);
+		m_forceFogDepthDensityWidget =
+			new ToggleWidget (force_fog_depth_density_w);
+		m_forceFogWeatherPresetWidget =
+			new PopupSelectorWidget (force_fog_weather_preset_w);
 		m_colourEffectsWidget = new ToggleWidget (fader_w);
 		m_transparentLiquidsWidget = new ToggleWidget (liq_w);
 		m_3DmodelsWidget = new ToggleWidget (models_w);
