@@ -127,6 +127,39 @@ const double TWO_PI = 8*atan(1.0);
 const float FixedAngleToRadians = TWO_PI/(float(FIXED_ONE)*float(FULL_CIRCLE));
 const float FixedAngleToDegrees = 360.0/(float(FIXED_ONE)*float(FULL_CIRCLE));
 
+static float sprintathon_underwater_phase(int16 media_type)
+{
+	const OGL_ConfigureData& config = Get_OGL_ConfigureData();
+	int16 speed_index = config.AnimatedMediaRippleSpeed;
+	switch (media_type)
+	{
+		case _media_lava: speed_index = config.AnimatedLavaRippleSpeed; break;
+		case _media_goo: speed_index = config.AnimatedGooRippleSpeed; break;
+		case _media_sewage: speed_index = config.AnimatedSewageRippleSpeed; break;
+		case _media_jjaro: speed_index = config.AnimatedJjaroRippleSpeed; break;
+		default: break;
+	}
+
+	static uint32 last_tick = machine_tick_count();
+	static double phase = 0.0;
+	const uint32 now = machine_tick_count();
+	const uint32 elapsed_ticks = now - last_tick;
+	if (elapsed_ticks > 0)
+	{
+		const double elapsed = std::min(
+			static_cast<double>(elapsed_ticks) / MACHINE_TICKS_PER_SECOND,
+			0.25);
+		const double bullet_time_rate =
+			sprintathon_bullet_time_active() ? 0.35 : 1.0;
+		const double media_rate =
+			(static_cast<double>(speed_index) + 1.0) * 0.25;
+		phase = std::fmod(phase + elapsed * bullet_time_rate * media_rate,
+			TWO_PI);
+		last_tick = now;
+	}
+	return static_cast<float>(phase);
+}
+
 void RenderRasterize_Shader::render_tree() {
 
 	weaponFlare = PIN(view->maximum_depth_intensity - NATURAL_LIGHT_INTENSITY, 0, FIXED_ONE)/float(FIXED_ONE);
@@ -290,6 +323,40 @@ void RenderRasterize_Shader::render_tree() {
 		RasPtr->swapper->deactivate();
 		blur->draw(*RasPtr->swapper);
 		RasPtr->swapper->activate();
+	}
+
+	// Refract the completed 3D view while submerged. This runs before the HUD
+	// is composited, so interface text and meters remain crisp.
+	if (view->under_media_boundary && view->origin_polygon_index != NONE)
+	{
+		polygon_data *polygon = get_polygon_data(view->origin_polygon_index);
+		if (polygon && polygon->media_index != NONE)
+		{
+			media_data *media = get_media_data(polygon->media_index);
+			if (media)
+			{
+				Shader *underwater = Shader::get(Shader::S_UnderwaterRipple);
+				// Finish the scene target before filtering it. At this point the
+				// freshly rendered frame is still the swapper's draw target;
+				// filter() samples current_contents(), which otherwise refers to
+				// the previous (often black) buffer.
+				RasPtr->swapper->swap();
+				underwater->enable();
+				underwater->setFloat(Shader::U_Time,
+					sprintathon_underwater_phase(media->type));
+				underwater->setFloat(Shader::U_PixelWidth,
+					view->screen_width * MainScreenPixelScale());
+				underwater->setFloat(Shader::U_PixelHeight,
+					view->screen_height * MainScreenPixelScale());
+				RasPtr->swapper->filter(false);
+				Shader::disable();
+
+				// Preserve the orientation expected by Rasterizer_Shader::End().
+				// This unfiltered copy makes both sides contain the refracted
+				// frame; End() can perform its normal final swap and presentation.
+				RasPtr->swapper->filter(false);
+			}
+		}
 	}
 
 	glAlphaFunc(GL_GREATER, 0.5);
@@ -617,6 +684,10 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 	const float ripple_phase = static_cast<float>(std::fmod(
 		ripple_seconds * 1.05 * ripple_speed, TWO_PI));
 	s->setFloat(Shader::U_Time, ripple_phase);
+	s->setFloat(Shader::U_PixelWidth,
+		view->screen_width * MainScreenPixelScale());
+	s->setFloat(Shader::U_PixelHeight,
+		view->screen_height * MainScreenPixelScale());
 	s->setFloat(Shader::U_MediaRipple,
 		mediaType != NONE && config.AnimatedMediaRipples ?
 			(static_cast<float>(config.AnimatedMediaRippleStrength) + 1.0f) *
@@ -625,6 +696,41 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 		mediaType != NONE && config.AnimatedMediaRipples ?
 			static_cast<float>(config.AnimatedMediaWetTextureStrength) *
 				0.25f : 0.0f);
+
+	// Capture the scene already drawn behind a transparent media surface.
+	// Diffuse media shaders sample it from texture unit 2 and bend that sample
+	// with the same wave field used to animate the liquid texture.
+	if (mediaType != NONE && renderStep == kDiffuse &&
+		config.AnimatedMediaRipples &&
+		TEST_FLAG(config.Flags, OGL_Flag_LiqSeeThru))
+	{
+		static GLuint media_scene_texture = 0;
+		static GLsizei media_scene_width = 0;
+		static GLsizei media_scene_height = 0;
+		const GLsizei width = static_cast<GLsizei>(
+			view->screen_width * MainScreenPixelScale());
+		const GLsizei height = static_cast<GLsizei>(
+			view->screen_height * MainScreenPixelScale());
+
+		glActiveTextureARB(GL_TEXTURE2_ARB);
+		if (!media_scene_texture)
+			glGenTextures(1, &media_scene_texture);
+		glBindTexture(GL_TEXTURE_RECTANGLE_ARB, media_scene_texture);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		if (width != media_scene_width || height != media_scene_height)
+		{
+			glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA, width, height,
+				0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+			media_scene_width = width;
+			media_scene_height = height;
+		}
+		glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0,
+			0, 0, width, height);
+		glActiveTextureARB(GL_TEXTURE0_ARB);
+	}
 	
 	if (TMgr->TextureType == OGL_Txtr_Landscape && opts) {
 		if (opts->SphereMap)
@@ -799,7 +905,9 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
 	{
 		GLfloat color[4];
 		glGetFloatv(GL_CURRENT_COLOR, color);
-		color[3] *= A1_PIN(
+		// The preference is the final surface opacity, not a multiplier on
+		// the scenario texture's pre-existing alpha.
+		color[3] = A1_PIN(
 			Get_OGL_ConfigureData().AnimatedMediaOpacity / 100.0f,
 			0.25f, 1.0f);
 		glColor4fv(color);

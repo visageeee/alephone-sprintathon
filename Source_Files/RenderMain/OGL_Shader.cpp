@@ -97,6 +97,7 @@ const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] =
 {
 	"error",
     "blur",
+	"underwater_ripple",
 	"bloom",
 	"landscape",
 	"landscape_bloom",
@@ -460,6 +461,32 @@ void initDefaultPrograms() {
         "	gl_FragColor = vec4(l2s(t), 1.0) * vertexColor;\n"
         "}\n";    
     
+	defaultVertexPrograms["underwater_ripple"] = ""
+		"void main(void) {\n"
+		"\tgl_TexCoord[0] = gl_MultiTexCoord0;\n"
+		"\tgl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+		"}\n";
+	defaultFragmentPrograms["underwater_ripple"] = ""
+		"uniform sampler2DRect texture0;\n"
+		"uniform float time;\n"
+		"uniform float pixelWidth;\n"
+		"uniform float pixelHeight;\n"
+		"void main(void) {\n"
+		"\tvec2 p = gl_TexCoord[0].xy;\n"
+		"\tvec2 uv = p / vec2(pixelWidth, pixelHeight);\n"
+		"\tfloat edge = smoothstep(0.0, 0.08, uv.x) *\n"
+		"\t\tsmoothstep(0.0, 0.08, 1.0 - uv.x) *\n"
+		"\t\tsmoothstep(0.0, 0.08, uv.y) *\n"
+		"\t\tsmoothstep(0.0, 0.08, 1.0 - uv.y);\n"
+		"\tvec2 wave = vec2(\n"
+		"\t\tsin(uv.y * 31.0 + time * 2.0) + 0.45 * sin(uv.y * 73.0 - time),\n"
+		"\t\tcos(uv.x * 27.0 - time * 2.0) + 0.40 * sin((uv.x + uv.y) * 49.0 + time));\n"
+		"\tvec2 warped = p + wave * vec2(2.6, 1.9) * edge;\n"
+		"\twarped = clamp(warped, vec2(0.5),\n"
+		"\t\tvec2(pixelWidth - 0.5, pixelHeight - 0.5));\n"
+		"\tgl_FragColor = texture2DRect(texture0, warped);\n"
+		"}\n";
+
     defaultVertexPrograms["bloom"] = ""
         "varying vec4 vertexColor;\n"
         "void main(void) {\n"

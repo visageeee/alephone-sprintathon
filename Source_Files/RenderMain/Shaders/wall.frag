@@ -1,6 +1,7 @@
 R"(
 
 uniform sampler2D texture0;
+uniform sampler2DRect texture2;
 uniform float pulsate;
 uniform float wobble;
 uniform float glow;
@@ -13,6 +14,8 @@ uniform float mediaFogSoftness;
 uniform float mediaRipple;
 uniform float mediaWetness;
 uniform float time;
+uniform float pixelWidth;
+uniform float pixelHeight;
 varying vec3 viewXY;
 varying vec3 viewDir;
 varying float worldZ;
@@ -38,6 +41,7 @@ void main (void) {
 	vec2 mediaDetailOffset = vec2(0.0);
 	float mediaTextureMix = 0.0;
 	float wetTextureShade = 1.0;
+	vec2 sceneRefractionOffset = vec2(0.0);
 	if (rippleStrength > 0.001) {
 		float phase = time;
 		vec2 base = texCoords.xy;
@@ -47,6 +51,8 @@ void main (void) {
 		vec2 broadWaves = vec2(
 			sin(base.y * 6.2831853 + phase),
 			cos(base.x * 6.2831853 - phase));
+		sceneRefractionOffset =
+			(broadWaves * 7.5 + fineWaves * 3.0) * rippleStrength;
 		texCoords.xy += (broadWaves * 0.008 + fineWaves * 0.0045) * rippleStrength;
 		vec2 slope = vec2(
 			0.24 * cos(base.x * 6.2831853 - phase) + 0.10 * cos((base.x + base.y) * 12.566371 - phase * 2.0),
@@ -103,7 +109,19 @@ void main (void) {
 		float heightMask = mix(1.0, heightFog, mediaFogEnabled);
 		fogFactor = 1.0 - (1.0 - fogFactor) * heightMask;
 	}
-	gl_FragColor = vec4(mix(gl_Fog.color.rgb, shadedColor, fogFactor), vertexColor.a * color.a);
+	vec3 finalColor = mix(gl_Fog.color.rgb, shadedColor, fogFactor);
+	if (rippleStrength > 0.001) {
+		vec2 screenCenter = vec2(pixelWidth, pixelHeight) * 0.5;
+		vec2 refractedCoord = screenCenter +
+			(gl_FragCoord.xy - screenCenter) * 0.975 +
+			sceneRefractionOffset;
+		vec3 refractedScene = texture2DRect(texture2,
+			refractedCoord).rgb;
+		float liquidAlpha = clamp(vertexColor.a, 0.0, 1.0);
+		gl_FragColor = vec4(mix(refractedScene, finalColor, liquidAlpha), 1.0);
+	} else {
+		gl_FragColor = vec4(finalColor, vertexColor.a * color.a);
+	}
 }
 
 )"
