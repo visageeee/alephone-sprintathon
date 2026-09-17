@@ -1071,9 +1071,9 @@ void handle_preferences(void)
 		textures->dual_add(texture_near_w[i], d);
 		if (i == OGL_Txtr_Wall || i == OGL_Txtr_Inhabitant)
 		{
-			int far = graphics_preferences->OGL_Configure.TxtrConfigList[i].FarFilter;
-			far = far == 5 ? 3 : far == 3 ? 2 : far;
-			texture_far_w[i] = new w_select(far, far_filter_labels_main);
+			int far_filter_index = graphics_preferences->OGL_Configure.TxtrConfigList[i].FarFilter;
+			far_filter_index = far_filter_index == 5 ? 3 : far_filter_index == 3 ? 2 : far_filter_index;
+			texture_far_w[i] = new w_select(far_filter_index, far_filter_labels_main);
 			textures->dual_add(texture_far_w[i]->label((std::string(texture_names[i]) + " Distant").c_str()), d);
 			textures->dual_add(texture_far_w[i], d);
 		}
