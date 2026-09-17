@@ -88,7 +88,9 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"mediaFogEnabled",
 	"mediaFogTop",
 	"mediaFogSoftness",
-	"objectWorldZ"
+	"objectWorldZ",
+	"mediaRipple",
+	"mediaWetness"
 };
 
 const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] = 

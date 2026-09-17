@@ -873,6 +873,22 @@ bool OGL_StartMain()
 					break;
 			}
 
+			if (fog_config.ForceFogBlack)
+			{
+				effective_fog_color = {0, 0, 0};
+			}
+			else if (fog_config.ForceFogDistanceDarkening)
+			{
+				// Distance fog already supplies the gradual interpolation. A dark
+				// target retains the weather hue while removing the luminous veil.
+				effective_fog_color.red = static_cast<uint16>(
+					effective_fog_color.red * 0.35f);
+				effective_fog_color.green = static_cast<uint16>(
+					effective_fog_color.green * 0.35f);
+				effective_fog_color.blue = static_cast<uint16>(
+					effective_fog_color.blue * 0.35f);
+			}
+
 			if (fog_config.ForceFogAnimatedDensity)
 			{
 				const double seconds = static_cast<double>(machine_tick_count()) /

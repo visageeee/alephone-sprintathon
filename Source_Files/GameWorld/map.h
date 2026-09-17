@@ -684,6 +684,8 @@ enum /* polygon types */
 
 struct horizontal_surface_data /* should be in polygon structure */
 {
+	bool is_media = false;
+	int16 media_type = NONE;
 	world_distance height;
 	int16 lightsource_index;
 	shape_descriptor texture;

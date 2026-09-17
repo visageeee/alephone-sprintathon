@@ -25,6 +25,7 @@
 #include "ChaseCam.h"
 #include "preferences.h"
 #include "screen.h"
+#include "map.h"
 
 #ifdef HAVE_OPENGL
 
@@ -465,7 +466,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 const double Radian2Circle = 1/TWO_PI;			// A circle is 2*pi radians
 const double FullCircleReciprocal = 1/double(FULL_CIRCLE);
 
-std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const shape_descriptor& Texture, short transferMode, float pulsate, float wobble, float intensity, float offset, RenderStep renderStep) {
+std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const shape_descriptor& Texture, short transferMode, float pulsate, float wobble, float intensity, float offset, RenderStep renderStep, int16 mediaType) {
 
 	Shader *s = NULL;
 
@@ -575,6 +576,55 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 	}
 
 	TMgr->SetupTextureMatrix();
+	const OGL_ConfigureData& config = Get_OGL_ConfigureData();
+	int16 ripple_speed_index = config.AnimatedMediaRippleSpeed;
+	switch (mediaType)
+	{
+		case _media_lava:
+			ripple_speed_index = config.AnimatedLavaRippleSpeed;
+			break;
+		case _media_goo:
+			ripple_speed_index = config.AnimatedGooRippleSpeed;
+			break;
+		case _media_sewage:
+			ripple_speed_index = config.AnimatedSewageRippleSpeed;
+			break;
+		case _media_jjaro:
+			ripple_speed_index = config.AnimatedJjaroRippleSpeed;
+			break;
+		default:
+			break;
+	}
+	const float ripple_speed =
+		(static_cast<float>(ripple_speed_index) + 1.0f) * 0.25f;
+	// The temporal phase wraps at 2-pi. Shader time harmonics and spatial wave
+	// cycles are integers, so both time and scrolling texture UVs wrap cleanly.
+	// Accumulate phase instead of multiplying absolute wall-clock time. This
+	// lets bullet time change animation speed without producing a phase jump.
+	static uint32 last_ripple_tick = machine_tick_count();
+	static double ripple_seconds = 0.0;
+	const uint32 ripple_tick = machine_tick_count();
+	const uint32 elapsed_ripple_ticks = ripple_tick - last_ripple_tick;
+	if (elapsed_ripple_ticks > 0)
+	{
+		const double elapsed = std::min(
+			static_cast<double>(elapsed_ripple_ticks) /
+				MACHINE_TICKS_PER_SECOND, 0.25);
+		ripple_seconds += elapsed *
+			(sprintathon_bullet_time_active() ? 0.35 : 1.0);
+		last_ripple_tick = ripple_tick;
+	}
+	const float ripple_phase = static_cast<float>(std::fmod(
+		ripple_seconds * 1.05 * ripple_speed, TWO_PI));
+	s->setFloat(Shader::U_Time, ripple_phase);
+	s->setFloat(Shader::U_MediaRipple,
+		mediaType != NONE && config.AnimatedMediaRipples ?
+			(static_cast<float>(config.AnimatedMediaRippleStrength) + 1.0f) *
+				0.25f : 0.0f);
+	s->setFloat(Shader::U_MediaWetness,
+		mediaType != NONE && config.AnimatedMediaRipples ?
+			static_cast<float>(config.AnimatedMediaWetTextureStrength) *
+				0.25f : 0.0f);
 	
 	if (TMgr->TextureType == OGL_Txtr_Landscape && opts) {
 		if (opts->SphereMap)
@@ -739,10 +789,23 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
 	float wobble = calcWobble(surface->transfer_mode, view->tick_count);
 	// note: wobble and pulsate behave the same way on floors and ceilings
 	// note 2: stronger wobble looks more like classic with default shaders
-	auto TMgr = setupWallTexture(texture, surface->transfer_mode, wobble * 4.0, 0, intensity, offset, renderStep);
+	auto TMgr = setupWallTexture(texture, surface->transfer_mode, wobble * 4.0,
+		0, intensity, offset, renderStep, surface->media_type);
 	if(TMgr->ShapeDesc == UNONE) { return; }
 
-	if (TMgr->IsBlended()) {
+	const bool adjustable_media = surface->is_media &&
+		TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_LiqSeeThru);
+	if (adjustable_media)
+	{
+		GLfloat color[4];
+		glGetFloatv(GL_CURRENT_COLOR, color);
+		color[3] *= A1_PIN(
+			Get_OGL_ConfigureData().AnimatedMediaOpacity / 100.0f,
+			0.25f, 1.0f);
+		glColor4fv(color);
+	}
+
+	if (TMgr->IsBlended() || adjustable_media) {
 		glEnable(GL_BLEND);
 		setupBlendFunc(TMgr->NormalBlend());
 		glEnable(GL_ALPHA_TEST);

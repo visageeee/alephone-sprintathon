@@ -253,9 +253,20 @@ void OGL_SetDefaults(OGL_ConfigureData& Data)
 	Data.WaitForVSync = true;
 	Data.Use_sRGB = false;
 	Data.Use_NPOT = false;
+	Data.AnimatedMediaRipples = true;
+	Data.AnimatedMediaOpacity = 85;
+	Data.AnimatedMediaRippleStrength = 3; // 0.75x
+	Data.AnimatedMediaWetTextureStrength = 8; // 2.0x
+	Data.AnimatedMediaRippleSpeed = 7; // water: 1.75x
+	Data.AnimatedLavaRippleSpeed = 23; // 5.75x
+	Data.AnimatedGooRippleSpeed = 7; // 1.75x
+	Data.AnimatedSewageRippleSpeed = 3; // 0.75x
+	Data.AnimatedJjaroRippleSpeed = 4; // 1.0x
 	Data.ForceFogMediaRelative = true;
 	Data.ForceFogAnimatedDensity = false;
 	Data.ForceFogDepthDensity = true;
+	Data.ForceFogBlack = false;
+	Data.ForceFogDistanceDarkening = false;
 	Data.ForceFogWeatherPreset = 0;
 
 	Data.BillboardXY = false;

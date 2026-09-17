@@ -26,6 +26,7 @@
 #include "screen.h"
 
 #include <functional>
+#include <iomanip>
 #include <sstream>
 
 class TexQualityPref : public Bindable<int>
@@ -160,12 +161,22 @@ OpenGLDialog::~OpenGLDialog()
 	delete m_forceFogMediaRelativeWidget;
 	delete m_forceFogAnimatedDensityWidget;
 	delete m_forceFogDepthDensityWidget;
+	delete m_forceFogBlackWidget;
+	delete m_forceFogDistanceDarkeningWidget;
 	delete m_forceFogWeatherPresetWidget;
 	delete m_colourEffectsWidget;
 	delete m_transparentLiquidsWidget;
 	delete m_3DmodelsWidget;
 	delete m_perspectiveWidget;
 	delete m_billboardWidget;
+	delete m_animatedMediaRipplesWidget;
+	delete m_animatedMediaRippleStrengthWidget;
+	delete m_animatedMediaWetTextureStrengthWidget;
+	delete m_animatedMediaRippleSpeedWidget;
+	delete m_animatedLavaRippleSpeedWidget;
+	delete m_animatedGooRippleSpeedWidget;
+	delete m_animatedSewageRippleSpeedWidget;
+	delete m_animatedJjaroRippleSpeedWidget;
 	delete m_blurWidget;
 	delete m_bumpWidget;
 	delete m_colourTheVoidWidget;
@@ -215,6 +226,16 @@ void OpenGLDialog::OpenGLPrefsByRunning ()
 	binders.insert<bool> (
 		m_forceFogDepthDensityWidget,
 		&forceFogDepthDensityPref);
+	BoolPref forceFogBlackPref (
+		graphics_preferences->OGL_Configure.ForceFogBlack);
+	binders.insert<bool> (
+		m_forceFogBlackWidget,
+		&forceFogBlackPref);
+	BoolPref forceFogDistanceDarkeningPref (
+		graphics_preferences->OGL_Configure.ForceFogDistanceDarkening);
+	binders.insert<bool> (
+		m_forceFogDistanceDarkeningWidget,
+		&forceFogDistanceDarkeningPref);
 	Int16Pref forceFogWeatherPresetPref (
 		graphics_preferences->OGL_Configure.ForceFogWeatherPreset);
 	binders.insert<int> (
@@ -230,6 +251,42 @@ void OpenGLDialog::OpenGLPrefsByRunning ()
 	binders.insert<bool> (m_blurWidget, &blurPref);
 	BitPref bumpPref (graphics_preferences->OGL_Configure.Flags, OGL_Flag_BumpMap);
 	binders.insert<bool> (m_bumpWidget, &bumpPref);
+	BoolPref animatedMediaRipplesPref (
+		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
+	binders.insert<bool> (
+		m_animatedMediaRipplesWidget,
+		&animatedMediaRipplesPref);
+	Int16Pref animatedMediaRippleStrengthPref (
+		graphics_preferences->OGL_Configure.AnimatedMediaRippleStrength);
+	binders.insert<int> (
+		m_animatedMediaRippleStrengthWidget,
+		&animatedMediaRippleStrengthPref);
+	Int16Pref animatedMediaWetTextureStrengthPref (
+		graphics_preferences->OGL_Configure.AnimatedMediaWetTextureStrength);
+	binders.insert<int> (
+		m_animatedMediaWetTextureStrengthWidget,
+		&animatedMediaWetTextureStrengthPref);
+	Int16Pref animatedMediaRippleSpeedPref (
+		graphics_preferences->OGL_Configure.AnimatedMediaRippleSpeed);
+	binders.insert<int> (
+		m_animatedMediaRippleSpeedWidget,
+		&animatedMediaRippleSpeedPref);
+	Int16Pref animatedLavaRippleSpeedPref (
+		graphics_preferences->OGL_Configure.AnimatedLavaRippleSpeed);
+	binders.insert<int> (m_animatedLavaRippleSpeedWidget,
+		&animatedLavaRippleSpeedPref);
+	Int16Pref animatedGooRippleSpeedPref (
+		graphics_preferences->OGL_Configure.AnimatedGooRippleSpeed);
+	binders.insert<int> (m_animatedGooRippleSpeedWidget,
+		&animatedGooRippleSpeedPref);
+	Int16Pref animatedSewageRippleSpeedPref (
+		graphics_preferences->OGL_Configure.AnimatedSewageRippleSpeed);
+	binders.insert<int> (m_animatedSewageRippleSpeedWidget,
+		&animatedSewageRippleSpeedPref);
+	Int16Pref animatedJjaroRippleSpeedPref (
+		graphics_preferences->OGL_Configure.AnimatedJjaroRippleSpeed);
+	binders.insert<int> (m_animatedJjaroRippleSpeedWidget,
+		&animatedJjaroRippleSpeedPref);
 	BitPref perspectivePref (graphics_preferences->OGL_Configure.Flags, OGL_Flag_MimicSW, true);
 	binders.insert<bool> (m_perspectiveWidget, &perspectivePref);
 
@@ -326,6 +383,49 @@ public:
 	}
 };
 
+class w_media_ripple_speed_slider : public w_slider {
+public:
+	w_media_ripple_speed_slider(int sel) : w_slider(28, sel) {
+		init_formatted_value();
+	}
+
+	virtual std::string formatted_value(void) {
+		std::ostringstream ss;
+		ss << std::fixed << std::setprecision(2)
+			<< ((selection + 1) * 0.25f) << "x";
+		return ss.str();
+	}
+};
+
+class w_media_ripple_strength_slider : public w_slider {
+public:
+	w_media_ripple_strength_slider(int sel) : w_slider(16, sel) {
+		init_formatted_value();
+	}
+
+	virtual std::string formatted_value(void) {
+		std::ostringstream ss;
+		ss << std::fixed << std::setprecision(2)
+			<< ((selection + 1) * 0.25f) << "x";
+		return ss.str();
+	}
+};
+
+class w_media_wet_texture_strength_slider : public w_slider {
+public:
+	w_media_wet_texture_strength_slider(int sel) : w_slider(17, sel) {
+		init_formatted_value();
+	}
+
+	virtual std::string formatted_value(void) {
+		if (selection == 0) return "Off";
+		std::ostringstream ss;
+		ss << std::fixed << std::setprecision(2)
+			<< (selection * 0.25f) << "x";
+		return ss.str();
+	}
+};
+
 
 class SdlOpenGLDialog : public OpenGLDialog
 {
@@ -349,8 +449,8 @@ public:
 		m_tabs = new tab_placer();
 
 		std::vector<std::string> labels;
-		labels.push_back("GENERAL");
-		labels.push_back("ADVANCED");
+		labels.push_back("GRAPHICS");
+		labels.push_back("LIQUIDS");
 		labels.push_back("FOG");
 		w_tab *tabs = new w_tab(labels, m_tabs);
 		placer->dual_add(tabs, m_dialog);
@@ -360,6 +460,9 @@ public:
 		table_placer *general_table = new table_placer(2, get_theme_space(ITEM_WIDGET), true);
 		general_table->col_flags(0, placeable::kAlignRight);
 		general_table->col_flags(1, placeable::kAlignLeft);
+		table_placer *liquids_table = new table_placer(2, get_theme_space(ITEM_WIDGET), true);
+		liquids_table->col_flags(0, placeable::kAlignRight);
+		liquids_table->col_flags(1, placeable::kAlignLeft);
 		table_placer *fog_table = new table_placer(2, get_theme_space(ITEM_WIDGET), true);
 		fog_table->col_flags(0, placeable::kAlignRight);
 		fog_table->col_flags(1, placeable::kAlignLeft);
@@ -402,19 +505,45 @@ public:
 			m_dialog);
 		fog_table->dual_add(force_fog_depth_density_w, m_dialog);
 
+		w_toggle *force_fog_black_w = new w_toggle(false);
+		fog_table->dual_add(
+			force_fog_black_w->label("Black Fog"), m_dialog);
+		fog_table->dual_add(force_fog_black_w, m_dialog);
+
+		w_toggle *force_fog_distance_darkening_w = new w_toggle(false);
+		fog_table->dual_add(
+			force_fog_distance_darkening_w->label("Darken with Distance"),
+			m_dialog);
+		fog_table->dual_add(force_fog_distance_darkening_w, m_dialog);
+
 		w_toggle *fader_w = new w_toggle(false);
 		general_table->dual_add(fader_w->label("Color Effects"), m_dialog);
 		general_table->dual_add(fader_w, m_dialog);
 
 		w_toggle *liq_w = new w_toggle(false);
-		general_table->dual_add(liq_w->label("Transparent Liquids"), m_dialog);
-		general_table->dual_add(liq_w, m_dialog);
+		liquids_table->dual_add(liq_w->label("Transparent Liquids"), m_dialog);
+		liquids_table->dual_add(liq_w, m_dialog);
 
 		w_toggle *models_w = new w_toggle(false);
 		general_table->dual_add(models_w->label("3D Models"), m_dialog);
 		general_table->dual_add(models_w, m_dialog);
 
 		w_enabling_toggle *perspective_w = new w_enabling_toggle(false);
+		w_toggle *animated_media_ripples_w = new w_toggle(true);
+		w_media_ripple_strength_slider *animated_media_ripple_strength_w =
+			new w_media_ripple_strength_slider(3);
+		w_media_wet_texture_strength_slider *animated_media_wet_texture_strength_w =
+			new w_media_wet_texture_strength_slider(4);
+		w_media_ripple_speed_slider *animated_media_ripple_speed_w =
+			new w_media_ripple_speed_slider(3);
+		w_media_ripple_speed_slider *animated_lava_ripple_speed_w =
+			new w_media_ripple_speed_slider(1);
+		w_media_ripple_speed_slider *animated_goo_ripple_speed_w =
+			new w_media_ripple_speed_slider(2);
+		w_media_ripple_speed_slider *animated_sewage_ripple_speed_w =
+			new w_media_ripple_speed_slider(1);
+		w_media_ripple_speed_slider *animated_jjaro_ripple_speed_w =
+			new w_media_ripple_speed_slider(3);
 		general_table->dual_add(perspective_w->label("3D Perspective"), m_dialog);
 
 		auto billboard_placer = new horizontal_placer(get_theme_space(ITEM_WIDGET));
@@ -505,20 +634,44 @@ public:
 		}
 		model_quality_w->set_labels(tex_quality_strings);
 
-		vertical_placer *advanced_placer = new vertical_placer;
-
-		table_placer *advanced_table = new table_placer(2, get_theme_space(ITEM_WIDGET), true);
-		advanced_table->col_flags(0, placeable::kAlignRight);
+		liquids_table->add_row(new w_spacer(), true);
+		liquids_table->dual_add(
+			animated_media_ripples_w->label("Animated Media Ripples"), m_dialog);
+		liquids_table->dual_add(animated_media_ripples_w, m_dialog);
+		liquids_table->dual_add(
+			animated_media_ripple_strength_w->label("Ripple Strength"), m_dialog);
+		liquids_table->dual_add(animated_media_ripple_strength_w, m_dialog);
+		liquids_table->dual_add(
+			animated_media_wet_texture_strength_w->label("Wet Texture Strength"), m_dialog);
+		liquids_table->dual_add(animated_media_wet_texture_strength_w, m_dialog);
+		liquids_table->add_row(new w_spacer(), true);
+		liquids_table->dual_add_row(
+			new w_static_text("Animation Speed by Media Type"), m_dialog);
+		liquids_table->dual_add(
+			animated_media_ripple_speed_w->label("Water Ripple Speed"), m_dialog);
+		liquids_table->dual_add(animated_media_ripple_speed_w, m_dialog);
+		liquids_table->dual_add(
+			animated_lava_ripple_speed_w->label("Lava Ripple Speed"), m_dialog);
+		liquids_table->dual_add(animated_lava_ripple_speed_w, m_dialog);
+		liquids_table->dual_add(
+			animated_goo_ripple_speed_w->label("Goo Ripple Speed"), m_dialog);
+		liquids_table->dual_add(animated_goo_ripple_speed_w, m_dialog);
+		liquids_table->dual_add(
+			animated_sewage_ripple_speed_w->label("Sewage Ripple Speed"), m_dialog);
+		liquids_table->dual_add(animated_sewage_ripple_speed_w, m_dialog);
+		liquids_table->dual_add(
+			animated_jjaro_ripple_speed_w->label("Jjaro Ripple Speed"), m_dialog);
+		liquids_table->dual_add(animated_jjaro_ripple_speed_w, m_dialog);
 	
 		w_toggle *use_npot_w = new w_toggle(false);
-		advanced_table->dual_add(use_npot_w->label("Non-Power-of-Two Textures"), m_dialog);
-		advanced_table->dual_add(use_npot_w, m_dialog);
-		advanced_table->dual_add_row(new w_static_text("Non-power-of-two textures conserve memory,"), m_dialog);
-		advanced_table->dual_add_row(new w_static_text("but cause problems on some machines."), m_dialog);
+		general_table->add_row(new w_spacer(), true);
+		general_table->dual_add(use_npot_w->label("Non-Power-of-Two Textures"), m_dialog);
+		general_table->dual_add(use_npot_w, m_dialog);
+		general_table->dual_add_row(new w_static_text("Non-power-of-two textures conserve memory,"), m_dialog);
+		general_table->dual_add_row(new w_static_text("but cause problems on some machines."), m_dialog);
 
-		advanced_table->add_row(new w_spacer(), true);
-		advanced_table->dual_add_row(new w_static_text("Texture Filtering"), m_dialog);
-		advanced_placer->add(advanced_table, true);
+		general_table->add_row(new w_spacer(), true);
+		general_table->dual_add_row(new w_static_text("Texture Filtering"), m_dialog);
 
 		w_select* near_filter_wa[OGL_NUMBER_OF_TEXTURE_TYPES];
 		w_select* far_filter_wa[OGL_NUMBER_OF_TEXTURE_TYPES];
@@ -566,26 +719,12 @@ public:
 		ftable->col_min_width(1, (ftable->col_width(0) - get_theme_space(ITEM_WIDGET)) / 2);
 		ftable->col_min_width(2, (ftable->col_width(0) - get_theme_space(ITEM_WIDGET)) / 2);
 		
-		advanced_placer->add(ftable, true);
-
-		advanced_placer->add(new w_spacer(), true);
-		w_select_popup *texture_resolution_wa[OGL_NUMBER_OF_TEXTURE_TYPES];
-		w_select_popup *texture_depth_wa[OGL_NUMBER_OF_TEXTURE_TYPES];
-		for (int i = 0; i < OGL_NUMBER_OF_TEXTURE_TYPES; i++) 
-		{
-			texture_resolution_wa[i] = new w_select_popup();
-			texture_depth_wa[i] = new w_select_popup();
-		}
-
-		w_label *texture_labels[OGL_NUMBER_OF_TEXTURE_TYPES];
-		texture_labels[OGL_Txtr_Wall] = new w_label("Walls");
-		texture_labels[OGL_Txtr_Landscape] = new w_label("Landscapes");
-		texture_labels[OGL_Txtr_Inhabitant] = new w_label("Sprites");
-		texture_labels[OGL_Txtr_WeaponsInHand] = new w_label("Weapons in Hand");
-		texture_labels[OGL_Txtr_HUD] = new w_label("HUD / Terminals");
+		// The filtering grid spans the complete Graphics tab. Adding it as a
+		// single table cell leaves the second column null and crashes layout.
+		general_table->add_row(ftable, true);
 
 		m_tabs->add(general_table, true);
-		m_tabs->add(advanced_placer, true);
+		m_tabs->add(liquids_table, true);
 		m_tabs->add(fog_table, true);
 		placer->add(m_tabs, false);
 	
@@ -612,6 +751,10 @@ public:
 			new ToggleWidget (force_fog_animated_density_w);
 		m_forceFogDepthDensityWidget =
 			new ToggleWidget (force_fog_depth_density_w);
+		m_forceFogBlackWidget =
+			new ToggleWidget (force_fog_black_w);
+		m_forceFogDistanceDarkeningWidget =
+			new ToggleWidget (force_fog_distance_darkening_w);
 		m_forceFogWeatherPresetWidget =
 			new PopupSelectorWidget (force_fog_weather_preset_w);
 		m_colourEffectsWidget = new ToggleWidget (fader_w);
@@ -621,6 +764,22 @@ public:
 		m_bumpWidget = new ToggleWidget (bump_w);
 		m_perspectiveWidget = new ToggleWidget (perspective_w);
 		m_billboardWidget = new ToggleWidget (billboard_w);
+		m_animatedMediaRipplesWidget =
+			new ToggleWidget (animated_media_ripples_w);
+		m_animatedMediaRippleStrengthWidget =
+			new SliderSelectorWidget (animated_media_ripple_strength_w);
+		m_animatedMediaWetTextureStrengthWidget =
+			new SliderSelectorWidget (animated_media_wet_texture_strength_w);
+		m_animatedMediaRippleSpeedWidget =
+			new SliderSelectorWidget (animated_media_ripple_speed_w);
+		m_animatedLavaRippleSpeedWidget =
+			new SliderSelectorWidget (animated_lava_ripple_speed_w);
+		m_animatedGooRippleSpeedWidget =
+			new SliderSelectorWidget (animated_goo_ripple_speed_w);
+		m_animatedSewageRippleSpeedWidget =
+			new SliderSelectorWidget (animated_sewage_ripple_speed_w);
+		m_animatedJjaroRippleSpeedWidget =
+			new SliderSelectorWidget (animated_jjaro_ripple_speed_w);
 
 		m_colourTheVoidWidget = 0;
 		m_voidColourWidget = 0;

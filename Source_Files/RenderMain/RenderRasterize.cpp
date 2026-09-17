@@ -168,6 +168,8 @@ void RenderRasterizerClass::render_node(
 		
 		if (media_surface)
 		{
+			media_surface->is_media= true;
+			media_surface->media_type= media->type;
 			media_surface->origin= media->origin;
 			media_surface->height= media->height;
 			media_surface->texture= media->texture;
@@ -318,6 +320,8 @@ void RenderRasterizerClass::render_node(
 			// Render the liquids
 			bool ceil = (media->height > view->origin.z);
 			horizontal_surface_data LiquidSurface;
+			LiquidSurface.is_media= true;
+			LiquidSurface.media_type= media->type;
 			
 			LiquidSurface.origin= media->origin;
 			LiquidSurface.height= media->height;

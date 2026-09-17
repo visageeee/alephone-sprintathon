@@ -11,6 +11,8 @@ uniform float fogMode;
 uniform float mediaFogEnabled;
 uniform float mediaFogTop;
 uniform float mediaFogSoftness;
+uniform float mediaRipple;
+uniform float time;
 varying vec3 viewXY;
 varying vec3 viewDir;
 varying float worldZ;
@@ -30,6 +32,21 @@ float getFogFactor(float distance) {
 
 void main (void) {
 	vec3 texCoords = vec3(gl_TexCoord[0].xy, 0.0);
+	float rippleStrength = mediaRipple;
+	float rippleBloom = 1.0;
+	if (rippleStrength > 0.001) {
+		float phase = time;
+		vec2 base = texCoords.xy;
+		vec2 fineWaves = vec2(
+			sin(base.y * 18.849556 + phase * 3.0) + 0.55 * sin((base.x + base.y) * 12.566371 - phase * 2.0),
+			cos(base.x * 18.849556 - phase * 2.0) + 0.50 * sin((base.x - base.y) * 12.566371 + phase));
+		vec2 broadWaves = vec2(
+			sin(base.y * 6.2831853 + phase),
+			cos(base.x * 6.2831853 - phase));
+		texCoords.xy += (broadWaves * 0.008 + fineWaves * 0.0045) * rippleStrength;
+		float fresnel = pow(1.0 - abs(normalize(viewDir).z), 3.0);
+		rippleBloom = 1.0 + fresnel * 0.15 * rippleStrength;
+	}
 	vec3 normXY = normalize(viewXY);
 	texCoords += vec3(normXY.y * -pulsate, normXY.x * pulsate, 0.0);
 	texCoords += vec3(normXY.y * -wobble * texCoords.y, wobble * texCoords.y, 0.0);
@@ -37,6 +54,7 @@ void main (void) {
 	vec3 intensity = clamp(vertexColor.rgb, glow, 1.0);
 	float diffuse = abs(dot(vec3(0.0, 0.0, 1.0), normalize(viewDir)));
 	intensity = clamp(intensity * bloomScale + bloomShift, 0.0, 1.0);
+	intensity = clamp(intensity * rippleBloom, 0.0, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)
 #endif

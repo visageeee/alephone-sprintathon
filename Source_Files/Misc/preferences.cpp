@@ -368,6 +368,38 @@ public:
 	}
 };
 
+class w_embedded_media_slider : public w_slider
+{
+public:
+	w_embedded_media_slider(int count, int selection, bool allow_off = false) :
+		w_slider(count, selection), m_allow_off(allow_off) { init_formatted_value(); }
+	std::string formatted_value(void) override
+	{
+		if (m_allow_off && get_selection() == 0) return "Off";
+		const float value = m_allow_off ? get_selection() * 0.25f :
+			(get_selection() + 1) * 0.25f;
+		char text[16];
+		snprintf(text, sizeof(text), "%.2fx", value);
+		return text;
+	}
+private:
+	bool m_allow_off;
+};
+
+class w_embedded_liquid_opacity_slider : public w_slider
+{
+public:
+	explicit w_embedded_liquid_opacity_slider(int percent) :
+		w_slider(16, A1_PIN((percent - 25) / 5, 0, 15))
+	{
+		init_formatted_value();
+	}
+	std::string formatted_value(void) override
+	{
+		return std::to_string(25 + get_selection() * 5) + "%";
+	}
+};
+
 extern float View_FOV_Normal();
 extern bool shapes_file_is_m1();
 
@@ -570,18 +602,19 @@ void handle_preferences(void)
 		embedded_bobbing_labels);
 	graphics_view->dual_add(graphics_bobbing_w->label("View Bobbing"), d);
 	graphics_view->dual_add(graphics_bobbing_w, d);
-	graphics_page->add(graphics_display, true);
-	graphics_page->add(new w_spacer, true);
-	graphics_page->add(graphics_view, true);
-	graphics_page->add(new w_spacer, true);
-	graphics_page->dual_add(new w_button("ADVANCED RENDERING",
-		[graphics_renderer_w, &d](void*) {
-			const int renderer = graphics_renderer_w->get_selection();
-			if (renderer == _no_acceleration)
-				software_rendering_options_dialog(&d);
-			else if (renderer == _opengl_acceleration)
-				OpenGLDialog::Create(renderer)->OpenGLPrefsByRunning();
-		}, nullptr), d);
+	tab_placer *graphics_tabs = new tab_placer;
+	const vector<string> graphics_tab_labels = {
+		"DISPLAY", "RENDERING", "TEXTURES", "LIQUIDS", "FOG"
+	};
+	graphics_page->dual_add(new w_tab(graphics_tab_labels, graphics_tabs), d);
+	vertical_placer *graphics_display_page =
+		new vertical_placer(get_theme_space(ITEM_WIDGET));
+	graphics_display_page->center_vertically();
+	graphics_display_page->add(graphics_display, true);
+	graphics_display_page->add(new w_spacer, true);
+	graphics_display_page->add(graphics_view, true);
+	graphics_tabs->add(graphics_display_page, true);
+	graphics_page->add(graphics_tabs, true);
 	pages->add(graphics_page, true);
 
 	/* HUD has its own top-level page so Graphics remains compact. */
@@ -954,6 +987,149 @@ void handle_preferences(void)
 		nullptr
 	};
 	pages->add(build_embedded_controls(d, controls_state), true);
+
+	/* OpenGL options live in the main sidebar instead of a nested dialog. */
+	auto make_preferences_table = []() {
+		auto table = new table_placer(2, get_theme_space(ITEM_WIDGET), false);
+		table->row_space(scale_dialog_value(4));
+		table->col_flags(0, placeable::kAlignRight);
+		return table;
+	};
+	auto ogl_flag = [](uint16 flag) {
+		return (graphics_preferences->OGL_Configure.Flags & flag) != 0;
+	};
+
+	vertical_placer *rendering_page = new vertical_placer(get_theme_space(ITEM_WIDGET));
+	rendering_page->center_vertically();
+	rendering_page->min_width(scale_dialog_value(430));
+	table_placer *rendering = make_preferences_table();
+	w_toggle *ogl_fader_w = new w_toggle(ogl_flag(OGL_Flag_Fader));
+	w_toggle *ogl_models_w = new w_toggle(ogl_flag(OGL_Flag_3D_Models));
+	w_toggle *ogl_perspective_w = new w_toggle(!ogl_flag(OGL_Flag_MimicSW));
+	w_toggle *ogl_billboard_w = new w_toggle(graphics_preferences->OGL_Configure.BillboardXY);
+	w_toggle *ogl_bloom_w = new w_toggle(ogl_flag(OGL_Flag_Blur));
+	w_toggle *ogl_bump_w = new w_toggle(ogl_flag(OGL_Flag_BumpMap));
+	w_toggle *ogl_vsync_w = new w_toggle(graphics_preferences->OGL_Configure.WaitForVSync);
+	w_toggle *ogl_npot_w = new w_toggle(graphics_preferences->OGL_Configure.Use_NPOT);
+	static const char *effects_quality_labels[] = {"Off", "Low", "Medium", "High", "Ultra", nullptr};
+	w_select *ogl_effects_w = new w_select(graphics_preferences->ephemera_quality, effects_quality_labels);
+	static const char *aniso_labels[] = {"Off", "1x", "2x", "4x", "8x", "16x", nullptr};
+	int aniso_selection = 0;
+	for (int value = static_cast<int>(graphics_preferences->OGL_Configure.AnisotropyLevel);
+		value >= 1; value >>= 1) ++aniso_selection;
+	w_select *ogl_aniso_w = new w_select(aniso_selection, aniso_labels);
+#define ADD_RENDERING_ROW(caption, widget) \
+	rendering->dual_add((widget)->label(caption), d); rendering->dual_add(widget, d)
+	ADD_RENDERING_ROW("Color Effects", ogl_fader_w);
+	ADD_RENDERING_ROW("3D Models", ogl_models_w);
+	ADD_RENDERING_ROW("3D Perspective", ogl_perspective_w);
+	ADD_RENDERING_ROW("Tilt Sprites with Camera", ogl_billboard_w);
+	ADD_RENDERING_ROW("Bloom Effects", ogl_bloom_w);
+	ADD_RENDERING_ROW("Bump Mapping", ogl_bump_w);
+	ADD_RENDERING_ROW("Scripted Effects Quality", ogl_effects_w);
+	ADD_RENDERING_ROW("VSync", ogl_vsync_w);
+	ADD_RENDERING_ROW("Anisotropic Filtering", ogl_aniso_w);
+	ADD_RENDERING_ROW("Non-Power-of-Two Textures", ogl_npot_w);
+#undef ADD_RENDERING_ROW
+	rendering_page->add(rendering, true);
+	graphics_tabs->add(rendering_page, true);
+
+	vertical_placer *textures_page = new vertical_placer(get_theme_space(ITEM_WIDGET));
+	textures_page->center_vertically();
+	textures_page->min_width(scale_dialog_value(430));
+	table_placer *textures = make_preferences_table();
+	static const char *texture_names[] = {"Walls", "Landscapes", "Sprites", "Weapons in Hand", "HUD / Terminals"};
+	static const char *texture_quality_labels[] = {"Unlimited", "Normal", "High", "Higher", "Highest", nullptr};
+	static const char *near_filter_labels_main[] = {"None", "Linear", nullptr};
+	static const char *far_filter_labels_main[] = {"None", "Linear", "Bilinear", "Trilinear", nullptr};
+	w_select *texture_quality_w[OGL_NUMBER_OF_TEXTURE_TYPES];
+	w_select *texture_near_w[OGL_NUMBER_OF_TEXTURE_TYPES];
+	w_select *texture_far_w[OGL_NUMBER_OF_TEXTURE_TYPES] = {};
+	auto quality_selection = [](int value, int normal) {
+		int result = 0;
+		while (value >= normal) { value >>= 1; ++result; }
+		return result;
+	};
+	textures->dual_add_row(new w_static_text("Replacement Texture Quality", LABEL_WIDGET), d);
+	for (int i = 0; i < OGL_NUMBER_OF_TEXTURE_TYPES; ++i)
+	{
+		texture_quality_w[i] = new w_select(quality_selection(
+			graphics_preferences->OGL_Configure.TxtrConfigList[i].MaxSize, 128), texture_quality_labels);
+		textures->dual_add(texture_quality_w[i]->label(texture_names[i]), d);
+		textures->dual_add(texture_quality_w[i], d);
+	}
+	w_select *model_quality_w = new w_select(quality_selection(
+		graphics_preferences->OGL_Configure.ModelConfig.MaxSize, 256), texture_quality_labels);
+	textures->dual_add(model_quality_w->label("3D Model Skins"), d);
+	textures->dual_add(model_quality_w, d);
+	textures->dual_add_row(new w_static_text("Texture Filtering", LABEL_WIDGET), d);
+	for (int i = 0; i < OGL_NUMBER_OF_TEXTURE_TYPES; ++i)
+	{
+		texture_near_w[i] = new w_select(
+			graphics_preferences->OGL_Configure.TxtrConfigList[i].NearFilter, near_filter_labels_main);
+		textures->dual_add(texture_near_w[i]->label((std::string(texture_names[i]) + " Near").c_str()), d);
+		textures->dual_add(texture_near_w[i], d);
+		if (i == OGL_Txtr_Wall || i == OGL_Txtr_Inhabitant)
+		{
+			int far = graphics_preferences->OGL_Configure.TxtrConfigList[i].FarFilter;
+			far = far == 5 ? 3 : far == 3 ? 2 : far;
+			texture_far_w[i] = new w_select(far, far_filter_labels_main);
+			textures->dual_add(texture_far_w[i]->label((std::string(texture_names[i]) + " Distant").c_str()), d);
+			textures->dual_add(texture_far_w[i], d);
+		}
+	}
+	textures_page->add(textures, true);
+	graphics_tabs->add(textures_page, true);
+
+	vertical_placer *liquids_page = new vertical_placer(get_theme_space(ITEM_WIDGET));
+	liquids_page->center_vertically(); liquids_page->min_width(scale_dialog_value(430));
+	table_placer *liquids = make_preferences_table();
+	w_toggle *liquid_transparency_w = new w_toggle(ogl_flag(OGL_Flag_LiqSeeThru));
+	w_embedded_liquid_opacity_slider *liquid_opacity_w =
+		new w_embedded_liquid_opacity_slider(
+			graphics_preferences->OGL_Configure.AnimatedMediaOpacity);
+	w_toggle *liquid_ripples_w = new w_toggle(graphics_preferences->OGL_Configure.AnimatedMediaRipples);
+	w_embedded_media_slider *liquid_strength_w = new w_embedded_media_slider(16,
+		A1_PIN(graphics_preferences->OGL_Configure.AnimatedMediaRippleStrength - 1, 0, 15));
+	w_embedded_media_slider *liquid_wetness_w = new w_embedded_media_slider(17,
+		A1_PIN(graphics_preferences->OGL_Configure.AnimatedMediaWetTextureStrength, 0, 16), true);
+	w_embedded_media_slider *liquid_speed_w[5];
+	int16 *liquid_speeds[5] = {&graphics_preferences->OGL_Configure.AnimatedMediaRippleSpeed,
+		&graphics_preferences->OGL_Configure.AnimatedLavaRippleSpeed,
+		&graphics_preferences->OGL_Configure.AnimatedGooRippleSpeed,
+		&graphics_preferences->OGL_Configure.AnimatedSewageRippleSpeed,
+		&graphics_preferences->OGL_Configure.AnimatedJjaroRippleSpeed};
+	const char *liquid_speed_names[5] = {"Water Ripple Speed", "Lava Ripple Speed", "Goo Ripple Speed", "Sewage Ripple Speed", "Jjaro Ripple Speed"};
+	liquids->dual_add(liquid_transparency_w->label("Transparent Liquids"), d); liquids->dual_add(liquid_transparency_w, d);
+	liquids->dual_add(liquid_opacity_w->label("Liquid Opacity"), d); liquids->dual_add(liquid_opacity_w, d);
+	liquids->dual_add(liquid_ripples_w->label("Animated Media Ripples"), d); liquids->dual_add(liquid_ripples_w, d);
+	liquids->dual_add(liquid_strength_w->label("Ripple Strength"), d); liquids->dual_add(liquid_strength_w, d);
+	liquids->dual_add(liquid_wetness_w->label("Wet Texture Strength"), d); liquids->dual_add(liquid_wetness_w, d);
+	for (int i = 0; i < 5; ++i) {
+		liquid_speed_w[i] = new w_embedded_media_slider(28, A1_PIN(*liquid_speeds[i] - 1, 0, 27));
+		liquids->dual_add(liquid_speed_w[i]->label(liquid_speed_names[i]), d); liquids->dual_add(liquid_speed_w[i], d);
+	}
+	liquids_page->add(liquids, true); graphics_tabs->add(liquids_page, true);
+
+	vertical_placer *fog_page = new vertical_placer(get_theme_space(ITEM_WIDGET));
+	fog_page->center_vertically(); fog_page->min_width(scale_dialog_value(430));
+	table_placer *fog = make_preferences_table();
+	w_toggle *fog_enabled_w = new w_toggle(ogl_flag(OGL_Flag_Fog));
+	w_toggle *fog_force_w = new w_toggle(ogl_flag(OGL_Flag_ForceFog));
+	w_toggle *fog_media_w = new w_toggle(graphics_preferences->OGL_Configure.ForceFogMediaRelative);
+	static const char *weather_labels[] = {"Neutral Mist", "Heavy Fog", "Toxic Haze", "Dust", nullptr};
+	w_select *fog_weather_w = new w_select(graphics_preferences->OGL_Configure.ForceFogWeatherPreset, weather_labels);
+	w_toggle *fog_animated_w = new w_toggle(graphics_preferences->OGL_Configure.ForceFogAnimatedDensity);
+	w_toggle *fog_depth_w = new w_toggle(graphics_preferences->OGL_Configure.ForceFogDepthDensity);
+	w_toggle *fog_black_w = new w_toggle(graphics_preferences->OGL_Configure.ForceFogBlack);
+	w_toggle *fog_darken_w = new w_toggle(graphics_preferences->OGL_Configure.ForceFogDistanceDarkening);
+#define ADD_FOG_ROW(caption, widget) fog->dual_add((widget)->label(caption), d); fog->dual_add(widget, d)
+	ADD_FOG_ROW("Fog", fog_enabled_w); ADD_FOG_ROW("Fog in All Levels", fog_force_w);
+	ADD_FOG_ROW("Media-relative Forced Fog", fog_media_w); ADD_FOG_ROW("Weather Preset", fog_weather_w);
+	ADD_FOG_ROW("Animated Density", fog_animated_w); ADD_FOG_ROW("Density Increases with Depth", fog_depth_w);
+	ADD_FOG_ROW("Black Fog", fog_black_w); ADD_FOG_ROW("Darken with Distance", fog_darken_w);
+#undef ADD_FOG_ROW
+	fog_page->add(fog, true); graphics_tabs->add(fog_page, true);
 	pages->choose_tab(category_pages[0]);
 
 	horizontal_placer *body = new horizontal_placer(
@@ -1045,6 +1221,55 @@ void handle_preferences(void)
 	embedded_graphics_changed |= embedded_bobbing !=
 		graphics_preferences->screen_mode.bobbing_type;
 	graphics_preferences->screen_mode.bobbing_type = embedded_bobbing;
+	auto store_ogl_flag = [](uint16 flag, bool enabled) {
+		if (enabled) graphics_preferences->OGL_Configure.Flags |= flag;
+		else graphics_preferences->OGL_Configure.Flags &= ~flag;
+	};
+	store_ogl_flag(OGL_Flag_Fader, ogl_fader_w->get_selection());
+	store_ogl_flag(OGL_Flag_3D_Models, ogl_models_w->get_selection());
+	store_ogl_flag(OGL_Flag_MimicSW, !ogl_perspective_w->get_selection());
+	store_ogl_flag(OGL_Flag_Blur, ogl_bloom_w->get_selection());
+	store_ogl_flag(OGL_Flag_BumpMap, ogl_bump_w->get_selection());
+	store_ogl_flag(OGL_Flag_LiqSeeThru, liquid_transparency_w->get_selection());
+	store_ogl_flag(OGL_Flag_Fog, fog_enabled_w->get_selection());
+	store_ogl_flag(OGL_Flag_ForceFog, fog_force_w->get_selection());
+	graphics_preferences->OGL_Configure.BillboardXY = ogl_billboard_w->get_selection();
+	graphics_preferences->OGL_Configure.WaitForVSync = ogl_vsync_w->get_selection();
+	graphics_preferences->OGL_Configure.Use_NPOT = ogl_npot_w->get_selection();
+	graphics_preferences->ephemera_quality = ogl_effects_w->get_selection();
+	const int aniso = ogl_aniso_w->get_selection();
+	graphics_preferences->OGL_Configure.AnisotropyLevel =
+		aniso == 0 ? 0.0f : static_cast<float>(1 << (aniso - 1));
+	auto quality_value = [](int selection, int normal) {
+		return selection == 0 ? 0 : normal << (selection - 1);
+	};
+	for (int i = 0; i < OGL_NUMBER_OF_TEXTURE_TYPES; ++i)
+	{
+		graphics_preferences->OGL_Configure.TxtrConfigList[i].MaxSize =
+			quality_value(texture_quality_w[i]->get_selection(), 128);
+		graphics_preferences->OGL_Configure.TxtrConfigList[i].NearFilter =
+			texture_near_w[i]->get_selection();
+		if (texture_far_w[i])
+		{
+			const int selection = texture_far_w[i]->get_selection();
+			graphics_preferences->OGL_Configure.TxtrConfigList[i].FarFilter =
+				selection == 2 ? 3 : selection == 3 ? 5 : selection;
+		}
+	}
+	graphics_preferences->OGL_Configure.ModelConfig.MaxSize =
+		quality_value(model_quality_w->get_selection(), 256);
+	graphics_preferences->OGL_Configure.AnimatedMediaRipples = liquid_ripples_w->get_selection();
+	graphics_preferences->OGL_Configure.AnimatedMediaOpacity =
+		25 + liquid_opacity_w->get_selection() * 5;
+	graphics_preferences->OGL_Configure.AnimatedMediaRippleStrength = liquid_strength_w->get_selection() + 1;
+	graphics_preferences->OGL_Configure.AnimatedMediaWetTextureStrength = liquid_wetness_w->get_selection();
+	for (int i = 0; i < 5; ++i) *liquid_speeds[i] = liquid_speed_w[i]->get_selection() + 1;
+	graphics_preferences->OGL_Configure.ForceFogMediaRelative = fog_media_w->get_selection();
+	graphics_preferences->OGL_Configure.ForceFogWeatherPreset = fog_weather_w->get_selection();
+	graphics_preferences->OGL_Configure.ForceFogAnimatedDensity = fog_animated_w->get_selection();
+	graphics_preferences->OGL_Configure.ForceFogDepthDensity = fog_depth_w->get_selection();
+	graphics_preferences->OGL_Configure.ForceFogBlack = fog_black_w->get_selection();
+	graphics_preferences->OGL_Configure.ForceFogDistanceDarkening = fog_darken_w->get_selection();
 	graphics_preferences->pickup_flash =
 		graphics_pickup_flash_w->get_selection();
 	const bool embedded_hud = graphics_hud_w->get_selection();
@@ -5216,12 +5441,34 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("gamma_corrected_blending", graphics_preferences->OGL_Configure.Use_sRGB);
 	root.put_attr("use_npot", graphics_preferences->OGL_Configure.Use_NPOT);
 	root.put_attr("billboard_xy", graphics_preferences->OGL_Configure.BillboardXY);
+	root.put_attr("animated_media_ripples",
+		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
+	root.put_attr("animated_media_opacity",
+		graphics_preferences->OGL_Configure.AnimatedMediaOpacity);
+	root.put_attr("animated_media_ripple_strength",
+		graphics_preferences->OGL_Configure.AnimatedMediaRippleStrength);
+	root.put_attr("animated_media_wet_texture_strength",
+		graphics_preferences->OGL_Configure.AnimatedMediaWetTextureStrength);
+	root.put_attr("animated_media_ripple_speed",
+		graphics_preferences->OGL_Configure.AnimatedMediaRippleSpeed);
+	root.put_attr("animated_lava_ripple_speed",
+		graphics_preferences->OGL_Configure.AnimatedLavaRippleSpeed);
+	root.put_attr("animated_goo_ripple_speed",
+		graphics_preferences->OGL_Configure.AnimatedGooRippleSpeed);
+	root.put_attr("animated_sewage_ripple_speed",
+		graphics_preferences->OGL_Configure.AnimatedSewageRippleSpeed);
+	root.put_attr("animated_jjaro_ripple_speed",
+		graphics_preferences->OGL_Configure.AnimatedJjaroRippleSpeed);
 	root.put_attr("force_fog_media_relative",
 		graphics_preferences->OGL_Configure.ForceFogMediaRelative);
 	root.put_attr("force_fog_animated_density",
 		graphics_preferences->OGL_Configure.ForceFogAnimatedDensity);
 	root.put_attr("force_fog_depth_density",
 		graphics_preferences->OGL_Configure.ForceFogDepthDensity);
+	root.put_attr("force_fog_black",
+		graphics_preferences->OGL_Configure.ForceFogBlack);
+	root.put_attr("force_fog_distance_darkening",
+		graphics_preferences->OGL_Configure.ForceFogDistanceDarkening);
 	root.put_attr("force_fog_weather_preset",
 		graphics_preferences->OGL_Configure.ForceFogWeatherPreset);
 	root.put_attr("movie_export_video_quality", graphics_preferences->movie_export_video_quality);
@@ -6282,12 +6529,34 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("gamma_corrected_blending", graphics_preferences->OGL_Configure.Use_sRGB);
 	root.read_attr("use_npot", graphics_preferences->OGL_Configure.Use_NPOT);
 	root.read_attr("billboard_xy", graphics_preferences->OGL_Configure.BillboardXY);
+	root.read_attr("animated_media_ripples",
+		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
+	root.read_attr_bounded<int16>("animated_media_opacity",
+		graphics_preferences->OGL_Configure.AnimatedMediaOpacity, 25, 100);
+	root.read_attr_bounded<int16>("animated_media_ripple_strength",
+		graphics_preferences->OGL_Configure.AnimatedMediaRippleStrength, 0, 15);
+	root.read_attr_bounded<int16>("animated_media_wet_texture_strength",
+		graphics_preferences->OGL_Configure.AnimatedMediaWetTextureStrength, 0, 16);
+	root.read_attr_bounded<int16>("animated_media_ripple_speed",
+		graphics_preferences->OGL_Configure.AnimatedMediaRippleSpeed, 0, 27);
+	root.read_attr_bounded<int16>("animated_lava_ripple_speed",
+		graphics_preferences->OGL_Configure.AnimatedLavaRippleSpeed, 0, 27);
+	root.read_attr_bounded<int16>("animated_goo_ripple_speed",
+		graphics_preferences->OGL_Configure.AnimatedGooRippleSpeed, 0, 27);
+	root.read_attr_bounded<int16>("animated_sewage_ripple_speed",
+		graphics_preferences->OGL_Configure.AnimatedSewageRippleSpeed, 0, 27);
+	root.read_attr_bounded<int16>("animated_jjaro_ripple_speed",
+		graphics_preferences->OGL_Configure.AnimatedJjaroRippleSpeed, 0, 27);
 	root.read_attr("force_fog_media_relative",
 		graphics_preferences->OGL_Configure.ForceFogMediaRelative);
 	root.read_attr("force_fog_animated_density",
 		graphics_preferences->OGL_Configure.ForceFogAnimatedDensity);
 	root.read_attr("force_fog_depth_density",
 		graphics_preferences->OGL_Configure.ForceFogDepthDensity);
+	root.read_attr("force_fog_black",
+		graphics_preferences->OGL_Configure.ForceFogBlack);
+	root.read_attr("force_fog_distance_darkening",
+		graphics_preferences->OGL_Configure.ForceFogDistanceDarkening);
 	root.read_attr_bounded<int16>("force_fog_weather_preset",
 		graphics_preferences->OGL_Configure.ForceFogWeatherPreset, 0, 3);
 	root.read_attr_bounded<int16>("movie_export_video_quality", graphics_preferences->movie_export_video_quality, 0, 100);

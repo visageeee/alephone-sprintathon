@@ -258,9 +258,20 @@ struct OGL_ConfigureData
 	bool Use_NPOT;
 
 	bool BillboardXY; // for when MimicSW is off
+	bool AnimatedMediaRipples;
+	int16 AnimatedMediaOpacity;
+	int16 AnimatedMediaRippleStrength;
+	int16 AnimatedMediaWetTextureStrength;
+	int16 AnimatedMediaRippleSpeed;
+	int16 AnimatedLavaRippleSpeed;
+	int16 AnimatedGooRippleSpeed;
+	int16 AnimatedSewageRippleSpeed;
+	int16 AnimatedJjaroRippleSpeed;
 	bool ForceFogMediaRelative; // height-limit forced fallback fog to level media
 	bool ForceFogAnimatedDensity;
 	bool ForceFogDepthDensity;
+	bool ForceFogBlack;
+	bool ForceFogDistanceDarkening;
 	int16 ForceFogWeatherPreset;
 };
 

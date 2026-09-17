@@ -71,6 +71,8 @@ public:
 		U_MediaFogTop,
 		U_MediaFogSoftness,
 		U_ObjectWorldZ,
+		U_MediaRipple,
+		U_MediaWetness,
 		NUMBER_OF_UNIFORM_LOCATIONS
 	};
 

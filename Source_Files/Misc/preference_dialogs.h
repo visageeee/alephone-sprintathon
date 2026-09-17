@@ -49,6 +49,8 @@ protected:
 	ToggleWidget*		m_forceFogMediaRelativeWidget;
 	ToggleWidget*		m_forceFogAnimatedDensityWidget;
 	ToggleWidget*		m_forceFogDepthDensityWidget;
+	ToggleWidget*		m_forceFogBlackWidget;
+	ToggleWidget*		m_forceFogDistanceDarkeningWidget;
 	SelectorWidget*		m_forceFogWeatherPresetWidget;
 	ToggleWidget*		m_colourEffectsWidget;
 	ToggleWidget*		m_transparentLiquidsWidget;
@@ -57,6 +59,14 @@ protected:
 	ToggleWidget*		m_bumpWidget;
 	ToggleWidget*		m_perspectiveWidget;
 	ToggleWidget*       m_billboardWidget;
+	ToggleWidget*       m_animatedMediaRipplesWidget;
+	SelectorWidget*     m_animatedMediaRippleStrengthWidget;
+	SelectorWidget*     m_animatedMediaWetTextureStrengthWidget;
+	SelectorWidget*     m_animatedMediaRippleSpeedWidget;
+	SelectorWidget*     m_animatedLavaRippleSpeedWidget;
+	SelectorWidget*     m_animatedGooRippleSpeedWidget;
+	SelectorWidget*     m_animatedSewageRippleSpeedWidget;
+	SelectorWidget*     m_animatedJjaroRippleSpeedWidget;
 	
 	ToggleWidget*		m_colourTheVoidWidget;
 	ColourPickerWidget*	m_voidColourWidget;
