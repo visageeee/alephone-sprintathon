@@ -330,7 +330,7 @@ extern struct environment_preferences_data *environment_preferences;
 /* --------- functions */
 void initialize_preferences(void);
 void read_preferences();
-void handle_preferences(void);
+void handle_preferences(bool in_game = false);
 void write_preferences(void);
 
 static inline int16 get_fps_target() {

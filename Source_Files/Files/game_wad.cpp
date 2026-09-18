@@ -150,6 +150,8 @@ struct revert_game_info
 	FileSpecifier SavedGame;
 };
 static struct revert_game_info revert_game_data;
+static struct revert_game_info preferences_revert_game_data;
+static bool preferences_revert_game_data_valid = false;
 
 /* -------- static functions */
 static void scan_and_add_scenery(void);
@@ -1289,6 +1291,34 @@ bool load_game_from_file(FileSpecifier& File, bool run_scripts)
 	}
 
 	return success;
+}
+
+/*
+ * The in-game Preferences dialog uses the normal save-game serializer to make
+ * a short-lived safety snapshot. Keep this out of the player's ordinary
+ * save/revert history: save_game_file() normally makes its file the new
+ * Revert Game target.
+ */
+bool save_game_for_preferences(FileSpecifier& File)
+{
+	const revert_game_info previous_revert_game_data = revert_game_data;
+	const bool success = save_game_file(File, std::string(), std::string());
+	revert_game_data = previous_revert_game_data;
+	if (success)
+	{
+		preferences_revert_game_data = previous_revert_game_data;
+		preferences_revert_game_data_valid = true;
+	}
+	return success;
+}
+
+void restore_revert_info_after_preferences(void)
+{
+	if (preferences_revert_game_data_valid)
+	{
+		revert_game_data = preferences_revert_game_data;
+		preferences_revert_game_data_valid = false;
+	}
 }
 
 void setup_revert_game_info(

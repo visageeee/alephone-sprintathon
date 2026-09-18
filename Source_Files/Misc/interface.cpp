@@ -780,11 +780,12 @@ bool join_networked_resume_game()
 }
 #endif // !defined(DISABLE_NETWORKING)
 
-extern bool load_and_start_game(FileSpecifier& File);
+extern bool load_and_start_game(
+	FileSpecifier& File, bool force_single_player = true);
 
 // ZZZ: changes to use generalized game startup support
 // This will be used only on the machine that picked "Continue Saved Game".
-bool load_and_start_game(FileSpecifier& File)
+bool load_and_start_game(FileSpecifier& File, bool force_single_player)
 {
 	bool success;
 
@@ -794,7 +795,8 @@ bool load_and_start_game(FileSpecifier& File)
 		interface_fade_out(MAIN_MENU_BASE, true);
 	}
 
-	auto pluginMode = saved_game_was_networked(File) == 1 ? Plugins::kMode_Net : Plugins::kMode_Solo;
+	auto pluginMode = !force_single_player && saved_game_was_networked(File) == 1 ?
+		Plugins::kMode_Net : Plugins::kMode_Solo;
 	Plugins::instance()->set_mode(pluginMode);
 	success= load_game_from_file(File, false);
 
@@ -806,10 +808,10 @@ bool load_and_start_game(FileSpecifier& File)
 		display_loading_map_error();
 	}
 
-	bool userWantsMultiplayer;	
-	size_t theResult = UNONE;
+	bool userWantsMultiplayer = false;
+	size_t theResult = force_single_player ? 0 : UNONE;
 
-	if (success)
+	if (success && !force_single_player)
 	{
 		theResult = should_restore_game_networked(File);
 	}
@@ -1354,9 +1356,42 @@ void do_menu_item_command(
 								} else {
 									pause_game();
 									show_cursor();
-									really_wants_to_quit= quit_without_saving();
-									hide_cursor();
-									resume_game();
+									const quit_game_dialog_action action =
+										quit_without_saving();
+									if (action == _quit_game_preferences)
+									{
+										FileSpecifier temporary_save;
+										temporary_save.SetToLocalDataDir();
+										temporary_save +=
+											".sprintathon-preferences-resume.sgaA";
+										if (temporary_save.Exists())
+											temporary_save.Delete();
+
+										if (save_game_for_preferences(temporary_save))
+										{
+											resume_game();
+											set_game_state(_close_game);
+											do_preferences(true);
+											if (!load_and_start_game(temporary_save))
+												display_main_menu();
+											restore_revert_info_after_preferences();
+										}
+										else
+										{
+											hide_cursor();
+											resume_game();
+										}
+
+										if (temporary_save.Exists())
+											temporary_save.Delete();
+									}
+									else
+									{
+										really_wants_to_quit =
+											action == _quit_game_confirmed;
+										hide_cursor();
+										resume_game();
+									}
 								}
 								break;
 							
@@ -2756,7 +2791,7 @@ void handle_load_game(
 	show_cursor(); // JTP: Was hidden by force system colors
 	if(choose_saved_game_to_load(FileToLoad))
 	{
-		if(load_and_start_game(FileToLoad))
+		if(load_and_start_game(FileToLoad, false))
                 {
 			success= true;
 		}
@@ -3431,19 +3466,20 @@ bool interface_fade_finished(
 }
 
 
-void do_preferences(void)
+void do_preferences(bool in_game)
 {
 	struct screen_mode_data mode = graphics_preferences->screen_mode;
 
 	force_system_colors(false);
-	handle_preferences();
+	handle_preferences(in_game);
 
 	if (mode.bit_depth != graphics_preferences->screen_mode.bit_depth) {
 		paint_window_black();
 		Screen::instance()->Initialize(&graphics_preferences->screen_mode);
 
 		/* Re fade in, so that we get the proper colortable loaded.. */
-		display_main_menu();
+		if (!in_game)
+			display_main_menu();
 	} else if (memcmp(&mode, &graphics_preferences->screen_mode, sizeof(struct screen_mode_data)))
 		change_screen_mode(&graphics_preferences->screen_mode, false);
 }

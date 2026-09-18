@@ -40,6 +40,8 @@ Aug 12, 2000 (Loren Petrich):
 class FileSpecifier;
 
 bool save_game_file(FileSpecifier& File, const std::string& metadata, const std::string& imagedata);
+bool save_game_for_preferences(FileSpecifier& File);
+void restore_revert_info_after_preferences(void);
 struct wad_data *build_meta_game_wad(const std::string& metadata, const std::string& imagedata, struct wad_header *header, int32 *length);
 
 bool export_level(FileSpecifier& File);

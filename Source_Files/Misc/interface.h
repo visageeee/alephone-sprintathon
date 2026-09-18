@@ -278,7 +278,7 @@ void set_game_focus_lost();
 void set_game_focus_gained();
 
 /* ---------- prototypes/INTERFACE_MACINTOSH.C */
-void do_preferences(void);
+void do_preferences(bool in_game = false);
 short get_level_number_from_user(void);
 void toggle_menus(bool game_started);
 
@@ -390,7 +390,13 @@ bool handle_preferences_dialog(void);
 void handle_load_game(void);
 void handle_save_game(void);
 bool handle_start_game(void);
-bool quit_without_saving(void);
+enum quit_game_dialog_action
+{
+	_quit_game_cancelled = -1,
+	_quit_game_confirmed = 0,
+	_quit_game_preferences = 1
+};
+quit_game_dialog_action quit_without_saving(void);
 
 /* ---------- prototypes/GAME_WINDOW.C */
 void scroll_inventory(short dy);

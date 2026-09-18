@@ -176,7 +176,7 @@ static std::string a1_getenv(const char* name)
 }
 
 extern bool handle_open_replay(FileSpecifier& File);
-extern bool load_and_start_game(FileSpecifier& file);
+extern bool load_and_start_game(FileSpecifier& file, bool force_single_player = true);
 extern bool handle_edit_map();
 
 bool handle_open_document(const std::string& filename)
@@ -193,7 +193,7 @@ bool handle_open_document(const std::string& filename)
 		}
 		break;
 	case _typecode_savegame:
-		if (load_and_start_game(file))
+		if (load_and_start_game(file, false))
 		{
 			done = true;
 		}
@@ -615,22 +615,34 @@ static void initialize_marathon_music_handler(void)
 		Music::instance()->SetupIntroMusic(file);
 }
 
-bool quit_without_saving(void)
+quit_game_dialog_action quit_without_saving(void)
 {
 	dialog d;
 	vertical_placer *placer = new vertical_placer;
 	placer->dual_add (new w_static_text("Are you sure you wish to"), d);
 	placer->dual_add (new w_static_text("cancel the game in progress?"), d);
-	placer->add (new w_spacer(), true);
-	
-	horizontal_placer *button_placer = new horizontal_placer;
-	w_button *default_button = new w_button("YES", dialog_ok, &d);
-	button_placer->dual_add (default_button, d);
-	button_placer->dual_add (new w_button("NO", dialog_cancel, &d), d);
+	placer->add(new w_spacer(scale_dialog_value(12)), true);
+
+	horizontal_placer *primary_buttons = new horizontal_placer(
+		scale_dialog_value(12));
+	w_button *default_button = new w_button(
+		"RETURN TO GAME", dialog_cancel, &d);
+	primary_buttons->dual_add(default_button, d);
+	primary_buttons->dual_add(new w_button(
+		"QUIT TO MENU", dialog_ok, &d), d);
+	placer->add(primary_buttons, true);
+
+	placer->add(new w_spacer(scale_dialog_value(10)), true);
+	horizontal_placer *preferences_row = new horizontal_placer;
+	preferences_row->dual_add(new w_button("PREFERENCES...", [](void *arg) {
+		static_cast<dialog *>(arg)->quit(_quit_game_preferences);
+	}, &d), d);
+	placer->add(preferences_row, true);
+	placer->add(new w_spacer(scale_dialog_value(6)), true);
+
 	d.activate_widget(default_button);
-	placer->add(button_placer, true);
 	d.set_widget_placer(placer);
-	return d.run() == 0;
+	return static_cast<quit_game_dialog_action>(d.run());
 }
 
 // ZZZ: moved level-numbers widget into sdl_widgets for a wider audience.

@@ -408,7 +408,7 @@ extern bool shapes_file_is_m1();
  *  Main preferences dialog
  */
 
-void handle_preferences(void)
+void handle_preferences(bool in_game)
 {
 	// Save the existing preferences, in case we have to reload them
 	write_preferences();
@@ -1141,8 +1141,12 @@ void handle_preferences(void)
 	root->add(body, true);
 
 	horizontal_placer *footer = new horizontal_placer;
-	footer->dual_add(new w_button("SAVE SETTINGS", dialog_ok, &d), d);
-	footer->dual_add(new w_button("CANCEL", dialog_cancel, &d), d);
+	footer->dual_add(new w_button(
+		in_game ? "SAVE AND RETURN TO GAME" : "SAVE SETTINGS",
+		dialog_ok, &d), d);
+	footer->dual_add(new w_button(
+		in_game ? "CANCEL AND RETURN TO GAME" : "CANCEL",
+		dialog_cancel, &d), d);
 	root->add(footer, true);
 
 	d.set_widget_placer(root);
@@ -1156,7 +1160,8 @@ void handle_preferences(void)
 	exit_joystick();
 	if (preferences_result != 0)
 	{
-		display_main_menu();
+		if (!in_game)
+			display_main_menu();
 		return;
 	}
 
@@ -1507,8 +1512,8 @@ void handle_preferences(void)
 		clear_screen(true);
 	}
 
-	// Redraw main menu
-	display_main_menu();
+	if (!in_game)
+		display_main_menu();
 }
 
 class CrosshairPref : public Bindable<int>
