@@ -23,6 +23,10 @@ jobs:
         run: |
           test -d "Xcode/build/Release/Sprintathon.app"
 
+          mkdir -p             "Xcode/build/Release/Sprintathon.app/Contents/Resources/snd"
+
+          cp snd/*.ogg             "Xcode/build/Release/Sprintathon.app/Contents/Resources/snd/"
+
           codesign --force --deep --sign - --timestamp=none \
             "Xcode/build/Release/Sprintathon.app"
 
