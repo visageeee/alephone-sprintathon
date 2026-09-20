@@ -1913,6 +1913,13 @@ bool player_is_reloading_weapon(
 	for (short which_trigger= 0; which_trigger<NUMBER_OF_TRIGGERS;
 		++which_trigger)
 	{
+		const bool trigger_is_in_use=
+			which_trigger==_primary_weapon ?
+				PRIMARY_WEAPON_IS_VALID(weapon) :
+				SECONDARY_WEAPON_IS_VALID(weapon);
+		if (!trigger_is_in_use)
+			continue;
+
 		switch (weapon->triggers[which_trigger].state)
 		{
 			case _weapon_awaiting_reload:
