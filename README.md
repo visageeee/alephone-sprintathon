@@ -52,10 +52,7 @@ untrusted mirrors.
 
 ### macOS
 
-Download the macOS ZIP matching your Mac's processor:
-
-- **ARM / Apple Silicon** for M1, M2, M3 and later Apple chips
-- **x64 / Intel** for Intel-based Macs
+Download the macOS ZIP
 
 Extract the ZIP and move `Sprintathon.app` to `Applications` or another writable
 folder. The application is currently **unsigned and not notarized**, so macOS
