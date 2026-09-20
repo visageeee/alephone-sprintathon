@@ -2,7 +2,6 @@ name: Build Sprintathon for macOS
 
 on:
   workflow_dispatch:
-
 jobs:
   release:
     name: macOS universal

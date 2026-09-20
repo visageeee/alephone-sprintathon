@@ -1,6 +1,7 @@
 name: release-windows
 
-on: [workflow_dispatch, workflow_call]
+on:
+  workflow_dispatch:
 
 jobs:
   release-x64:

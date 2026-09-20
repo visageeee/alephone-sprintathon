@@ -1,6 +1,7 @@
 name: release-all
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
 
 jobs:
   linux:

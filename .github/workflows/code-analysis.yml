@@ -1,11 +1,7 @@
 name: code-analysis
 
 on:
-  push:
-    branches: [master]
-  pull_request:
-    branches: [master]
-
+  workflow_dispatch:
 jobs:
   CodeQL-Build:
     runs-on: ubuntu-22.04
