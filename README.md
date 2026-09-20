@@ -41,9 +41,9 @@ and extract the complete archive to a writable folder. Keep the executable and
 its accompanying data directories together, then run `Sprintathon.exe`.
 
 Sprintathon's Windows builds are currently **unsigned**. Windows SmartScreen may
-therefore display an â€œunknown publisherâ€ warning even when the archive was
+therefore display an "unknown publisher" warning even when the archive was
 downloaded from the official Sprintathon release page. Review the filename and
-release source before choosing **More info â†’ Run anyway**. You can alternatively
+release source before choosing **More info - Run anyway**. You can alternatively
 right-click the downloaded ZIP, open **Properties**, select **Unblock** if the
 option is present, and then extract it.
 
