@@ -19,6 +19,7 @@ function GetCommonFiles() {
 	$sprintathon_assets = @(
 		"gfx/slidelegs.png",
 		"gfx/frontlegs.png",
+		"gfx/pistol_scope.png",
 		"snd/slide.ogg",
 		"snd/kickhit.ogg",
 		"snd/wallkick.ogg",

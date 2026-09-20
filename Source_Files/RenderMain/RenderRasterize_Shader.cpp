@@ -1755,6 +1755,7 @@ static void render_slide_legs(view_data *view, RenderStep renderStep)
 void RenderRasterize_Shader::render_viewer_sprite_layer(RenderStep renderStep)
 {
         if (!view->show_weapons_in_hand) return;
+	if (sprintathon_single_pistol_zoom_active()) return;
     
         glMatrixMode(GL_TEXTURE);
         glPushMatrix();

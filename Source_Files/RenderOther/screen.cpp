@@ -1245,32 +1245,58 @@ void update_world_view_camera()
 	 */
 	static float movement_fov_bonus= 0.0f;
 	static float bullet_time_fov_offset= 0.0f;
+	static float pistol_zoom_fov_offset= 0.0f;
 	const float movement_fov_target=
 		(input_preferences->sprintathon_enabled &&
 		 current_player->sprinting) ? 5.0f : 0.0f;
 	const float bullet_time_fov_target=
 		sprintathon_bullet_time_active() ? -7.0f : 0.0f;
+	const float pistol_zoom_fov_target=
+		/* About twice the optical magnification of the previous 48-degree view. */
+		sprintathon_single_pistol_zoom_active() ? -55.0f : 0.0f;
 	movement_fov_bonus +=
 		(movement_fov_target-movement_fov_bonus)*0.06f;
 	bullet_time_fov_offset +=
 		(bullet_time_fov_target-bullet_time_fov_offset)*0.08f;
+	pistol_zoom_fov_offset +=
+		(pistol_zoom_fov_target-pistol_zoom_fov_offset)*
+		(pistol_zoom_fov_target ? 0.18f : 0.12f);
 	if (fabsf(movement_fov_target-movement_fov_bonus)<0.01f)
 		movement_fov_bonus= movement_fov_target;
 	if (fabsf(bullet_time_fov_target-bullet_time_fov_offset)<0.01f)
 		bullet_time_fov_offset= bullet_time_fov_target;
+	if (fabsf(pistol_zoom_fov_target-pistol_zoom_fov_offset)<0.01f)
+		pistol_zoom_fov_offset= pistol_zoom_fov_target;
 
 	if (!current_player->extravision_duration &&
 		!world_view->tunnel_vision_active)
 	{
 		world_view->target_field_of_view=
 			NORMAL_FIELD_OF_VIEW+movement_fov_bonus+
-			bullet_time_fov_offset;
+			bullet_time_fov_offset+pistol_zoom_fov_offset;
 	}
 
-	world_view->yaw = current_player->facing;
+	int16 scoped_recoil_yaw= 0;
+	int16 scoped_recoil_pitch= 0;
+	switch (current_player->scoped_pistol_recoil_ticks)
+	{
+		case 8: scoped_recoil_pitch= 4; break;
+		case 7: scoped_recoil_yaw= 1; scoped_recoil_pitch= 8; break;
+		case 6: scoped_recoil_yaw= -1; scoped_recoil_pitch= 11; break;
+		case 5: scoped_recoil_yaw= 1; scoped_recoil_pitch= 9; break;
+		case 4: scoped_recoil_pitch= 6; break;
+		case 3: scoped_recoil_yaw= -1; scoped_recoil_pitch= 3; break;
+		case 2: scoped_recoil_pitch= 1; break;
+		case 1: scoped_recoil_pitch= 0; break;
+		default: break;
+	}
+	scoped_recoil_yaw= (FULL_CIRCLE*scoped_recoil_yaw)/360;
+	scoped_recoil_pitch= (FULL_CIRCLE*scoped_recoil_pitch)/360;
+
+	world_view->yaw = current_player->facing+scoped_recoil_yaw;
 	world_view->pitch = current_player->elevation+
 		current_player->sprintathon_camera_pitch+
-		current_player->backflip_camera_pitch;
+		current_player->backflip_camera_pitch+scoped_recoil_pitch;
 	world_view->roll = current_player->sprintathon_camera_roll+
 		current_player->cartwheel_camera_roll;
 	world_view->maximum_depth_intensity = current_player->weapon_intensity;
@@ -2105,20 +2131,27 @@ static GLhandleARB sprintathon_radial_blur_program()
 		"#version 120\n"
 		"uniform sampler2D frame_texture;\n"
 		"uniform float effect_amount;\n"
+		"uniform float scope_amount;\n"
 		"uniform float aspect_ratio;\n"
 		"varying vec2 blur_uv;\n"
 		"void main() {\n"
 		"  vec2 radial = blur_uv - vec2(0.5);\n"
 		"  vec2 shaped = radial * vec2(aspect_ratio, 1.0);\n"
-		"  float edge = smoothstep(0.12, 0.58, length(shaped));\n"
+		"  float radius = length(shaped);\n"
+		"  float edge = smoothstep(0.12, 0.58, radius);\n"
+		"  float scope_edge = smoothstep(0.34, 0.43, radius);\n"
 		"  vec4 original = texture2D(frame_texture, blur_uv);\n"
 		"  vec4 blurred = original;\n"
 		"  for (int i = 1; i <= 16; ++i) {\n"
-		"    float distance = float(i) * 0.0036 * effect_amount;\n"
-		"    blurred += texture2D(frame_texture, blur_uv - radial * distance);\n"
+		"    float blur_amount = max(effect_amount, scope_amount * 2.2);\n"
+		"    float distance = float(i) * 0.0036 * blur_amount;\n"
+		"    vec2 offset = radial * distance;\n"
+		"    blurred += texture2D(frame_texture, blur_uv - offset);\n"
 		"  }\n"
 		"  blurred /= 17.0;\n"
-		"  float strength = min(1.0, edge * effect_amount * 1.2);\n"
+		"  float bullet_strength = edge * effect_amount * 1.2;\n"
+		"  float scope_strength = scope_edge * scope_amount * 1.35;\n"
+		"  float strength = min(1.0, max(bullet_strength, scope_strength));\n"
 		"  gl_FragColor = mix(original, blurred, strength);\n"
 		"}\n";
 
@@ -2163,24 +2196,44 @@ static GLhandleARB sprintathon_radial_blur_program()
 static void draw_sprintathon_bullet_time_effect()
 {
 	static float amount= 0.f;
+	static float scope_amount= 0.f;
 	static float transition_start_amount= 0.f;
+	static float scope_transition_start_amount= 0.f;
 	static float previous_target= 0.f;
+	static float previous_scope_target= 0.f;
 	static uint32 transition_start_tick= 0;
+	static uint32 scope_transition_start_tick= 0;
 	const uint32 now= machine_tick_count();
 	const float target= sprintathon_bullet_time_active() ? 1.f : 0.f;
+	const float scope_target=
+		sprintathon_single_pistol_zoom_active() ? 1.f : 0.f;
 	if (target!=previous_target)
 	{
 		transition_start_amount= amount;
 		transition_start_tick= now;
 		previous_target= target;
 	}
+	if (scope_target!=previous_scope_target)
+	{
+		scope_transition_start_amount= scope_amount;
+		scope_transition_start_tick= now;
+		previous_scope_target= scope_target;
+	}
 	const float progress= std::min(
 		static_cast<float>(now-transition_start_tick)/1000.f, 1.f);
 	amount= transition_start_amount+
 		(target-transition_start_amount)*progress;
-	if (amount<0.001f && target==0.f)
+	const float scope_progress= std::min(
+		static_cast<float>(now-scope_transition_start_tick)/180.f, 1.f);
+	const float eased_scope_progress=
+		scope_progress*scope_progress*(3.f-2.f*scope_progress);
+	scope_amount= scope_transition_start_amount+
+		(scope_target-scope_transition_start_amount)*eased_scope_progress;
+	if (amount<0.001f && target==0.f &&
+		scope_amount<0.001f && scope_target==0.f)
 	{
 		amount= 0.f;
+		scope_amount= 0.f;
 		return;
 	}
 
@@ -2250,6 +2303,9 @@ static void draw_sprintathon_bullet_time_effect()
 		glUniform1fARB(
 			glGetUniformLocationARB(blur_program, "effect_amount"), amount);
 		glUniform1fARB(
+			glGetUniformLocationARB(blur_program, "scope_amount"),
+			scope_amount);
+		glUniform1fARB(
 			glGetUniformLocationARB(blur_program, "aspect_ratio"),
 			static_cast<GLfloat>(pixel_width)/pixel_height);
 		glColor4f(1.f, 1.f, 1.f, 1.f);
@@ -2274,6 +2330,81 @@ static void draw_sprintathon_bullet_time_effect()
 	glVertex2f(right, bottom);
 	glVertex2f(0.f, bottom);
 	glEnd();
+
+	/* Keep the reticle and metal rim sharp while the peripheral scene blurs. */
+	if (scope_amount>0.001f)
+	{
+		static OGL_Blitter pistol_scope;
+		static bool load_attempted= false;
+		if (!load_attempted)
+		{
+			load_attempted= true;
+			FileSpecifier file("gfx/pistol_scope.png");
+			if (!file.Exists() &&
+				!file.SetNameWithPath("Sprintathon/pistol_scope.png"))
+			{
+				file= FileSpecifier(
+					get_data_path(kPathDefaultData)+
+					"/Sprintathon/pistol_scope.png");
+			}
+			if (file.Exists())
+			{
+				ImageDescriptor image;
+				if (image.LoadFromFile(file, ImageLoader_Colors, 0))
+					pistol_scope.Load(image);
+			}
+		}
+		if (pistol_scope.Loaded())
+		{
+			/*
+			 * Let the physical scope settle just behind the camera.  Camera
+			 * angular velocity provides the look lag, while the player's local
+			 * movement adds a much smaller body sway.  Keeping this renderer-
+			 * local avoids changing aim, simulation or replay state.
+			 */
+			static float scope_sway_x= 0.f;
+			static float scope_sway_y= 0.f;
+			const float horizontal_look_velocity= static_cast<float>(
+				FIXED_INTEGERAL_PART(
+					current_player->variables.angular_velocity));
+			const float vertical_look_velocity= static_cast<float>(
+				FIXED_INTEGERAL_PART(
+					current_player->variables.vertical_angular_velocity));
+			const float sideways_velocity= static_cast<float>(
+				current_player->variables.perpendicular_velocity)/FIXED_ONE;
+			const float forward_velocity= static_cast<float>(
+				current_player->variables.velocity)/FIXED_ONE;
+			const float maximum_scope_sway_x= pixel_width*0.024f;
+			const float maximum_scope_sway_y= pixel_height*0.018f;
+			const float target_scope_sway_x= A1_PIN(
+				-horizontal_look_velocity*pixel_width/520.f-
+					sideways_velocity*pixel_width*0.13f,
+				-maximum_scope_sway_x, maximum_scope_sway_x);
+			const float target_scope_sway_y= A1_PIN(
+				vertical_look_velocity*pixel_height/430.f+
+					fabsf(forward_velocity)*pixel_height*0.045f,
+				-maximum_scope_sway_y, maximum_scope_sway_y);
+			constexpr float scope_follow_speed= 0.065f;
+			scope_sway_x+=
+				(target_scope_sway_x-scope_sway_x)*scope_follow_speed;
+			scope_sway_y+=
+				(target_scope_sway_y-scope_sway_y)*scope_follow_speed;
+
+			const float diameter=
+				std::min<float>(pixel_width, pixel_height)*0.86f;
+			const Image_Rect destination(
+				(pixel_width-diameter)*0.5f+scope_sway_x,
+				(pixel_height-diameter)*0.5f+scope_sway_y,
+				diameter, diameter);
+			pistol_scope.tint_color_r= 1.f;
+			pistol_scope.tint_color_g= 1.f;
+			pistol_scope.tint_color_b= 1.f;
+			pistol_scope.tint_color_a= scope_amount;
+			pistol_scope.rotation= 0.f;
+			pistol_scope.Draw(destination);
+		}
+	}
+
 
 	glPopMatrix();
 	glMatrixMode(GL_PROJECTION);

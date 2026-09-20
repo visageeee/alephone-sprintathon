@@ -443,6 +443,7 @@ struct player_data
 	bool backflip_active;			// camera is performing a full backward pitch
 	uint8 backflip_ticks_remaining;	// visual pitch timer
 	int32 backflip_camera_pitch;		// unwrapped visual pitch, in engine angle units
+	uint8 scoped_pistol_recoil_ticks;	// brief view-only kick after a scoped shot
 	uint16 sprint_ticks_remaining;		// legacy, retained for layout compatibility
 	uint16 sprint_cooldown_ticks;		// legacy, retained for layout compatibility
 	bool sprint_key_was_down;			// requires release before restarting
@@ -559,6 +560,7 @@ void decode_hotkeys(ModifiableActionQueues& action_queues);
 
 // handle pausing Marathon 1 terminals
 bool m1_solo_player_in_terminal();
+bool sprintathon_single_pistol_zoom_active();
 void update_m1_solo_player_in_terminal(ActionQueues* inActionQueuesToUse);
 
 void walk_player_list(void);

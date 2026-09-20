@@ -260,6 +260,12 @@ static bool spawn_with_all_weapons = false;
 // rounding the per-tick cost down (or draining it in visible bursts).
 static uint32 sprintathon_oxygen_drain_fraction[MAXIMUM_NUMBER_OF_PLAYERS]= {};
 static uint32 sprintathon_bullet_time_drain_fraction[MAXIMUM_NUMBER_OF_PLAYERS]= {};
+static bool sprintathon_pistol_zoom_active= false;
+
+bool sprintathon_single_pistol_zoom_active()
+{
+	return sprintathon_pistol_zoom_active;
+}
 
 void set_spawn_with_all_weapons(bool enabled)
 {
@@ -715,6 +721,30 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 		}
 
 		if (PLAYER_IS_TELEPORTING(player)) action_flags= 0;
+		if (player->scoped_pistol_recoil_ticks>0)
+			--player->scoped_pistol_recoil_ticks;
+
+		/*
+		 * With one Magnum, reserve the unused second trigger for a held
+		 * sniper-style zoom.  Strip it for every simulated player so weapon
+		 * firing remains deterministic; only the current player's view changes.
+		 */
+		const bool single_pistol_zoom_available=
+			input_preferences->sprintathon_enabled &&
+			input_preferences->sprintathon_pistol_scope &&
+			!PLAYER_IS_DEAD(player) &&
+			!player_in_terminal_mode(player_index) &&
+			player_wields_single_pistol(player_index) &&
+			!player_is_reloading_weapon(player_index);
+		const bool single_pistol_zoom_requested=
+			single_pistol_zoom_available &&
+			(action_flags&_right_trigger_state);
+		if (single_pistol_zoom_available)
+			action_flags&= ~_right_trigger_state;
+
+		if (!inPredictive && player_index==current_player_index)
+			sprintathon_pistol_zoom_active=
+				single_pistol_zoom_requested;
 		
 		/* Deal with the terminal mode crap. */
 		if (player_in_terminal_mode(player_index))

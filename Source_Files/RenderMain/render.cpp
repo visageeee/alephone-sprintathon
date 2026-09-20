@@ -1043,6 +1043,7 @@ static void render_viewer_sprite_layer(view_data *view, RasterizerClass *RasPtr)
 
 	// LP change: bug out if weapons-in-hand are not to be displayed
 	if (!view->show_weapons_in_hand) return;
+	if (sprintathon_single_pistol_zoom_active()) return;
 	
 	// Need to set this...
 	RasPtr->SetForeground();

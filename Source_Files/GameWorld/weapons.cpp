@@ -1886,6 +1886,50 @@ static struct weapon_data *get_player_current_weapon(
 	return &player_weapons->weapons[player_weapons->current_weapon];
 }
 
+bool player_wields_single_pistol(
+	short player_index)
+{
+	const player_weapon_data *player_weapons=
+		get_player_weapon_data(player_index);
+	if (player_weapons->current_weapon!=_weapon_pistol)
+		return false;
+
+	const weapon_definition *definition=
+		get_weapon_definition(_weapon_pistol);
+	const player_data *player= get_player_data(player_index);
+	const weapon_data *weapon=
+		&player_weapons->weapons[_weapon_pistol];
+
+	return definition->item_type!=NONE &&
+		player->items[definition->item_type]==1 &&
+		(PRIMARY_WEAPON_IS_VALID(weapon) ||
+		 SECONDARY_WEAPON_IS_VALID(weapon));
+}
+
+bool player_is_reloading_weapon(
+	short player_index)
+{
+	const weapon_data *weapon= get_player_current_weapon(player_index);
+	for (short which_trigger= 0; which_trigger<NUMBER_OF_TRIGGERS;
+		++which_trigger)
+	{
+		switch (weapon->triggers[which_trigger].state)
+		{
+			case _weapon_awaiting_reload:
+			case _weapon_waiting_to_load:
+			case _weapon_finishing_reload:
+			case _weapon_lowering_for_twofisted_reload:
+			case _weapon_awaiting_twofisted_reload:
+			case _weapon_waiting_for_twofist_to_reload:
+			case _weapon_waiting_for_other_idle_to_reload:
+				return true;
+			default:
+				break;
+		}
+	}
+	return false;
+}
+
 /* 
 	This function does the following:
 		1) Calculates how many shots to fire.
@@ -2043,6 +2087,13 @@ static void fire_weapon(
 					player->monster_index, _monster_marine, Target, damage_modifier);
 					// player->monster_index, _monster_marine, NONE, damage_modifier);
 			}
+		}
+
+		if (player_index==current_player_index &&
+			sprintathon_single_pistol_zoom_active() &&
+			player_weapons->current_weapon==_weapon_pistol)
+		{
+			player->scoped_pistol_recoil_ticks= 8;
 		}
 
 		/* Spawn a shell casing.... */

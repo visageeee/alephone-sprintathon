@@ -18,6 +18,7 @@ EXTRA_DIST = \
 	snd/wallkick.ogg                                                           \
 	snd/kickhit.ogg                                                            \
 	gfx/frontlegs.png                                                          \
+	gfx/pistol_scope.png                                                       \
 	gfx/slidelegs.png                                                          \
 	snd/slide.ogg                                                              \
 	data/AlephSansMono-Bold.ttf                                                 \

@@ -178,6 +178,10 @@ bool reload_player_weapon_trigger(short player_index, short which_trigger);
 /* Update the given player's weapons */
 void update_player_weapons(short player_index, uint32 action_flags);
 
+/* Sprintathon: the Magnum's spare trigger becomes aim/zoom until dual wielded. */
+bool player_wields_single_pistol(short player_index);
+bool player_is_reloading_weapon(short player_index);
+
 /* Mark the weapon collections for loading or unloading.. */
 void mark_weapon_collections(bool loading);
 

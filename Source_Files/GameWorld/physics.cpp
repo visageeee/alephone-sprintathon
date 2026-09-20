@@ -207,6 +207,7 @@ void initialize_player_physics_variables(
 	player->backflip_active= false;
 	player->backflip_ticks_remaining= 0;
 	player->backflip_camera_pitch= 0;
+	player->scoped_pistol_recoil_ticks= 0;
 	player->crouch_key_was_down= false;
 	player->reload_key_was_down= false;
 	player->slide_punch_pending= false;
