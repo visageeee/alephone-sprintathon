@@ -221,7 +221,163 @@ static void setup_classic_invisibility(Shader *shader, float visibility)
 	shader->setFloat(Shader::U_PixelHeight, 0.0f);
 }
 
+static GLuint sprintathon_capture_scene_depth(GLsizei width, GLsizei height)
+{
+	static GLuint depth_texture = 0;
+	static GLsizei texture_width = 0;
+	static GLsizei texture_height = 0;
+
+	glActiveTextureARB(GL_TEXTURE2_ARB);
+	if (!depth_texture)
+		glGenTextures(1, &depth_texture);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, depth_texture);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	if (width != texture_width || height != texture_height)
+	{
+		glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_DEPTH_COMPONENT24,
+			width, height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+		texture_width = width;
+		texture_height = height;
+	}
+	glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0,
+		0, 0, width, height);
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+	return depth_texture;
+}
+
+static GLuint sprintathon_capture_scene_color(GLsizei width, GLsizei height)
+{
+	static GLuint color_texture = 0;
+	static GLsizei texture_width = 0;
+	static GLsizei texture_height = 0;
+
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+	if (!color_texture)
+		glGenTextures(1, &color_texture);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, color_texture);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	if (width != texture_width || height != texture_height)
+	{
+		glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA,
+			width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+		texture_width = width;
+		texture_height = height;
+	}
+	glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0,
+		0, 0, width, height);
+	return color_texture;
+}
+
+static void sprintathon_draw_ambient_occlusion(GLuint color_texture,
+	GLuint depth_texture, GLsizei width, GLsizei height,
+	const GLfloat *projection, float strength)
+{
+	glPushAttrib(GL_ALL_ATTRIB_BITS);
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_BLEND);
+	glDisable(GL_ALPHA_TEST);
+	glDisable(GL_SCISSOR_TEST);
+	glDisable(GL_CULL_FACE);
+	glDisable(GL_STENCIL_TEST);
+	glDisable(GL_CLIP_PLANE0);
+	glDisable(GL_CLIP_PLANE1);
+	glDepthMask(GL_FALSE);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+	Shader *shader = Shader::get(Shader::S_AmbientOcclusion);
+	shader->enable();
+	shader->setFloat(Shader::U_PixelWidth, static_cast<float>(width));
+	shader->setFloat(Shader::U_PixelHeight, static_cast<float>(height));
+	shader->setFloat(Shader::U_ScaleX, projection[10]);
+	shader->setFloat(Shader::U_ScaleY, projection[14]);
+	shader->setFloat(Shader::U_BloomScale, strength);
+
+	glActiveTextureARB(GL_TEXTURE2_ARB);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, depth_texture);
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, color_texture);
+
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+	glBegin(GL_QUADS);
+	glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);
+	glTexCoord2f(static_cast<float>(width), 0.0f); glVertex2f(1.0f, -1.0f);
+	glTexCoord2f(static_cast<float>(width), static_cast<float>(height)); glVertex2f(1.0f, 1.0f);
+	glTexCoord2f(0.0f, static_cast<float>(height)); glVertex2f(-1.0f, 1.0f);
+	glEnd();
+	glPopMatrix();
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+	glMatrixMode(GL_MODELVIEW);
+	Shader::disable();
+	glPopAttrib();
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+}
+
+static void sprintathon_draw_landscape_light_shafts(GLuint color_texture,
+	GLuint depth_texture, GLsizei width, GLsizei height,
+	float strength, float length)
+{
+	glPushAttrib(GL_ALL_ATTRIB_BITS);
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_BLEND);
+	glDisable(GL_ALPHA_TEST);
+	glDisable(GL_SCISSOR_TEST);
+	glDisable(GL_CULL_FACE);
+	glDisable(GL_STENCIL_TEST);
+	glDisable(GL_CLIP_PLANE0);
+	glDisable(GL_CLIP_PLANE1);
+	glDepthMask(GL_FALSE);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+	Shader *shader = Shader::get(Shader::S_LandscapeLightShafts);
+	shader->enable();
+	shader->setFloat(Shader::U_PixelWidth, static_cast<float>(width));
+	shader->setFloat(Shader::U_PixelHeight, static_cast<float>(height));
+	shader->setFloat(Shader::U_BloomScale, strength);
+	shader->setFloat(Shader::U_BloomShift, length);
+
+	glActiveTextureARB(GL_TEXTURE2_ARB);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, depth_texture);
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, color_texture);
+
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+	glBegin(GL_QUADS);
+	glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);
+	glTexCoord2f(static_cast<float>(width), 0.0f); glVertex2f(1.0f, -1.0f);
+	glTexCoord2f(static_cast<float>(width), static_cast<float>(height)); glVertex2f(1.0f, 1.0f);
+	glTexCoord2f(0.0f, static_cast<float>(height)); glVertex2f(-1.0f, 1.0f);
+	glEnd();
+	glPopMatrix();
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+	glMatrixMode(GL_MODELVIEW);
+	Shader::disable();
+	glPopAttrib();
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+}
+
 void RenderRasterize_Shader::render_tree() {
+	GLfloat scene_projection[16];
+	glGetFloatv(GL_PROJECTION_MATRIX, scene_projection);
 
 	weaponFlare = PIN(view->maximum_depth_intensity - NATURAL_LIGHT_INTENSITY, 0, FIXED_ONE)/float(FIXED_ONE);
 	selfLuminosity = PIN(NATURAL_LIGHT_INTENSITY, 0, FIXED_ONE)/float(FIXED_ONE);
@@ -357,7 +513,8 @@ void RenderRasterize_Shader::render_tree() {
 		Shader::get(Shader::S_WallInfravision),
 		Shader::get(Shader::S_Sprite),
 		Shader::get(Shader::S_SpriteBloom),
-		Shader::get(Shader::S_SpriteInfravision)
+		Shader::get(Shader::S_SpriteInfravision),
+		Shader::get(Shader::S_SpriteShadow)
 	};
 	
 	for (auto s : fog_mode_shaders) {
@@ -371,7 +528,42 @@ void RenderRasterize_Shader::render_tree() {
 	Shader::disable();
 
 	RenderRasterizerClass::render_tree(kDiffuse);
-        render_viewer_sprite_layer(kDiffuse);
+
+	const GLsizei framebuffer_width =
+		view->screen_width * MainScreenPixelScale();
+	const GLsizei framebuffer_height =
+		view->screen_height * MainScreenPixelScale();
+	GLuint scene_depth = 0;
+	GLuint ambient_occlusion_color = 0;
+	const OGL_ConfigureData& ogl_config = Get_OGL_ConfigureData();
+	if (ogl_config.AmbientOcclusion || ogl_config.LandscapeLightShafts)
+		scene_depth = sprintathon_capture_scene_depth(
+			framebuffer_width, framebuffer_height);
+	if (ogl_config.AmbientOcclusion)
+	{
+		// Capture only world geometry. The first-person layer is composited after
+		// AO, so the weapon can never receive screen-space shading.
+		ambient_occlusion_color = sprintathon_capture_scene_color(
+			framebuffer_width, framebuffer_height);
+		sprintathon_draw_ambient_occlusion(ambient_occlusion_color,
+			scene_depth, framebuffer_width, framebuffer_height,
+			scene_projection,
+			ogl_config.AmbientOcclusionStrength / 100.0f);
+	}
+	if (ogl_config.LandscapeLightShafts)
+	{
+		// Recapture after AO so the shaft pass preserves its shaded world image.
+		GLuint shaft_color = sprintathon_capture_scene_color(
+			framebuffer_width, framebuffer_height);
+		sprintathon_draw_landscape_light_shafts(shaft_color, scene_depth,
+			framebuffer_width, framebuffer_height,
+			ogl_config.LandscapeLightShaftStrength / 100.0f,
+			ogl_config.LandscapeLightShaftLength / 100.0f);
+	}
+
+	// Draw the view weapon after world-only AO but before other whole-scene
+	// effects, preserving underwater refraction and bloom behavior.
+	render_viewer_sprite_layer(kDiffuse);
 
 	if (current_player->infravision_duration == 0 &&
 		TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_Blur) &&
@@ -1570,6 +1762,69 @@ void RenderRasterize_Shader::_render_node_object_helper(render_object_data *obje
         
 	glEnable(GL_DEPTH_TEST);
 	glPopMatrix();
+
+	// Draw a consistent soft elliptical contact shadow on the polygon floor.
+	// Restrict this first pass to ordinary textured sprites: effects, static,
+	// and invisible transfer modes otherwise produce distracting dark flashes.
+	if (renderStep == kDiffuse &&
+		Get_OGL_ConfigureData().SpriteShadows &&
+		rect.transfer_mode == _textured_transfer &&
+		!(rect.flags & _SHADELESS_BIT) &&
+		object->node && object->node->polygon_index != NONE)
+	{
+		polygon_data *polygon = get_polygon_data(object->node->polygon_index);
+		if (polygon)
+		{
+			const float scale = rect.Scale;
+			const float feet_z = pos.z + rect.WorldBottom * scale;
+			const float height_above_floor = std::max(0.0f,
+				static_cast<float>(feet_z - polygon->floor_height));
+			const float height_fade = 1.0f - std::min(1.0f,
+				height_above_floor / (1.5f * WORLD_ONE));
+			const float sprite_width = std::abs(
+				(rect.WorldRight - rect.WorldLeft) * rect.HorizScale * scale);
+			const float shadow_width =
+				sprite_width * 0.82f + height_above_floor * 0.12f;
+			const float shadow_depth =
+				shadow_width * 0.52f + height_above_floor * 0.06f;
+
+			if (height_fade > 0.01f && shadow_width > 1.0f && shadow_depth > 1.0f)
+			{
+				Shader *shadow = Shader::get(Shader::S_SpriteShadow);
+				shadow->enable();
+				shadow->setFloat(Shader::U_ObjectWorldZ,
+					static_cast<float>(polygon->floor_height));
+
+				glPushMatrix();
+				glTranslated(pos.x, pos.y, polygon->floor_height + 1.0);
+				glRotated((360.0 / FULL_CIRCLE) * rect.Azimuth, 0.0, 0.0, 1.0);
+
+				const GLfloat half_width = shadow_width * 0.5f;
+				const GLfloat half_depth = shadow_depth * 0.5f;
+				GLfloat shadow_vertices[12] = {
+					half_depth, -half_width, 0.0f,
+					half_depth,  half_width, 0.0f,
+					-half_depth, half_width, 0.0f,
+					-half_depth, -half_width, 0.0f
+				};
+				const GLfloat shadow_texcoords[8] = {
+					0.0f, 0.0f,
+					1.0f, 0.0f,
+					1.0f, 1.0f,
+					0.0f, 1.0f
+				};
+				glVertexPointer(3, GL_FLOAT, 0, shadow_vertices);
+				glTexCoordPointer(2, GL_FLOAT, 0, shadow_texcoords);
+				glColor4f(0.0f, 0.0f, 0.0f, 0.38f * height_fade);
+				glEnable(GL_BLEND);
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				glEnable(GL_ALPHA_TEST);
+				glAlphaFunc(GL_GREATER, 0.005f);
+				glDrawArrays(GL_QUADS, 0, 4);
+				glPopMatrix();
+			}
+		}
+	}
 	Shader::disable();
 	TMgr->RestoreTextureMatrix();
 }

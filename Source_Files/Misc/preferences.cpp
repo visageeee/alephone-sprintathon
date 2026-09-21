@@ -939,7 +939,9 @@ void handle_preferences(bool in_game)
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(ledge_grab_w, sprintathon_ledge_grab, "Ledge-Grabbing");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(footsteps_w, sprintathon_footsteps, "Footstep Sounds");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(bullet_time_w, sprintathon_bullet_time, "Bullet Time (B)");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(bullet_time_blur_w, sprintathon_bullet_time_blur, "Bullet Time Blur");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(pistol_scope_w, sprintathon_pistol_scope, "Pistol Scope");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(pistol_scope_blur_w, sprintathon_pistol_scope_blur, "Pistol Scope Blur");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(level_timer_w, sprintathon_level_timer, "Level Timer");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(dodge_bullet_time_w, sprintathon_dodge_bullet_time, "Automatic Dodge Bullet Time");
 #undef ADD_EMBEDDED_SPRINTATHON_TOGGLE
@@ -1005,6 +1007,10 @@ void handle_preferences(bool in_game)
 	rendering_page->center_vertically();
 	rendering_page->min_width(scale_dialog_value(430));
 	table_placer *rendering = make_preferences_table();
+	static const char *graphics_preset_labels[] = {
+		"Custom", "Low", "Medium", "High", nullptr
+	};
+	w_select *graphics_preset_w = new w_select(0, graphics_preset_labels);
 	w_toggle *ogl_fader_w = new w_toggle(ogl_flag(OGL_Flag_Fader));
 	w_toggle *ogl_models_w = new w_toggle(ogl_flag(OGL_Flag_3D_Models));
 	w_toggle *ogl_perspective_w = new w_toggle(!ogl_flag(OGL_Flag_MimicSW));
@@ -1013,6 +1019,18 @@ void handle_preferences(bool in_game)
 	w_toggle *ogl_bump_w = new w_toggle(ogl_flag(OGL_Flag_BumpMap));
 	w_toggle *ogl_refractive_invisibility_w = new w_toggle(
 		graphics_preferences->OGL_Configure.RefractiveInvisibility);
+	w_toggle *ogl_sprite_shadows_w = new w_toggle(
+		graphics_preferences->OGL_Configure.SpriteShadows);
+	w_toggle *ogl_ambient_occlusion_w = new w_toggle(
+		graphics_preferences->OGL_Configure.AmbientOcclusion);
+	w_percentage_slider *ogl_ambient_occlusion_strength_w = new w_percentage_slider(
+		101, graphics_preferences->OGL_Configure.AmbientOcclusionStrength);
+	w_toggle *ogl_landscape_light_shafts_w = new w_toggle(
+		graphics_preferences->OGL_Configure.LandscapeLightShafts);
+	w_percentage_slider *ogl_landscape_light_shaft_strength_w = new w_percentage_slider(
+		101, graphics_preferences->OGL_Configure.LandscapeLightShaftStrength);
+	w_percentage_slider *ogl_landscape_light_shaft_length_w = new w_percentage_slider(
+		101, graphics_preferences->OGL_Configure.LandscapeLightShaftLength);
 	w_toggle *ogl_vsync_w = new w_toggle(graphics_preferences->OGL_Configure.WaitForVSync);
 	w_toggle *ogl_npot_w = new w_toggle(graphics_preferences->OGL_Configure.Use_NPOT);
 	static const char *effects_quality_labels[] = {"Off", "Low", "Medium", "High", "Ultra", nullptr};
@@ -1022,8 +1040,35 @@ void handle_preferences(bool in_game)
 	for (int value = static_cast<int>(graphics_preferences->OGL_Configure.AnisotropyLevel);
 		value >= 1; value >>= 1) ++aniso_selection;
 	w_select *ogl_aniso_w = new w_select(aniso_selection, aniso_labels);
+	graphics_preset_w->set_selection_changed_callback(
+		[graphics_preset_w, ogl_bloom_w, ogl_bump_w,
+		 ogl_refractive_invisibility_w, ogl_sprite_shadows_w,
+		 ogl_ambient_occlusion_w, ogl_ambient_occlusion_strength_w,
+		 ogl_landscape_light_shafts_w,
+		 ogl_landscape_light_shaft_strength_w,
+		 ogl_landscape_light_shaft_length_w, ogl_effects_w,
+		 ogl_aniso_w](w_select*) {
+			const int preset = graphics_preset_w->get_selection();
+			if (preset == 0)
+				return;
+			const bool medium_or_high = preset >= 2;
+			const bool high = preset == 3;
+			ogl_bloom_w->set_selection(medium_or_high);
+			ogl_bump_w->set_selection(medium_or_high);
+			ogl_refractive_invisibility_w->set_selection(medium_or_high);
+			ogl_sprite_shadows_w->set_selection(medium_or_high);
+			ogl_ambient_occlusion_w->set_selection(medium_or_high);
+			ogl_ambient_occlusion_strength_w->set_selection(high ? 35 : 20);
+			ogl_landscape_light_shafts_w->set_selection(high);
+			ogl_landscape_light_shaft_strength_w->set_selection(30);
+			ogl_landscape_light_shaft_length_w->set_selection(50);
+			ogl_effects_w->set_selection(preset);
+			// Labels are Off, 1x, 2x, 4x, 8x, 16x.
+			ogl_aniso_w->set_selection(preset + 1);
+		});
 #define ADD_RENDERING_ROW(caption, widget) \
 	rendering->dual_add((widget)->label(caption), d); rendering->dual_add(widget, d)
+	ADD_RENDERING_ROW("Graphics Preset", graphics_preset_w);
 	ADD_RENDERING_ROW("Color Effects", ogl_fader_w);
 	ADD_RENDERING_ROW("3D Models", ogl_models_w);
 	ADD_RENDERING_ROW("3D Perspective", ogl_perspective_w);
@@ -1031,6 +1076,12 @@ void handle_preferences(bool in_game)
 	ADD_RENDERING_ROW("Bloom Effects", ogl_bloom_w);
 	ADD_RENDERING_ROW("Bump Mapping", ogl_bump_w);
 	ADD_RENDERING_ROW("Refractive Invisibility", ogl_refractive_invisibility_w);
+	ADD_RENDERING_ROW("Sprite Shadows", ogl_sprite_shadows_w);
+	ADD_RENDERING_ROW("Ambient Occlusion", ogl_ambient_occlusion_w);
+	ADD_RENDERING_ROW("AO Strength", ogl_ambient_occlusion_strength_w);
+	ADD_RENDERING_ROW("Landscape Light Shafts", ogl_landscape_light_shafts_w);
+	ADD_RENDERING_ROW("Shaft Strength", ogl_landscape_light_shaft_strength_w);
+	ADD_RENDERING_ROW("Shaft Length", ogl_landscape_light_shaft_length_w);
 	ADD_RENDERING_ROW("Scripted Effects Quality", ogl_effects_w);
 	ADD_RENDERING_ROW("VSync", ogl_vsync_w);
 	ADD_RENDERING_ROW("Anisotropic Filtering", ogl_aniso_w);
@@ -1246,6 +1297,18 @@ void handle_preferences(bool in_game)
 	graphics_preferences->OGL_Configure.BillboardXY = ogl_billboard_w->get_selection();
 	graphics_preferences->OGL_Configure.RefractiveInvisibility =
 		ogl_refractive_invisibility_w->get_selection();
+	graphics_preferences->OGL_Configure.SpriteShadows =
+		ogl_sprite_shadows_w->get_selection();
+	graphics_preferences->OGL_Configure.AmbientOcclusion =
+		ogl_ambient_occlusion_w->get_selection();
+	graphics_preferences->OGL_Configure.AmbientOcclusionStrength =
+		ogl_ambient_occlusion_strength_w->get_selection();
+	graphics_preferences->OGL_Configure.LandscapeLightShafts =
+		ogl_landscape_light_shafts_w->get_selection();
+	graphics_preferences->OGL_Configure.LandscapeLightShaftStrength =
+		ogl_landscape_light_shaft_strength_w->get_selection();
+	graphics_preferences->OGL_Configure.LandscapeLightShaftLength =
+		ogl_landscape_light_shaft_length_w->get_selection();
 	graphics_preferences->OGL_Configure.WaitForVSync = ogl_vsync_w->get_selection();
 	graphics_preferences->OGL_Configure.Use_NPOT = ogl_npot_w->get_selection();
 	graphics_preferences->ephemera_quality = ogl_effects_w->get_selection();
@@ -1499,7 +1562,9 @@ void handle_preferences(bool in_game)
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_ledge_grab, ledge_grab_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_footsteps, footsteps_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_bullet_time, bullet_time_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_bullet_time_blur, bullet_time_blur_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_pistol_scope, pistol_scope_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_pistol_scope_blur, pistol_scope_blur_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_level_timer, level_timer_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_dodge_bullet_time, dodge_bullet_time_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_sprint, stamina_sprint_w);
@@ -3818,7 +3883,9 @@ static void sprintathon_dialog(void *arg)
 	ADD_SPRINTATHON_TOGGLE(ledge_grab_w, sprintathon_ledge_grab, "Ledge-Grabbing");
 	ADD_SPRINTATHON_TOGGLE(footsteps_w, sprintathon_footsteps, "Footstep Sounds");
 	ADD_SPRINTATHON_TOGGLE(bullet_time_w, sprintathon_bullet_time, "Bullet Time (B)");
+	ADD_SPRINTATHON_TOGGLE(bullet_time_blur_w, sprintathon_bullet_time_blur, "Bullet Time Blur");
 	ADD_SPRINTATHON_TOGGLE(pistol_scope_w, sprintathon_pistol_scope, "Pistol Scope");
+	ADD_SPRINTATHON_TOGGLE(pistol_scope_blur_w, sprintathon_pistol_scope_blur, "Pistol Scope Blur");
 	ADD_SPRINTATHON_TOGGLE(dodge_bullet_time_w, sprintathon_dodge_bullet_time, "Automatic Dodge Bullet Time");
 #undef ADD_SPRINTATHON_TOGGLE
 	w_percentage_slider *footstep_volume_w = new w_percentage_slider(
@@ -3869,7 +3936,9 @@ static void sprintathon_dialog(void *arg)
 		STORE_SPRINTATHON_TOGGLE(sprintathon_ledge_grab, ledge_grab_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_footsteps, footsteps_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_bullet_time, bullet_time_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_bullet_time_blur, bullet_time_blur_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_pistol_scope, pistol_scope_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_pistol_scope_blur, pistol_scope_blur_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_dodge_bullet_time, dodge_bullet_time_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_sprint, stamina_sprint_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_jump, stamina_jump_w);
@@ -5459,6 +5528,18 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("billboard_xy", graphics_preferences->OGL_Configure.BillboardXY);
 	root.put_attr("refractive_invisibility",
 		graphics_preferences->OGL_Configure.RefractiveInvisibility);
+	root.put_attr("sprite_shadows",
+		graphics_preferences->OGL_Configure.SpriteShadows);
+	root.put_attr("ambient_occlusion",
+		graphics_preferences->OGL_Configure.AmbientOcclusion);
+	root.put_attr("ambient_occlusion_strength",
+		graphics_preferences->OGL_Configure.AmbientOcclusionStrength);
+	root.put_attr("landscape_light_shafts",
+		graphics_preferences->OGL_Configure.LandscapeLightShafts);
+	root.put_attr("landscape_light_shaft_strength",
+		graphics_preferences->OGL_Configure.LandscapeLightShaftStrength);
+	root.put_attr("landscape_light_shaft_length",
+		graphics_preferences->OGL_Configure.LandscapeLightShaftLength);
 	root.put_attr("animated_media_ripples",
 		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
 	root.put_attr("animated_media_opacity",
@@ -5773,7 +5854,9 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_ledge_grab", input_preferences->sprintathon_ledge_grab);
 	root.put_attr("sprintathon_footsteps", input_preferences->sprintathon_footsteps);
 	root.put_attr("sprintathon_bullet_time", input_preferences->sprintathon_bullet_time);
+	root.put_attr("sprintathon_bullet_time_blur", input_preferences->sprintathon_bullet_time_blur);
 	root.put_attr("sprintathon_pistol_scope", input_preferences->sprintathon_pistol_scope);
+	root.put_attr("sprintathon_pistol_scope_blur", input_preferences->sprintathon_pistol_scope_blur);
 	root.put_attr("sprintathon_level_timer", input_preferences->sprintathon_level_timer);
 	root.put_attr("sprintathon_dodge_bullet_time", input_preferences->sprintathon_dodge_bullet_time);
 	root.put_attr("sprintathon_footstep_volume_percent",
@@ -6152,7 +6235,9 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_ledge_grab = true;
 	preferences->sprintathon_footsteps = true;
 	preferences->sprintathon_bullet_time = true;
+	preferences->sprintathon_bullet_time_blur = true;
 	preferences->sprintathon_pistol_scope = true;
+	preferences->sprintathon_pistol_scope_blur = true;
 	preferences->sprintathon_level_timer = false;
 	preferences->sprintathon_dodge_bullet_time = false;
 	preferences->sprintathon_footstep_volume_percent = 100;
@@ -6553,6 +6638,18 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("billboard_xy", graphics_preferences->OGL_Configure.BillboardXY);
 	root.read_attr("refractive_invisibility",
 		graphics_preferences->OGL_Configure.RefractiveInvisibility);
+	root.read_attr("sprite_shadows",
+		graphics_preferences->OGL_Configure.SpriteShadows);
+	root.read_attr("ambient_occlusion",
+		graphics_preferences->OGL_Configure.AmbientOcclusion);
+	root.read_attr_bounded<int16>("ambient_occlusion_strength",
+		graphics_preferences->OGL_Configure.AmbientOcclusionStrength, 0, 100);
+	root.read_attr("landscape_light_shafts",
+		graphics_preferences->OGL_Configure.LandscapeLightShafts);
+	root.read_attr_bounded<int16>("landscape_light_shaft_strength",
+		graphics_preferences->OGL_Configure.LandscapeLightShaftStrength, 0, 100);
+	root.read_attr_bounded<int16>("landscape_light_shaft_length",
+		graphics_preferences->OGL_Configure.LandscapeLightShaftLength, 0, 100);
 	root.read_attr("animated_media_ripples",
 		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
 	root.read_attr_bounded<int16>("animated_media_opacity",
@@ -6781,7 +6878,9 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_ledge_grab", input_preferences->sprintathon_ledge_grab);
 	root.read_attr("sprintathon_footsteps", input_preferences->sprintathon_footsteps);
 	root.read_attr("sprintathon_bullet_time", input_preferences->sprintathon_bullet_time);
+	root.read_attr("sprintathon_bullet_time_blur", input_preferences->sprintathon_bullet_time_blur);
 	root.read_attr("sprintathon_pistol_scope", input_preferences->sprintathon_pistol_scope);
+	root.read_attr("sprintathon_pistol_scope_blur", input_preferences->sprintathon_pistol_scope_blur);
 	root.read_attr("sprintathon_level_timer", input_preferences->sprintathon_level_timer);
 	root.read_attr("sprintathon_dodge_bullet_time", input_preferences->sprintathon_dodge_bullet_time);
 	root.read_attr_bounded<int16>("sprintathon_footstep_volume_percent",

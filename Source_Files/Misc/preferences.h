@@ -258,7 +258,9 @@ struct input_preferences_data
 	bool sprintathon_ledge_grab;
 	bool sprintathon_footsteps;
 	bool sprintathon_bullet_time;
+	bool sprintathon_bullet_time_blur;
 	bool sprintathon_pistol_scope;
+	bool sprintathon_pistol_scope_blur;
 	bool sprintathon_level_timer;
 	int16 sprintathon_footstep_volume_percent;
 	

@@ -28,6 +28,7 @@ void main(void) {
 	color.rgb = (color.rgb - 0.1) * 1.11;
 #endif
 	gl_FragColor = vec4(color.rgb * intensity * (1.0 - fogMix), 1.0);
+	gl_FragDepth = 0.9999;
 }
 
 )"

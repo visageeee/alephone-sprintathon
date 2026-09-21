@@ -30,6 +30,7 @@ void main(void) {
 	vec4 color = texture2D(texture0, vec2(u, v));
 	vec3 intensity = mix(color.rgb, gl_Fog.color.rgb, fogMix);
 	gl_FragColor = vec4(intensity, 1.0);
+	gl_FragDepth = 0.9999;
 }
 
 )"

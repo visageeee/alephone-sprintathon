@@ -21,6 +21,7 @@ void main(void) {
 	float avg = (color.r + color.g + color.b) / 3.0;
 	vec3 intensity = mix(vertexColor.rgb * avg, gl_Fog.color.rgb, fogMix);
 	gl_FragColor = vec4(intensity, 1.0);
+	gl_FragDepth = 0.9999;
 }
 
 

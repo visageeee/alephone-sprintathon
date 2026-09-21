@@ -98,6 +98,8 @@ const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] =
 	"error",
     "blur",
 	"underwater_ripple",
+	"ambient_occlusion",
+	"landscape_light_shafts",
 	"bloom",
 	"landscape",
 	"landscape_bloom",
@@ -105,6 +107,7 @@ const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] =
 	"sprite",
 	"sprite_bloom",
 	"sprite_infravision",
+	"sprite_shadow",
 	"invincible",
 	"invincible_bloom",
 	"invisible",
@@ -487,6 +490,126 @@ void initDefaultPrograms() {
 		"\tgl_FragColor = texture2DRect(texture0, warped);\n"
 		"}\n";
 
+	defaultVertexPrograms["ambient_occlusion"] = defaultVertexPrograms["underwater_ripple"];
+defaultFragmentPrograms["ambient_occlusion"] = R"(
+uniform sampler2DRect texture0;
+uniform sampler2DRect texture2;
+uniform float pixelWidth;
+uniform float pixelHeight;
+uniform float scalex;
+uniform float scaley;
+uniform float bloomScale;
+
+float viewDepth(float windowDepth) {
+	float ndcDepth = windowDepth * 2.0 - 1.0;
+	return abs(scaley / (ndcDepth + scalex));
+}
+
+float occlusionSample(vec2 p, float centerDepth, vec2 offset) {
+	vec2 q = clamp(p + offset, vec2(0.5),
+		vec2(pixelWidth - 0.5, pixelHeight - 0.5));
+	float sampleDepth = texture2DRect(texture2, q).r;
+	// Landscapes render at the clear/far depth. They neither receive AO nor
+	// contribute as occluders, preventing dark outlines against the sky.
+	if (sampleDepth >= 0.9995)
+		return 0.0;
+	float centerDistance = viewDepth(centerDepth);
+	float sampleDistance = viewDepth(sampleDepth);
+	// A neighbouring sample closer to the camera can occlude this pixel.
+	// Comparing reconstructed view distances keeps the threshold stable from
+	// the player's feet to the far end of a corridor.
+	float relativeDelta =
+		(centerDistance - sampleDistance) / max(centerDistance, 0.0001);
+	// Very large jumps are normally sprite silhouettes rather than nearby
+	// concave geometry. Suppress them to avoid fuzzy outlines around actors,
+	// pickups, and effects while retaining medium-scale architectural AO.
+	float contact = smoothstep(0.0015, 0.065, relativeDelta);
+	float silhouetteReject =
+		1.0 - smoothstep(0.20, 0.52, relativeDelta);
+	return contact * silhouetteReject;
+}
+
+void main(void) {
+	vec2 p = gl_TexCoord[0].xy;
+	vec4 scene = texture2DRect(texture0, p);
+	float centerDepth = texture2DRect(texture2, p).r;
+	if (centerDepth >= 0.9995) {
+		gl_FragColor = scene;
+		return;
+	}
+
+	float ao = 0.0;
+	ao += occlusionSample(p, centerDepth, vec2( 4.0,  0.0));
+	ao += occlusionSample(p, centerDepth, vec2(-4.0,  0.0));
+	ao += occlusionSample(p, centerDepth, vec2( 0.0,  4.0));
+	ao += occlusionSample(p, centerDepth, vec2( 0.0, -4.0));
+	ao += occlusionSample(p, centerDepth, vec2( 7.0,  7.0));
+	ao += occlusionSample(p, centerDepth, vec2(-7.0,  7.0));
+	ao += occlusionSample(p, centerDepth, vec2( 7.0, -7.0));
+	ao += occlusionSample(p, centerDepth, vec2(-7.0, -7.0));
+	ao += 0.65 * occlusionSample(p, centerDepth, vec2( 12.0,  0.0));
+	ao += 0.65 * occlusionSample(p, centerDepth, vec2(-12.0,  0.0));
+	ao += 0.65 * occlusionSample(p, centerDepth, vec2( 0.0,  12.0));
+	ao += 0.65 * occlusionSample(p, centerDepth, vec2( 0.0, -12.0));
+	// A nearby corner commonly registers in only two or three directions, so
+	// use a deliberately assertive normalization rather than averaging all
+	// twelve taps into near-invisibility.
+	ao = clamp(ao / 3.2, 0.0, 1.0);
+	float shade = 1.0 - ao * 0.78 * bloomScale;
+	gl_FragColor = vec4(scene.rgb * shade, scene.a);
+}
+)";
+
+	defaultVertexPrograms["landscape_light_shafts"] =
+		defaultVertexPrograms["underwater_ripple"];
+	defaultFragmentPrograms["landscape_light_shafts"] = R"(
+uniform sampler2DRect texture0;
+uniform sampler2DRect texture2;
+uniform float pixelWidth;
+uniform float pixelHeight;
+uniform float bloomScale;
+uniform float bloomShift;
+
+void main(void) {
+	vec2 p = gl_TexCoord[0].xy;
+	vec4 scene = texture2DRect(texture0, p);
+	// Aim just above the screen. This makes visible bright landscape pour
+	// downward through skyline gaps without requiring scenario light metadata.
+	vec2 source = vec2(pixelWidth * 0.5, pixelHeight * 1.08);
+	// More closely spaced samples avoid the visible stair-stepping produced
+	// when long shafts stretched only a couple of dozen landscape samples.
+	vec2 stepVector = (source - p) * (bloomShift / 48.0);
+	vec2 q = p;
+	vec3 shafts = vec3(0.0);
+	float weight = 1.0;
+	float totalWeight = 0.0;
+	for (int i = 0; i < 48; ++i) {
+		q = clamp(q + stepVector, vec2(0.5),
+			vec2(pixelWidth - 0.5, pixelHeight - 0.5));
+		float sampleDepth = texture2DRect(texture2, q).r;
+		vec3 sampleColor = texture2DRect(texture0, q).rgb;
+		float peak = max(sampleColor.r, max(sampleColor.g, sampleColor.b));
+		// Only far-depth landscape pixels emit shafts. Use peak channel energy
+		// rather than luminance so saturated blue, red, purple and green skies
+		// are not penalized compared with white landscapes.
+		float landscape = step(0.9995, sampleDepth);
+		float emission = landscape * smoothstep(0.01, 0.12, peak);
+		// Preserve the landscape hue while lifting darker source textures into a
+		// useful shaft colour. Truly black clear-depth pixels remain rejected.
+		vec3 hue = sampleColor / max(peak, 0.001);
+		vec3 emitterColor = mix(sampleColor, hue * 0.48, 0.78);
+		shafts += emitterColor * emission * weight;
+		totalWeight += weight;
+		// Equivalent falloff to the former 24-tap pass, distributed across twice
+		// as many samples so the appearance remains consistent but smoother.
+		weight *= 0.9721;
+	}
+	shafts /= max(totalWeight, 0.0001);
+	// Keep the additive result restrained; strength remains user-controlled.
+	gl_FragColor = vec4(scene.rgb + shafts * bloomScale * 1.15, scene.a);
+}
+)";
+
     defaultVertexPrograms["bloom"] = ""
         "varying vec4 vertexColor;\n"
         "void main(void) {\n"
@@ -547,6 +670,46 @@ void initDefaultPrograms() {
 	defaultFragmentPrograms["sprite_infravision"] =
         #include "Shaders/sprite_infravision.frag"
 		;
+
+	defaultVertexPrograms["sprite_shadow"] = defaultVertexPrograms["sprite"];
+	defaultFragmentPrograms["sprite_shadow"] = R"(
+uniform float fogMode;
+uniform float mediaFogEnabled;
+uniform float mediaFogTop;
+uniform float mediaFogSoftness;
+varying vec3 viewDir;
+varying float worldZ;
+varying vec4 vertexColor;
+
+float getFogFactor(float distance) {
+	if (fogMode == 0.0)
+		return clamp((gl_Fog.end - distance) /
+			(gl_Fog.end - gl_Fog.start), 0.0, 1.0);
+	if (fogMode == 1.0)
+		return clamp(exp(-gl_Fog.density * distance), 0.0, 1.0);
+	if (fogMode == 2.0)
+		return clamp(exp(-gl_Fog.density * gl_Fog.density *
+			distance * distance), 0.0, 1.0);
+	return 1.0;
+}
+
+void main(void) {
+	vec2 blob = (gl_TexCoord[0].xy - vec2(0.5)) * 2.0;
+	float radiusSquared = dot(blob, blob);
+	if (radiusSquared >= 1.0)
+		discard;
+	float fogFactor = getFogFactor(length(viewDir));
+	if (mediaFogEnabled > 0.0) {
+		float heightFog = clamp((mediaFogTop - worldZ) /
+			mediaFogSoftness, 0.0, 1.0);
+		fogFactor = 1.0 - (1.0 - fogFactor) *
+			mix(1.0, heightFog, mediaFogEnabled);
+	}
+	float softenedMask = 1.0 - smoothstep(0.38, 1.0, radiusSquared);
+	gl_FragColor = vec4(0.0, 0.0, 0.0,
+		softenedMask * vertexColor.a * fogFactor);
+}
+)";
 	
     defaultVertexPrograms["invincible"] = defaultVertexPrograms["sprite"];
 	defaultFragmentPrograms["invincible"] =

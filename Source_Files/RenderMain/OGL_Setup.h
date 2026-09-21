@@ -259,6 +259,12 @@ struct OGL_ConfigureData
 
 	bool BillboardXY; // for when MimicSW is off
 	bool RefractiveInvisibility;
+	bool SpriteShadows;
+	bool AmbientOcclusion;
+	int16 AmbientOcclusionStrength;
+	bool LandscapeLightShafts;
+	int16 LandscapeLightShaftStrength;
+	int16 LandscapeLightShaftLength;
 	bool AnimatedMediaRipples;
 	int16 AnimatedMediaOpacity;
 	int16 AnimatedMediaRippleStrength;

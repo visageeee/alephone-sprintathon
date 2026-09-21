@@ -2298,14 +2298,19 @@ static void draw_sprintathon_bullet_time_effect()
 	const GLhandleARB blur_program= sprintathon_radial_blur_program();
 	if (blur_program)
 	{
+		const float bullet_blur_amount =
+			input_preferences->sprintathon_bullet_time_blur ? amount : 0.f;
+		const float scope_blur_amount =
+			input_preferences->sprintathon_pistol_scope_blur ? scope_amount : 0.f;
 		glUseProgramObjectARB(blur_program);
 		glUniform1iARB(
 			glGetUniformLocationARB(blur_program, "frame_texture"), 0);
 		glUniform1fARB(
-			glGetUniformLocationARB(blur_program, "effect_amount"), amount);
+			glGetUniformLocationARB(blur_program, "effect_amount"),
+			bullet_blur_amount);
 		glUniform1fARB(
 			glGetUniformLocationARB(blur_program, "scope_amount"),
-			scope_amount);
+			scope_blur_amount);
 		glUniform1fARB(
 			glGetUniformLocationARB(blur_program, "aspect_ratio"),
 			static_cast<GLfloat>(pixel_width)/pixel_height);

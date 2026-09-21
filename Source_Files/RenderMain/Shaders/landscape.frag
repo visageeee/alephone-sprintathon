@@ -20,6 +20,9 @@ void main(void) {
 	vec4 color = texture2D(texture0, vec2(offsetx - x * scalex, offsety - y * scaley));
 	vec3 intensity = mix(color.rgb, gl_Fog.color.rgb, fogMix);
 	gl_FragColor = vec4(intensity, 1.0);
+	// Keep landscapes at a recognizable far depth so screen-space effects do
+	// not mistake the sky for nearby scene geometry.
+	gl_FragDepth = 0.9999;
 }
 
 )"

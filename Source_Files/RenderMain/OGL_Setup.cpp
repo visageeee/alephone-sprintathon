@@ -254,6 +254,12 @@ void OGL_SetDefaults(OGL_ConfigureData& Data)
 	Data.Use_sRGB = false;
 	Data.Use_NPOT = false;
 	Data.RefractiveInvisibility = true;
+	Data.SpriteShadows = true;
+	Data.AmbientOcclusion = false;
+	Data.AmbientOcclusionStrength = 35;
+	Data.LandscapeLightShafts = false;
+	Data.LandscapeLightShaftStrength = 30;
+	Data.LandscapeLightShaftLength = 50;
 	Data.AnimatedMediaRipples = true;
 	Data.AnimatedMediaOpacity = 85;
 	Data.AnimatedMediaRippleStrength = 3; // 0.75x
