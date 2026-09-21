@@ -940,6 +940,7 @@ void handle_preferences(bool in_game)
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(footsteps_w, sprintathon_footsteps, "Footstep Sounds");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(bullet_time_w, sprintathon_bullet_time, "Bullet Time (B)");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(pistol_scope_w, sprintathon_pistol_scope, "Pistol Scope");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(level_timer_w, sprintathon_level_timer, "Level Timer");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(dodge_bullet_time_w, sprintathon_dodge_bullet_time, "Automatic Dodge Bullet Time");
 #undef ADD_EMBEDDED_SPRINTATHON_TOGGLE
 	w_percentage_slider *footstep_volume_w = new w_percentage_slider(
@@ -1010,6 +1011,8 @@ void handle_preferences(bool in_game)
 	w_toggle *ogl_billboard_w = new w_toggle(graphics_preferences->OGL_Configure.BillboardXY);
 	w_toggle *ogl_bloom_w = new w_toggle(ogl_flag(OGL_Flag_Blur));
 	w_toggle *ogl_bump_w = new w_toggle(ogl_flag(OGL_Flag_BumpMap));
+	w_toggle *ogl_refractive_invisibility_w = new w_toggle(
+		graphics_preferences->OGL_Configure.RefractiveInvisibility);
 	w_toggle *ogl_vsync_w = new w_toggle(graphics_preferences->OGL_Configure.WaitForVSync);
 	w_toggle *ogl_npot_w = new w_toggle(graphics_preferences->OGL_Configure.Use_NPOT);
 	static const char *effects_quality_labels[] = {"Off", "Low", "Medium", "High", "Ultra", nullptr};
@@ -1027,6 +1030,7 @@ void handle_preferences(bool in_game)
 	ADD_RENDERING_ROW("Tilt Sprites with Camera", ogl_billboard_w);
 	ADD_RENDERING_ROW("Bloom Effects", ogl_bloom_w);
 	ADD_RENDERING_ROW("Bump Mapping", ogl_bump_w);
+	ADD_RENDERING_ROW("Refractive Invisibility", ogl_refractive_invisibility_w);
 	ADD_RENDERING_ROW("Scripted Effects Quality", ogl_effects_w);
 	ADD_RENDERING_ROW("VSync", ogl_vsync_w);
 	ADD_RENDERING_ROW("Anisotropic Filtering", ogl_aniso_w);
@@ -1240,6 +1244,8 @@ void handle_preferences(bool in_game)
 	store_ogl_flag(OGL_Flag_Fog, fog_enabled_w->get_selection());
 	store_ogl_flag(OGL_Flag_ForceFog, fog_force_w->get_selection());
 	graphics_preferences->OGL_Configure.BillboardXY = ogl_billboard_w->get_selection();
+	graphics_preferences->OGL_Configure.RefractiveInvisibility =
+		ogl_refractive_invisibility_w->get_selection();
 	graphics_preferences->OGL_Configure.WaitForVSync = ogl_vsync_w->get_selection();
 	graphics_preferences->OGL_Configure.Use_NPOT = ogl_npot_w->get_selection();
 	graphics_preferences->ephemera_quality = ogl_effects_w->get_selection();
@@ -1494,6 +1500,7 @@ void handle_preferences(bool in_game)
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_footsteps, footsteps_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_bullet_time, bullet_time_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_pistol_scope, pistol_scope_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_level_timer, level_timer_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_dodge_bullet_time, dodge_bullet_time_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_sprint, stamina_sprint_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_jump, stamina_jump_w);
@@ -5450,6 +5457,8 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("gamma_corrected_blending", graphics_preferences->OGL_Configure.Use_sRGB);
 	root.put_attr("use_npot", graphics_preferences->OGL_Configure.Use_NPOT);
 	root.put_attr("billboard_xy", graphics_preferences->OGL_Configure.BillboardXY);
+	root.put_attr("refractive_invisibility",
+		graphics_preferences->OGL_Configure.RefractiveInvisibility);
 	root.put_attr("animated_media_ripples",
 		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
 	root.put_attr("animated_media_opacity",
@@ -5765,6 +5774,7 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_footsteps", input_preferences->sprintathon_footsteps);
 	root.put_attr("sprintathon_bullet_time", input_preferences->sprintathon_bullet_time);
 	root.put_attr("sprintathon_pistol_scope", input_preferences->sprintathon_pistol_scope);
+	root.put_attr("sprintathon_level_timer", input_preferences->sprintathon_level_timer);
 	root.put_attr("sprintathon_dodge_bullet_time", input_preferences->sprintathon_dodge_bullet_time);
 	root.put_attr("sprintathon_footstep_volume_percent",
 		input_preferences->sprintathon_footstep_volume_percent);
@@ -6143,6 +6153,7 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_footsteps = true;
 	preferences->sprintathon_bullet_time = true;
 	preferences->sprintathon_pistol_scope = true;
+	preferences->sprintathon_level_timer = false;
 	preferences->sprintathon_dodge_bullet_time = false;
 	preferences->sprintathon_footstep_volume_percent = 100;
 
@@ -6540,6 +6551,8 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("gamma_corrected_blending", graphics_preferences->OGL_Configure.Use_sRGB);
 	root.read_attr("use_npot", graphics_preferences->OGL_Configure.Use_NPOT);
 	root.read_attr("billboard_xy", graphics_preferences->OGL_Configure.BillboardXY);
+	root.read_attr("refractive_invisibility",
+		graphics_preferences->OGL_Configure.RefractiveInvisibility);
 	root.read_attr("animated_media_ripples",
 		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
 	root.read_attr_bounded<int16>("animated_media_opacity",
@@ -6769,6 +6782,7 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_footsteps", input_preferences->sprintathon_footsteps);
 	root.read_attr("sprintathon_bullet_time", input_preferences->sprintathon_bullet_time);
 	root.read_attr("sprintathon_pistol_scope", input_preferences->sprintathon_pistol_scope);
+	root.read_attr("sprintathon_level_timer", input_preferences->sprintathon_level_timer);
 	root.read_attr("sprintathon_dodge_bullet_time", input_preferences->sprintathon_dodge_bullet_time);
 	root.read_attr_bounded<int16>("sprintathon_footstep_volume_percent",
 		input_preferences->sprintathon_footstep_volume_percent, 0, 100);

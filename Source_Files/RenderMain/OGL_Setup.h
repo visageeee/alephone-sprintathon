@@ -258,6 +258,7 @@ struct OGL_ConfigureData
 	bool Use_NPOT;
 
 	bool BillboardXY; // for when MimicSW is off
+	bool RefractiveInvisibility;
 	bool AnimatedMediaRipples;
 	int16 AnimatedMediaOpacity;
 	int16 AnimatedMediaRippleStrength;

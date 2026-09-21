@@ -801,8 +801,6 @@ short get_level_number_from_user(void)
 	// Create dialog
 	dialog d;
 	vertical_placer *placer = new vertical_placer(scale_dialog_value(4));
-	placer->dual_add(new w_static_text("Choose Level", LABEL_WIDGET), d);
-
 	tab_placer *level_tabs = new tab_placer;
 	const vector<string> level_tab_labels = {"SINGLEPLAYER", "MULTIPLAYER"};
 	placer->dual_add(new w_tab(level_tab_labels, level_tabs), d);
@@ -814,11 +812,20 @@ short get_level_number_from_user(void)
 		scale_dialog_value(600), visible_singleplayer, 0, true);
 	w_levels *multiplayer_w = new w_levels(multiplayer_levels, &d,
 		scale_dialog_value(600), visible_multiplayer, 0, has_multiplayer_levels);
+	singleplayer_w->set_show_best_times(true);
 	multiplayer_w->set_enabled(has_multiplayer_levels);
 	singleplayer_w->set_offset(vidmasterLevelOffset);
 	multiplayer_w->set_offset(vidmasterLevelOffset);
-	level_tabs->dual_add(singleplayer_w, d);
-	level_tabs->dual_add(multiplayer_w, d);
+	vertical_placer *singleplayer_page = new vertical_placer;
+	singleplayer_page->dual_add(new w_levels_header(
+		scale_dialog_value(600), true), d);
+	singleplayer_page->dual_add(singleplayer_w, d);
+	vertical_placer *multiplayer_page = new vertical_placer;
+	multiplayer_page->dual_add(new w_levels_header(
+		scale_dialog_value(600), false), d);
+	multiplayer_page->dual_add(multiplayer_w, d);
+	level_tabs->add(singleplayer_page, true);
+	level_tabs->add(multiplayer_page, true);
 	placer->add(level_tabs, true);
 	placer->dual_add(new w_static_text("Difficulty", LABEL_WIDGET), d);
 	w_level_difficulty *difficulty_w =
@@ -833,13 +840,21 @@ short get_level_number_from_user(void)
 	vertical_placer *all_weapons_column = new vertical_placer;
 	all_weapons_column->add(new w_spacer(scale_dialog_value(5)), true);
 	all_weapons_column->add(all_weapons_row, true);
+	horizontal_placer *timer_row =
+		new horizontal_placer(scale_dialog_value(8));
+	timer_row->dual_add(new w_static_text("Level timer", ITEM_WIDGET), d);
+	w_toggle *timer_w = new w_toggle(
+		input_preferences->sprintathon_level_timer);
+	timer_row->dual_add(timer_w, d);
+	all_weapons_column->add(timer_row, true);
 	horizontal_placer *buttons =
 		new horizontal_placer(scale_dialog_value(20));
-	buttons->dual_add(new w_button("START LEVEL", dialog_ok, &d), d);
+	buttons->dual_add(new w_button("START GAME", dialog_ok, &d), d);
 	buttons->dual_add(new w_button("CANCEL", dialog_cancel, &d), d);
 	horizontal_placer *footer =
 		new horizontal_placer(scale_dialog_value(28));
 	footer->add(all_weapons_column, true);
+	footer->add_flags(placeable::kFill);
 	footer->add(buttons, true);
 	placer->add(new w_spacer(scale_dialog_value(6)), true);
 	placer->add(footer, true);
@@ -861,6 +876,8 @@ short get_level_number_from_user(void)
 				multiplayer_w->get_selection()].level_number;
 		player_preferences->difficulty_level = difficulty_w->get_selection();
 		set_spawn_with_all_weapons(all_weapons_w->get_selection() != 0);
+		input_preferences->sprintathon_level_timer =
+			timer_w->get_selection() != 0;
 		write_preferences();
 	}
 	else

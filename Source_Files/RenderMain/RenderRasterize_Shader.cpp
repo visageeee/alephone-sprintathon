@@ -160,6 +160,67 @@ static float sprintathon_underwater_phase(int16 media_type)
 	return static_cast<float>(phase);
 }
 
+static float sprintathon_invisibility_phase()
+{
+	static uint32 last_tick = machine_tick_count();
+	static double phase = 0.0;
+	const uint32 now = machine_tick_count();
+	const uint32 elapsed_ticks = now - last_tick;
+	if (elapsed_ticks > 0)
+	{
+		const double elapsed = std::min(
+			static_cast<double>(elapsed_ticks) / MACHINE_TICKS_PER_SECOND,
+			0.25);
+		// Cloaking should read as energetic optical interference rather than
+		// slow-moving water. Keep the accumulator seamless, but move it quickly.
+		phase = std::fmod(phase + elapsed * 5.4, TWO_PI);
+		last_tick = now;
+	}
+	return static_cast<float>(phase);
+}
+
+static void setup_invisibility_refraction(
+	Shader *shader, GLsizei width, GLsizei height, float visibility)
+{
+	static GLuint scene_texture = 0;
+	static GLsizei texture_width = 0;
+	static GLsizei texture_height = 0;
+
+	glActiveTextureARB(GL_TEXTURE2_ARB);
+	if (!scene_texture)
+		glGenTextures(1, &scene_texture);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, scene_texture);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	if (width != texture_width || height != texture_height)
+	{
+		glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA, width, height,
+			0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+		texture_width = width;
+		texture_height = height;
+	}
+	glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0,
+		0, 0, width, height);
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+
+	shader->setFloat(Shader::U_Visibility, visibility);
+	shader->setFloat(Shader::U_Time, sprintathon_invisibility_phase());
+	shader->setFloat(Shader::U_PixelWidth, static_cast<float>(width));
+	shader->setFloat(Shader::U_PixelHeight, static_cast<float>(height));
+}
+
+static void setup_classic_invisibility(Shader *shader, float visibility)
+{
+	shader->setFloat(Shader::U_Visibility, visibility);
+	// The fragment shader uses a zero-sized scene to select its inexpensive
+	// classic translucent-grey path. Set both values so a prior refractive draw
+	// cannot leave valid framebuffer dimensions behind in the shader program.
+	shader->setFloat(Shader::U_PixelWidth, 0.0f);
+	shader->setFloat(Shader::U_PixelHeight, 0.0f);
+}
+
 void RenderRasterize_Shader::render_tree() {
 
 	weaponFlare = PIN(view->maximum_depth_intensity - NATURAL_LIGHT_INTENSITY, 0, FIXED_ONE)/float(FIXED_ONE);
@@ -467,7 +528,23 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 			s = Shader::get(Shader::S_InvisibleBloom);
 		}
 		s->enable();
-		s->setFloat(Shader::U_Visibility, 1.0 - rect.transfer_data/32.0f);
+		const float visibility = 1.0f - rect.transfer_data / 32.0f;
+		if (renderStep == kDiffuse &&
+			Get_OGL_ConfigureData().RefractiveInvisibility)
+		{
+			setup_invisibility_refraction(s,
+				static_cast<GLsizei>(view->screen_width * MainScreenPixelScale()),
+				static_cast<GLsizei>(view->screen_height * MainScreenPixelScale()),
+				visibility);
+		}
+		else if (renderStep == kDiffuse)
+		{
+			setup_classic_invisibility(s, visibility);
+		}
+		else
+		{
+			s->setFloat(Shader::U_Visibility, visibility);
+		}
 	} else if (TMgr->TransferMode == _solid_transfer) {
 		// is this ever used?
 		color[0] = 0;
@@ -1139,7 +1216,9 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
 
 extern void FlatBumpTexture(); // from OGL_Textures.cpp
 
-bool RenderModel(rectangle_definition& RenderRectangle, short Collection, short CLUT, float flare, float selfLuminosity, RenderStep renderStep) {
+bool RenderModel(rectangle_definition& RenderRectangle, short Collection,
+	short CLUT, float flare, float selfLuminosity, RenderStep renderStep,
+	GLsizei scene_width, GLsizei scene_height) {
 
 	OGL_ModelData *ModelPtr = RenderRectangle.ModelPtr;
 	OGL_SkinData *SkinPtr = ModelPtr->GetSkin(CLUT);
@@ -1187,14 +1266,22 @@ bool RenderModel(rectangle_definition& RenderRectangle, short Collection, short 
 		FindInfravisionVersionRGBA(GET_COLLECTION(GET_DESCRIPTOR_COLLECTION(RenderRectangle.ShapeDesc)), color);
 		s = Shader::get(Shader::S_WallInfravision);
 	} else if (RenderRectangle.transfer_mode == _tinted_transfer) {
-			flare = -1;
-			if (renderStep == kDiffuse) {
-				s = Shader::get(Shader::S_Invisible);
-			} else {
-				s = Shader::get(Shader::S_InvisibleBloom);
-			}
-			s->enable();
-			s->setFloat(Shader::U_Visibility, 1.0 - RenderRectangle.transfer_data/32.0f);
+		flare = -1;
+		if (renderStep == kDiffuse) {
+			s = Shader::get(Shader::S_Invisible);
+		} else {
+			s = Shader::get(Shader::S_InvisibleBloom);
+		}
+		s->enable();
+		const float visibility =
+			1.0f - RenderRectangle.transfer_data / 32.0f;
+		if (renderStep == kDiffuse &&
+			Get_OGL_ConfigureData().RefractiveInvisibility)
+			setup_invisibility_refraction(s, scene_width, scene_height, visibility);
+		else if (renderStep == kDiffuse)
+			setup_classic_invisibility(s, visibility);
+		else
+			s->setFloat(Shader::U_Visibility, visibility);
 	} else if (RenderRectangle.transfer_mode == _solid_transfer) {
 		color[0] = 0;
 		color[1] = 1;
@@ -1371,7 +1458,10 @@ void RenderRasterize_Shader::_render_node_object_helper(render_object_data *obje
 		short collection = GET_COLLECTION(descriptor);
 		short clut = ModifyCLUT(rect.transfer_mode,GET_COLLECTION_CLUT(descriptor));
 
-		RenderModel(rect, collection, clut, weaponFlare, selfLuminosity, renderStep);
+		RenderModel(rect, collection, clut, weaponFlare, selfLuminosity,
+			renderStep,
+			static_cast<GLsizei>(view->screen_width * MainScreenPixelScale()),
+			static_cast<GLsizei>(view->screen_height * MainScreenPixelScale()));
 		glPopMatrix();
 		return;
 	}

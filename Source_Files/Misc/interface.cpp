@@ -115,6 +115,8 @@ Feb 13, 2003 (Woody Zenfell):
 #include <limits.h>
 #include <algorithm>
 #include <sstream>
+#include <fstream>
+#include <map>
 
 #ifdef HAVE_LIBYUV
 #include <libyuv/convert.h>
@@ -128,6 +130,7 @@ extern TP2PerfGlobals perf_globals;
 #endif
 
 #include "map.h"
+
 #include "shell.h"
 #include "interface.h"
 #include "player.h"
@@ -313,6 +316,111 @@ struct screen_data m1_display_screens[]= {
 
 /* -------------- local globals */
 static struct game_state game_state;
+
+namespace
+{
+using SprintathonTimerKey = std::pair<uint32, int16>;
+
+std::map<SprintathonTimerKey, int32> sprintathon_best_times;
+bool sprintathon_best_times_loaded = false;
+int32 sprintathon_level_start_tick = 0;
+
+std::string sprintathon_best_times_path()
+{
+	char *directory = SDL_GetPrefPath("Aleph One", "Sprintathon");
+	if (!directory)
+		return std::string();
+
+	std::string path(directory);
+	SDL_free(directory);
+	return path + "level-times.txt";
+}
+
+void load_sprintathon_best_times()
+{
+	if (sprintathon_best_times_loaded)
+		return;
+
+	sprintathon_best_times_loaded = true;
+	std::ifstream input(sprintathon_best_times_path());
+	uint32 checksum;
+	int level;
+	int32 ticks;
+	while (input >> std::hex >> checksum >> std::dec >> level >> ticks)
+	{
+		if (level >= INT16_MIN && level <= INT16_MAX && ticks > 0)
+			sprintathon_best_times[{checksum, static_cast<int16>(level)}] = ticks;
+	}
+}
+
+void save_sprintathon_best_times()
+{
+	const std::string path = sprintathon_best_times_path();
+	if (path.empty())
+		return;
+
+	std::ofstream output(path, std::ios::trunc);
+	for (const auto& time : sprintathon_best_times)
+	{
+		output << std::hex << time.first.first << std::dec << ' '
+			<< time.first.second << ' ' << time.second << '\n';
+	}
+}
+
+SprintathonTimerKey current_sprintathon_timer_key()
+{
+	return {get_current_map_checksum(), dynamic_world->current_level_number};
+}
+}
+
+int32 sprintathon_level_timer_ticks()
+{
+	return dynamic_world ?
+		std::max<int32>(0, dynamic_world->tick_count - sprintathon_level_start_tick) :
+		0;
+}
+
+void sprintathon_level_timer_start()
+{
+	sprintathon_level_start_tick = dynamic_world ? dynamic_world->tick_count : 0;
+}
+
+int32 sprintathon_level_timer_best_ticks()
+{
+	if (!dynamic_world)
+		return 0;
+
+	return sprintathon_level_timer_best_ticks_for_level(
+		dynamic_world->current_level_number);
+}
+
+int32 sprintathon_level_timer_best_ticks_for_level(int16 level_number)
+{
+	load_sprintathon_best_times();
+	const auto found = sprintathon_best_times.find(
+		{get_current_map_checksum(), level_number});
+	return found == sprintathon_best_times.end() ? 0 : found->second;
+}
+
+void sprintathon_level_timer_finish()
+{
+	if (!dynamic_world || !input_preferences->sprintathon_level_timer ||
+		game_state.user != _single_player)
+		return;
+
+	const int32 elapsed = sprintathon_level_timer_ticks();
+	if (elapsed <= 0)
+		return;
+
+	load_sprintathon_best_times();
+	const SprintathonTimerKey key = current_sprintathon_timer_key();
+	auto found = sprintathon_best_times.find(key);
+	if (found == sprintathon_best_times.end() || elapsed < found->second)
+	{
+		sprintathon_best_times[key] = elapsed;
+		save_sprintathon_best_times();
+	}
+}
 static std::shared_ptr<SoundPlayer> introduction_sound = nullptr;
 static FileSpecifier DraggedReplayFile;
 static bool interface_fade_in_progress= false;
@@ -2356,6 +2464,8 @@ static void transfer_to_new_level(
 {
 	struct entry_point entry;
 	bool success= true;
+
+	sprintathon_level_timer_finish();
 	
 	entry.level_number= level_number;
 
@@ -2778,6 +2888,7 @@ static void start_game(
 	}
 
 	SoundManager::instance()->UpdateListener();
+	sprintathon_level_timer_start();
 }
 
 // LP: "static" removed

@@ -23,15 +23,9 @@ float getFogFactor(float distance) {
 }
 
 void main(void) {
-	vec4 color = texture2D(texture0, gl_TexCoord[0].xy);
-	vec3 intensity = vec3(0.0, 0.0, 0.0);
-	float fogFactor = getFogFactor(length(viewDir));
-	if (mediaFogEnabled > 0.0) {
-		float heightFog = clamp((mediaFogTop - worldZ) / mediaFogSoftness, 0.0, 1.0);
-		float heightMask = mix(1.0, heightFog, mediaFogEnabled);
-		fogFactor = 1.0 - (1.0 - fogFactor) * heightMask;
-	}
-	gl_FragColor = vec4(mix(vec3(0.0, 0.0, 0.0), intensity, fogFactor), vertexColor.a * color.a * visibility);
+	// Refraction belongs only in the diffuse scene.  Invisible objects should
+	// not add a grey silhouette or halo to the bloom buffer.
+	gl_FragColor = vec4(0.0);
 }
 
 )"

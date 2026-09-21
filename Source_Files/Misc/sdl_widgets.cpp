@@ -343,7 +343,7 @@ void w_button_base::draw(SDL_Surface *s) const
 	}
 
 	draw_text(s, text.c_str(), rect.x + get_theme_space(type, BUTTON_L_SPACE),
-		  rect.y + get_theme_space(type, BUTTON_T_SPACE) + font->get_ascent(),
+		  rect.y + (rect.h - font->get_line_height()) / 2 + font->get_ascent(),
 		  get_theme_color(type, state), font, style);
 }
 
@@ -2297,13 +2297,45 @@ void w_list_base::set_top_item(size_t i)
  *  Level number dialog
  */
 
+w_levels_header::w_levels_header(uint16 width, bool show_best)
+	: widget(ITEM_WIDGET), show_best_time(show_best)
+{
+	rect.w = width;
+	rect.h = font->get_line_height();
+	saved_min_width = rect.w;
+	saved_min_height = rect.h;
+}
+
+void w_levels_header::draw(SDL_Surface *s) const
+{
+	const int16 margin = scale_dialog_value(48);
+	const int16 baseline = rect.y + font->get_ascent();
+	const uint32 color = get_theme_color(
+		ITEM_WIDGET, DEFAULT_STATE);
+	draw_text(s, "Map name", rect.x +
+		get_theme_space(LIST_WIDGET, L_SPACE) + margin, baseline,
+		color, font, style);
+	if (show_best_time)
+	{
+		const char *heading = "Best time";
+		draw_text(s, heading,
+			rect.x + rect.w - get_theme_space(LIST_WIDGET, R_SPACE) -
+				margin - text_width(heading, font, style),
+			baseline, color, font, style);
+	}
+}
+
 w_levels::w_levels(const vector<entry_point> &items, dialog *d)
-	: w_list<entry_point>(items, 400, 8, 0), parent(d), show_level_numbers(true), offset{1} {}
+	: w_list<entry_point>(items, 400, 8, 0), parent(d),
+	show_level_numbers(true), show_best_times(false), mouse_click_count(0),
+	offset{1} {}
 
 // ZZZ: new constructor gives more control over widget's appearance.
 w_levels::w_levels(const vector<entry_point>& items, dialog* d, uint16 inWidth,
         size_t inNumLines, size_t inSelectedItem, bool in_show_level_numbers)
-	: w_list<entry_point>(items, inWidth, inNumLines, inSelectedItem), parent(d), show_level_numbers(in_show_level_numbers), offset{1} {}
+	: w_list<entry_point>(items, inWidth, inNumLines, inSelectedItem), parent(d),
+	show_level_numbers(in_show_level_numbers), show_best_times(false),
+	mouse_click_count(0), offset{1} {}
 
 void
 w_levels::item_selected(void)
@@ -2314,8 +2346,46 @@ w_levels::item_selected(void)
 void w_levels::mouse_move(int x, int y)
 {
 	parent->activate_widget(this);
-	w_list_base::mouse_move(x, y);
+	if (thumb_dragging)
+		w_list_base::mouse_move(x, y);
 	parent->draw_dirty_widgets();
+}
+
+void w_levels::click(int x, int y)
+{
+	if (show_scrollbar && num_items > shown_items &&
+		x >= trough_rect.x && x < trough_rect.x + trough_rect.w)
+	{
+		w_list_base::click(x, y);
+		mouse_click_count = 0;
+		return;
+	}
+
+	const int top = get_theme_space(LIST_WIDGET, T_SPACE);
+	const int bottom = rect.h - get_theme_space(LIST_WIDGET, B_SPACE);
+	if (x >= get_theme_space(LIST_WIDGET, L_SPACE) &&
+		x < rect.w - get_theme_space(LIST_WIDGET, R_SPACE) &&
+		y >= top && y < bottom)
+	{
+		const size_t clicked = top_item + (y - top) / item_height();
+		if (clicked < num_items &&
+			clicked < top_item + shown_items && is_item_selectable(clicked))
+		{
+			set_selection(clicked);
+			parent->draw_dirty_widgets();
+			if (mouse_click_count >= 2)
+				item_selected();
+		}
+	}
+	mouse_click_count = 0;
+}
+
+void w_levels::event(SDL_Event& e)
+{
+	if (e.type == SDL_MOUSEBUTTONDOWN &&
+		e.button.button == SDL_BUTTON_LEFT)
+		mouse_click_count = e.button.clicks;
+	w_list_base::event(e);
 }
 
 void w_levels::draw(SDL_Surface *surface) const
@@ -2371,15 +2441,38 @@ w_levels::draw_item(vector<entry_point>::const_iterator i, SDL_Surface *s, int16
 	width = width > margin * 2 ? width - margin * 2 : width;
 	y = y + font->get_ascent();
 	char str[256];
+	const uint32 color = get_theme_color(
+		ITEM_WIDGET, selected ? ACTIVE_STATE : DEFAULT_STATE);
+	const int time_column_width = show_best_times ?
+		scale_dialog_value(105) : 0;
 
     if(show_level_numbers)
     	sprintf(str, "%d - %s", i->level_number + offset, i->level_name);
     else
         sprintf(str, "%s", i->level_name);
 
-	set_drawing_clip_rectangle(0, x, static_cast<short>(s->h), x + width);
-	draw_text(s, str, x, y, get_theme_color(ITEM_WIDGET, selected ? ACTIVE_STATE : DEFAULT_STATE), font, style);
+	set_drawing_clip_rectangle(0, x, static_cast<short>(s->h),
+		x + width - time_column_width);
+	draw_text(s, str, x, y, color, font, style);
 	set_drawing_clip_rectangle(SHRT_MIN, SHRT_MIN, SHRT_MAX, SHRT_MAX);
+
+	if (show_best_times)
+	{
+		const int32 ticks = sprintathon_level_timer_best_ticks_for_level(
+			i->level_number);
+		char best[32] = "--:--.--";
+		if (ticks > 0)
+		{
+			const int32 hundredths =
+				static_cast<int32>((static_cast<int64_t>(ticks) * 100) /
+					TICKS_PER_SECOND);
+			snprintf(best, sizeof(best), "%02d:%02d.%02d",
+				hundredths / 6000, (hundredths / 100) % 60,
+				hundredths % 100);
+		}
+		const int best_width = text_width(best, font, style);
+		draw_text(s, best, x + width - best_width, y, color, font, style);
+	}
 }
 
 

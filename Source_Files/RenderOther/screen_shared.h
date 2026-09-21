@@ -584,6 +584,63 @@ static void update_fps_display(SDL_Surface *s)
 	}
 }
 
+static void FormatSprintathonLevelTime(char *buffer, size_t size, int32 ticks)
+{
+	const int64_t hundredths =
+		(static_cast<int64_t>(std::max<int32>(0, ticks)) * 100) /
+		TICKS_PER_SECOND;
+	const int64_t minutes = hundredths / 6000;
+	const int64_t seconds = (hundredths / 100) % 60;
+	const int64_t fraction = hundredths % 100;
+	snprintf(buffer, size, "%02lld:%02lld.%02lld",
+		static_cast<long long>(minutes),
+		static_cast<long long>(seconds),
+		static_cast<long long>(fraction));
+}
+
+static void DisplaySprintathonLevelTimer(SDL_Surface *s)
+{
+	if (!input_preferences->sprintathon_level_timer || !dynamic_world ||
+		game_is_networked || player_in_terminal_mode(current_player_index))
+		return;
+
+	const int32 elapsed = sprintathon_level_timer_ticks();
+	const int32 best = sprintathon_level_timer_best_ticks();
+	char elapsed_text[32];
+	char difference_text[32];
+	char text[96];
+	FormatSprintathonLevelTime(elapsed_text, sizeof(elapsed_text), elapsed);
+
+	if (best > 0)
+	{
+		const int32 difference = elapsed - best;
+		FormatSprintathonLevelTime(difference_text, sizeof(difference_text),
+			std::abs(difference));
+		snprintf(text, sizeof(text), "TIME %s  BEST %c%s",
+			elapsed_text, difference <= 0 ? '-' : '+', difference_text);
+	}
+	else
+	{
+		snprintf(text, sizeof(text), "TIME %s", elapsed_text);
+	}
+
+	FontSpecifier& Font = GetOnScreenFont();
+	DisplayTextDest = s;
+	DisplayTextFont = Font.Info;
+	DisplayTextStyle = Font.Style;
+
+	const auto margins = alephone::Screen::instance()->lua_text_margins;
+	const short offset = Font.LineSpacing / 3;
+	const short x = s->w - margins.right - offset - DisplayTextWidth(text);
+	const short y = margins.top + Font.LineSpacing;
+	if (best > 0 && elapsed > best)
+		DisplayText(x, y, text, 0xff, 0x80, 0x70);
+	else if (best > 0)
+		DisplayText(x, y, text, 0x80, 0xff, 0x90);
+	else
+		DisplayText(x, y, text);
+}
+
 
 static void DisplayPosition(SDL_Surface *s)
 {

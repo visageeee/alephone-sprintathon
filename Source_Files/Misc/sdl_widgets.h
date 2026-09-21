@@ -811,17 +811,31 @@ public:
 
 	void item_selected(void);
 	void mouse_move(int x, int y) override;
+	void click(int x, int y) override;
+	void event(SDL_Event& e) override;
 	void draw(SDL_Surface *surface) const override;
 	void place(const SDL_Rect& rect, placement_flags flags) override;
 
 	void draw_item(vector<entry_point>::const_iterator i, SDL_Surface *s, int16 x, int16 y, uint16 width, bool selected) const;
 
 	void set_offset(int offset) { this->offset = offset; }
+	void set_show_best_times(bool show) { show_best_times = show; }
 
 private:
 	dialog *parent;
 	bool    show_level_numbers;
+	bool    show_best_times;
+	Uint8   mouse_click_count;
 	int offset;
+};
+
+class w_levels_header : public widget {
+public:
+	w_levels_header(uint16 width, bool show_best_time);
+	void draw(SDL_Surface *s) const;
+
+private:
+	bool show_best_time;
 };
 
 

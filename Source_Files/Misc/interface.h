@@ -463,4 +463,12 @@ void reset_mml_infravision();
 void parse_mml_control_panels(const InfoTree& root);
 void reset_mml_control_panels();
 
+// Sprintathon per-level timer. Times are measured in simulation ticks, so
+// pauses, terminals and preference dialogs do not advance the clock.
+int32 sprintathon_level_timer_ticks();
+int32 sprintathon_level_timer_best_ticks();
+int32 sprintathon_level_timer_best_ticks_for_level(int16 level_number);
+void sprintathon_level_timer_start();
+void sprintathon_level_timer_finish();
+
 #endif

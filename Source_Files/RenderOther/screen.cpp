@@ -1552,6 +1552,7 @@ void render_screen(short ticks_elapsed)
 	  if (!chat_input_mode){
 		update_fps_display(disp_pixels);
 	  }
+	  DisplaySprintathonLevelTimer(disp_pixels);
 	  DisplayPosition(disp_pixels);
 	  DisplayScores(disp_pixels);
 	}
