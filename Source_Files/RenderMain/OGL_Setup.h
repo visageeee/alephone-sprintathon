@@ -258,6 +258,10 @@ struct OGL_ConfigureData
 	bool Use_NPOT;
 
 	bool BillboardXY; // for when MimicSW is off
+	// 0 = off; 1/2 = original low-resolution sprites; 3/4 = force all sprites.
+	// Even values select bilinear filtering after upscaling.
+	int16 SpriteUpscaling;
+	int16 WallTextureUpscaling; // 0 = off, 1 = 2xSaI, 2 = 2xSaI plus bilinear
 	bool RefractiveInvisibility;
 	bool SpriteShadows;
 	bool AmbientOcclusion;

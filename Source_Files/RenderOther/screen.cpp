@@ -2132,6 +2132,7 @@ static GLhandleARB sprintathon_radial_blur_program()
 		"#version 120\n"
 		"uniform sampler2D frame_texture;\n"
 		"uniform float effect_amount;\n"
+		"uniform float heavy_amount;\n"
 		"uniform float scope_amount;\n"
 		"uniform float aspect_ratio;\n"
 		"varying vec2 blur_uv;\n"
@@ -2139,18 +2140,18 @@ static GLhandleARB sprintathon_radial_blur_program()
 		"  vec2 radial = blur_uv - vec2(0.5);\n"
 		"  vec2 shaped = radial * vec2(aspect_ratio, 1.0);\n"
 		"  float radius = length(shaped);\n"
-		"  float edge = smoothstep(0.12, 0.58, radius);\n"
+		"  float edge = smoothstep(mix(0.12, 0.035, heavy_amount), 0.58, radius);\n"
 		"  float scope_edge = smoothstep(0.34, 0.43, radius);\n"
 		"  vec4 original = texture2D(frame_texture, blur_uv);\n"
 		"  vec4 blurred = original;\n"
 		"  for (int i = 1; i <= 16; ++i) {\n"
-		"    float blur_amount = max(effect_amount, scope_amount * 2.2);\n"
+		"    float blur_amount = max(effect_amount * mix(1.0, 2.8, heavy_amount), scope_amount * 2.2);\n"
 		"    float distance = float(i) * 0.0036 * blur_amount;\n"
 		"    vec2 offset = radial * distance;\n"
 		"    blurred += texture2D(frame_texture, blur_uv - offset);\n"
 		"  }\n"
 		"  blurred /= 17.0;\n"
-		"  float bullet_strength = edge * effect_amount * 1.2;\n"
+		"  float bullet_strength = edge * effect_amount * mix(1.2, 2.15, heavy_amount);\n"
 		"  float scope_strength = scope_edge * scope_amount * 1.35;\n"
 		"  float strength = min(1.0, max(bullet_strength, scope_strength));\n"
 		"  gl_FragColor = mix(original, blurred, strength);\n"
@@ -2300,6 +2301,9 @@ static void draw_sprintathon_bullet_time_effect()
 	{
 		const float bullet_blur_amount =
 			input_preferences->sprintathon_bullet_time_blur ? amount : 0.f;
+		const float heavy_blur_amount =
+			(input_preferences->sprintathon_bullet_time_blur &&
+			 input_preferences->sprintathon_bullet_time_heavy_blur) ? amount : 0.f;
 		const float scope_blur_amount =
 			input_preferences->sprintathon_pistol_scope_blur ? scope_amount : 0.f;
 		glUseProgramObjectARB(blur_program);
@@ -2308,6 +2312,9 @@ static void draw_sprintathon_bullet_time_effect()
 		glUniform1fARB(
 			glGetUniformLocationARB(blur_program, "effect_amount"),
 			bullet_blur_amount);
+		glUniform1fARB(
+			glGetUniformLocationARB(blur_program, "heavy_amount"),
+			heavy_blur_amount);
 		glUniform1fARB(
 			glGetUniformLocationARB(blur_program, "scope_amount"),
 			scope_blur_amount);

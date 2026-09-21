@@ -101,6 +101,10 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 #include "OGL_Textures.h"
 #include "screen.h"
 
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+
 #ifdef _WIN32
 #define NOMINMAX
 #include <windows.h>
@@ -109,6 +113,133 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 
 using std::min;
 using std::max;
+
+namespace
+{
+struct SpritePixel
+{
+	uint8 r, g, b, a;
+};
+
+static SpritePixel unpack_sprite_pixel(uint32 pixel)
+{
+	SpritePixel result;
+	memcpy(&result, &pixel, sizeof(result));
+	return result;
+}
+
+static uint32 pack_sprite_pixel(const SpritePixel& pixel)
+{
+	uint32 result;
+	memcpy(&result, &pixel, sizeof(result));
+	return result;
+}
+
+static uint32 blend_sprite_pixels(uint32 first, uint32 second, bool premultiplied)
+{
+	const SpritePixel a = unpack_sprite_pixel(first);
+	const SpritePixel b = unpack_sprite_pixel(second);
+	SpritePixel out;
+	out.a = static_cast<uint8>((static_cast<unsigned>(a.a) + b.a + 1) / 2);
+	if (premultiplied)
+	{
+		out.r = static_cast<uint8>((static_cast<unsigned>(a.r) + b.r + 1) / 2);
+		out.g = static_cast<uint8>((static_cast<unsigned>(a.g) + b.g + 1) / 2);
+		out.b = static_cast<uint8>((static_cast<unsigned>(a.b) + b.b + 1) / 2);
+	}
+	else if (out.a)
+	{
+		const unsigned alpha_sum = static_cast<unsigned>(a.a) + b.a;
+		out.r = alpha_sum ? static_cast<uint8>((a.r * a.a + b.r * b.a + alpha_sum / 2) / alpha_sum) : 0;
+		out.g = alpha_sum ? static_cast<uint8>((a.g * a.a + b.g * b.a + alpha_sum / 2) / alpha_sum) : 0;
+		out.b = alpha_sum ? static_cast<uint8>((a.b * a.a + b.b * b.a + alpha_sum / 2) / alpha_sum) : 0;
+	}
+	else
+	{
+		out.r = out.g = out.b = 0;
+	}
+	return pack_sprite_pixel(out);
+}
+
+static bool sprite_pixels_similar(uint32 first, uint32 second)
+{
+	const SpritePixel a = unpack_sprite_pixel(first);
+	const SpritePixel b = unpack_sprite_pixel(second);
+	if (a.a < 8 && b.a < 8)
+		return true;
+	const int difference = abs(static_cast<int>(a.a) - b.a) * 2 +
+		abs(static_cast<int>(a.r) - b.r) +
+		abs(static_cast<int>(a.g) - b.g) +
+		abs(static_cast<int>(a.b) - b.b);
+	return difference < 72;
+}
+
+// Edge-directed 2xSaI-style interpolation. It retains strong sprite contours,
+// while alpha-aware blends keep transparent edge pixels from growing dark halos.
+static ImageDescriptor *upscale_texture_2xsai(const ImageDescriptor& source, bool wrap_edges)
+{
+	const int width = source.GetWidth();
+	const int height = source.GetHeight();
+	const int output_width = width * 2;
+	const int output_height = height * 2;
+	uint32 *output = new uint32[output_width * output_height];
+	const uint32 *input = source.GetBuffer();
+	const bool premultiplied = source.IsPremultiplied();
+	auto sample = [&](int x, int y) {
+		if (wrap_edges)
+		{
+			x = (x % width + width) % width;
+			y = (y % height + height) % height;
+		}
+		else
+		{
+			x = max(0, min(width - 1, x));
+			y = max(0, min(height - 1, y));
+		}
+		return input[y * width + x];
+	};
+
+	for (int y = 0; y < height; ++y)
+	{
+		for (int x = 0; x < width; ++x)
+		{
+			const uint32 center = sample(x, y);
+			const uint32 right = sample(x + 1, y);
+			const uint32 down = sample(x, y + 1);
+			const uint32 diagonal = sample(x + 1, y + 1);
+			uint32 top_right = blend_sprite_pixels(center, right, premultiplied);
+			uint32 bottom_left = blend_sprite_pixels(center, down, premultiplied);
+			uint32 bottom_right;
+
+			if (sprite_pixels_similar(right, down) &&
+				!sprite_pixels_similar(center, diagonal))
+				bottom_right = blend_sprite_pixels(right, down, premultiplied);
+			else
+				bottom_right = blend_sprite_pixels(
+					blend_sprite_pixels(center, diagonal, premultiplied),
+					blend_sprite_pixels(right, down, premultiplied), premultiplied);
+
+			if (sprite_pixels_similar(center, diagonal) &&
+				!sprite_pixels_similar(right, down))
+			{
+				top_right = blend_sprite_pixels(center, top_right, premultiplied);
+				bottom_left = blend_sprite_pixels(center, bottom_left, premultiplied);
+				bottom_right = blend_sprite_pixels(center, bottom_right, premultiplied);
+			}
+
+			const int destination = (y * 2) * output_width + x * 2;
+			output[destination] = center;
+			output[destination + 1] = top_right;
+			output[destination + output_width] = bottom_left;
+			output[destination + output_width + 1] = bottom_right;
+		}
+	}
+
+	ImageDescriptor *result = new ImageDescriptor(output_width, output_height, output);
+	result->PremultipliedAlpha = premultiplied;
+	return result;
+}
+}
 
 OGL_TexturesStats gGLTxStats = {0,0,0,500000,0,0, 0};
 
@@ -515,6 +646,7 @@ bool TextureManager::Setup()
 		// Try to load a substitute texture, and if that fails,
 		// get the geometry from the shapes bitmap.
 		bool substitute = LoadSubstituteTexture();
+		IsSubstituteTexture = substitute;
 		if (!substitute) 
 			if (!SetupTextureGeometry()) return false;
 
@@ -1208,6 +1340,34 @@ void TextureManager::PlaceTexture(const ImageDescriptor *Image, bool normal_map)
 {
 
 	bool mipmapsLoaded = false;
+	bool texture_upscaled = false;
+	std::unique_ptr<ImageDescriptor> upscaled_image;
+	const int sprite_upscaling = Get_OGL_ConfigureData().SpriteUpscaling;
+	const int wall_upscaling = Get_OGL_ConfigureData().WallTextureUpscaling;
+	const bool is_sprite_texture =
+		TextureType == OGL_Txtr_Inhabitant || TextureType == OGL_Txtr_WeaponsInHand;
+	const bool is_wall_texture = TextureType == OGL_Txtr_Wall;
+	const bool force_sprite_upscaling = sprite_upscaling >= 3;
+	const int selected_upscaling = is_wall_texture ? wall_upscaling : sprite_upscaling;
+	int texture_size_limit = 256;
+	if ((is_sprite_texture && force_sprite_upscaling) ||
+		(is_wall_texture && wall_upscaling > 0))
+	{
+		GLint maximum_texture_size = 0;
+		glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maximum_texture_size);
+		texture_size_limit = max(1, static_cast<int>(maximum_texture_size) / 2);
+	}
+	if (!normal_map && selected_upscaling > 0 &&
+		((is_sprite_texture && (force_sprite_upscaling || !IsSubstituteTexture)) ||
+		 is_wall_texture) &&
+		Image->GetFormat() == ImageDescriptor::RGBA8 &&
+		Image->GetWidth() > 0 && Image->GetHeight() > 0 &&
+		Image->GetWidth() <= texture_size_limit && Image->GetHeight() <= texture_size_limit)
+	{
+		upscaled_image.reset(upscale_texture_2xsai(*Image, is_wall_texture));
+		Image = upscaled_image.get();
+		texture_upscaled = true;
+	}
 
 	TxtrTypeInfoData& TxtrTypeInfo = TxtrTypeInfoList[TextureType];
 
@@ -1362,7 +1522,9 @@ void TextureManager::PlaceTexture(const ImageDescriptor *Image, bool normal_map)
 	
 	// Set texture-mapping features
 	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, TxtrTypeInfo.NearFilter);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+		(texture_upscaled && (selected_upscaling == 2 || selected_upscaling == 4)) ?
+		GL_LINEAR : TxtrTypeInfo.NearFilter);
 	if ((TxtrTypeInfo.FarFilter == GL_NEAREST_MIPMAP_NEAREST || TxtrTypeInfo.FarFilter == GL_LINEAR_MIPMAP_NEAREST || TxtrTypeInfo.FarFilter == GL_NEAREST_MIPMAP_LINEAR || TxtrTypeInfo.FarFilter == GL_LINEAR_MIPMAP_LINEAR) && !mipmapsLoaded)
 	{
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -1537,6 +1699,7 @@ TextureManager::TextureManager()
 	TransferData = 0;
 	IsShadeless = false;
 	TextureType = 0;
+	IsSubstituteTexture = false;
 	LandscapeVertRepeat = false;
 	
 	TxtrStatePtr = 0;

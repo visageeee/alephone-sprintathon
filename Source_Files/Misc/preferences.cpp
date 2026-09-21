@@ -940,6 +940,7 @@ void handle_preferences(bool in_game)
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(footsteps_w, sprintathon_footsteps, "Footstep Sounds");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(bullet_time_w, sprintathon_bullet_time, "Bullet Time (B)");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(bullet_time_blur_w, sprintathon_bullet_time_blur, "Bullet Time Blur");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(bullet_time_heavy_blur_w, sprintathon_bullet_time_heavy_blur, "Heavy Bullet Time Blur");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(pistol_scope_w, sprintathon_pistol_scope, "Pistol Scope");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(pistol_scope_blur_w, sprintathon_pistol_scope_blur, "Pistol Scope Blur");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(level_timer_w, sprintathon_level_timer, "Level Timer");
@@ -1098,6 +1099,19 @@ void handle_preferences(bool in_game)
 	static const char *texture_quality_labels[] = {"Unlimited", "Normal", "High", "Higher", "Highest", nullptr};
 	static const char *near_filter_labels_main[] = {"None", "Linear", nullptr};
 	static const char *far_filter_labels_main[] = {"None", "Linear", "Bilinear", "Trilinear", nullptr};
+	static const char *sprite_upscaling_labels[] = {
+		"Off",
+		"2xSaI",
+		"2xSaI + Bilinear",
+		"2xSaI (All Sprites)",
+		"2xSaI + Bilinear (All Sprites)",
+		nullptr
+	};
+	w_select *sprite_upscaling_w = new w_select(
+		graphics_preferences->OGL_Configure.SpriteUpscaling, sprite_upscaling_labels);
+	static const char *wall_upscaling_labels[] = {"Off", "2xSaI", "2xSaI + Bilinear", nullptr};
+	w_select *wall_upscaling_w = new w_select(
+		graphics_preferences->OGL_Configure.WallTextureUpscaling, wall_upscaling_labels);
 	w_select *texture_quality_w[OGL_NUMBER_OF_TEXTURE_TYPES];
 	w_select *texture_near_w[OGL_NUMBER_OF_TEXTURE_TYPES];
 	w_select *texture_far_w[OGL_NUMBER_OF_TEXTURE_TYPES] = {};
@@ -1119,6 +1133,10 @@ void handle_preferences(bool in_game)
 	textures->dual_add(model_quality_w->label("3D Model Skins"), d);
 	textures->dual_add(model_quality_w, d);
 	textures->dual_add_row(new w_static_text("Texture Filtering", LABEL_WIDGET), d);
+	textures->dual_add(sprite_upscaling_w->label("Sprite Upscaling"), d);
+	textures->dual_add(sprite_upscaling_w, d);
+	textures->dual_add(wall_upscaling_w->label("Wall Texture Upscaling"), d);
+	textures->dual_add(wall_upscaling_w, d);
 	for (int i = 0; i < OGL_NUMBER_OF_TEXTURE_TYPES; ++i)
 	{
 		texture_near_w[i] = new w_select(
@@ -1333,6 +1351,10 @@ void handle_preferences(bool in_game)
 	}
 	graphics_preferences->OGL_Configure.ModelConfig.MaxSize =
 		quality_value(model_quality_w->get_selection(), 256);
+	graphics_preferences->OGL_Configure.SpriteUpscaling =
+		sprite_upscaling_w->get_selection();
+	graphics_preferences->OGL_Configure.WallTextureUpscaling =
+		wall_upscaling_w->get_selection();
 	graphics_preferences->OGL_Configure.AnimatedMediaRipples = liquid_ripples_w->get_selection();
 	graphics_preferences->OGL_Configure.AnimatedMediaOpacity =
 		25 + liquid_opacity_w->get_selection() * 5;
@@ -1563,6 +1585,7 @@ void handle_preferences(bool in_game)
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_footsteps, footsteps_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_bullet_time, bullet_time_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_bullet_time_blur, bullet_time_blur_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_bullet_time_heavy_blur, bullet_time_heavy_blur_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_pistol_scope, pistol_scope_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_pistol_scope_blur, pistol_scope_blur_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_level_timer, level_timer_w);
@@ -3884,6 +3907,7 @@ static void sprintathon_dialog(void *arg)
 	ADD_SPRINTATHON_TOGGLE(footsteps_w, sprintathon_footsteps, "Footstep Sounds");
 	ADD_SPRINTATHON_TOGGLE(bullet_time_w, sprintathon_bullet_time, "Bullet Time (B)");
 	ADD_SPRINTATHON_TOGGLE(bullet_time_blur_w, sprintathon_bullet_time_blur, "Bullet Time Blur");
+	ADD_SPRINTATHON_TOGGLE(bullet_time_heavy_blur_w, sprintathon_bullet_time_heavy_blur, "Heavy Bullet Time Blur");
 	ADD_SPRINTATHON_TOGGLE(pistol_scope_w, sprintathon_pistol_scope, "Pistol Scope");
 	ADD_SPRINTATHON_TOGGLE(pistol_scope_blur_w, sprintathon_pistol_scope_blur, "Pistol Scope Blur");
 	ADD_SPRINTATHON_TOGGLE(dodge_bullet_time_w, sprintathon_dodge_bullet_time, "Automatic Dodge Bullet Time");
@@ -3937,6 +3961,7 @@ static void sprintathon_dialog(void *arg)
 		STORE_SPRINTATHON_TOGGLE(sprintathon_footsteps, footsteps_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_bullet_time, bullet_time_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_bullet_time_blur, bullet_time_blur_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_bullet_time_heavy_blur, bullet_time_heavy_blur_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_pistol_scope, pistol_scope_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_pistol_scope_blur, pistol_scope_blur_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_dodge_bullet_time, dodge_bullet_time_w);
@@ -5526,6 +5551,8 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("gamma_corrected_blending", graphics_preferences->OGL_Configure.Use_sRGB);
 	root.put_attr("use_npot", graphics_preferences->OGL_Configure.Use_NPOT);
 	root.put_attr("billboard_xy", graphics_preferences->OGL_Configure.BillboardXY);
+	root.put_attr("sprite_upscaling", graphics_preferences->OGL_Configure.SpriteUpscaling);
+	root.put_attr("wall_texture_upscaling", graphics_preferences->OGL_Configure.WallTextureUpscaling);
 	root.put_attr("refractive_invisibility",
 		graphics_preferences->OGL_Configure.RefractiveInvisibility);
 	root.put_attr("sprite_shadows",
@@ -5855,6 +5882,7 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_footsteps", input_preferences->sprintathon_footsteps);
 	root.put_attr("sprintathon_bullet_time", input_preferences->sprintathon_bullet_time);
 	root.put_attr("sprintathon_bullet_time_blur", input_preferences->sprintathon_bullet_time_blur);
+	root.put_attr("sprintathon_bullet_time_heavy_blur", input_preferences->sprintathon_bullet_time_heavy_blur);
 	root.put_attr("sprintathon_pistol_scope", input_preferences->sprintathon_pistol_scope);
 	root.put_attr("sprintathon_pistol_scope_blur", input_preferences->sprintathon_pistol_scope_blur);
 	root.put_attr("sprintathon_level_timer", input_preferences->sprintathon_level_timer);
@@ -6236,6 +6264,7 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_footsteps = true;
 	preferences->sprintathon_bullet_time = true;
 	preferences->sprintathon_bullet_time_blur = true;
+	preferences->sprintathon_bullet_time_heavy_blur = false;
 	preferences->sprintathon_pistol_scope = true;
 	preferences->sprintathon_pistol_scope_blur = true;
 	preferences->sprintathon_level_timer = false;
@@ -6636,6 +6665,10 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("gamma_corrected_blending", graphics_preferences->OGL_Configure.Use_sRGB);
 	root.read_attr("use_npot", graphics_preferences->OGL_Configure.Use_NPOT);
 	root.read_attr("billboard_xy", graphics_preferences->OGL_Configure.BillboardXY);
+	root.read_attr_bounded<int16>("sprite_upscaling",
+		graphics_preferences->OGL_Configure.SpriteUpscaling, 0, 4);
+	root.read_attr_bounded<int16>("wall_texture_upscaling",
+		graphics_preferences->OGL_Configure.WallTextureUpscaling, 0, 2);
 	root.read_attr("refractive_invisibility",
 		graphics_preferences->OGL_Configure.RefractiveInvisibility);
 	root.read_attr("sprite_shadows",
@@ -6879,6 +6912,7 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_footsteps", input_preferences->sprintathon_footsteps);
 	root.read_attr("sprintathon_bullet_time", input_preferences->sprintathon_bullet_time);
 	root.read_attr("sprintathon_bullet_time_blur", input_preferences->sprintathon_bullet_time_blur);
+	root.read_attr("sprintathon_bullet_time_heavy_blur", input_preferences->sprintathon_bullet_time_heavy_blur);
 	root.read_attr("sprintathon_pistol_scope", input_preferences->sprintathon_pistol_scope);
 	root.read_attr("sprintathon_pistol_scope_blur", input_preferences->sprintathon_pistol_scope_blur);
 	root.read_attr("sprintathon_level_timer", input_preferences->sprintathon_level_timer);

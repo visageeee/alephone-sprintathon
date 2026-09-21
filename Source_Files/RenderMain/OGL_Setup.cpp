@@ -253,6 +253,8 @@ void OGL_SetDefaults(OGL_ConfigureData& Data)
 	Data.WaitForVSync = true;
 	Data.Use_sRGB = false;
 	Data.Use_NPOT = false;
+	Data.SpriteUpscaling = 0;
+	Data.WallTextureUpscaling = 0;
 	Data.RefractiveInvisibility = true;
 	Data.SpriteShadows = true;
 	Data.AmbientOcclusion = false;

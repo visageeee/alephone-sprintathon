@@ -152,6 +152,7 @@ class TextureManager
 
 	// Info transmitted from the setting-up phase
 	bool IsGlowing;
+	bool IsSubstituteTexture;
 			
 	// Width and height and whether to do RLE
 	// These are, in order, for the original texture, for the OpenGL texture,
