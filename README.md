@@ -125,14 +125,7 @@ Sprintathon expands visibility checks around the full horizon, bypasses incompat
 
 ## Bullet time
 
-Bullet time temporarily slows the action while leaving the player responsive. While active it applies:
-
-- Radial motion blur
-- Increased contrast and color grading
-- Slight FOV narrowing
-- Slowed gameplay sounds and liquid animation
-- Slowdown, speedup and heartbeat audio
-
+Bullet time temporarily slows the action while leaving the player responsive. While active it applies graphic and audio distortions.
 Bullet time is bound to **B** by default. It can also be configured to activate automatically during dodge moves.
 
 ## Realistic reloading
@@ -141,11 +134,11 @@ Sprintathon adds a weapon-reload binding, set to **R** by default. Reloading doe
 
 ## Pistol scope
 
-When enabled, the secondary trigger activates a scope while carrying only one .44 Magnum pistol. The scope provides increased magnification, hides the first-person weapon and adds aiming sway and visible recoil. Reloading temporarily leaves the scoped view. The normal secondary weapon remains available while carrying two pistols.
+When enabled, the secondary trigger activates a scope while carrying only one .44 Magnum pistol.
 
 ## Sprintathon HUD
 
-The optional Sprintathon HUD is installed with packaged and `make install` builds. It provides a circular motion tracker, compact health and oxygen meters, weapon silhouettes, magazine counts and weapon-specific ammunition graphics.
+The optional Sprintathon HUD is installed with packaged and `make install` builds. It is an attempt to make a minimal and aesthetically appropriate HUD with special features such as a self-hiding weapons list and low health flicker distortions. 
 
 Select it from the HUD or plugin preferences after installation.
 
@@ -270,13 +263,13 @@ Be sure to run `./Source_Files/sprintathon`; an older Aleph One or Sprintathon b
 
 Configure bindings from the in-game keyboard preferences. Default Sprintathon controls include:
 
-- **Space** â€” Jump / Swim
-- **C** â€” Crouch; press during a dodge for a cartwheel or backflip
-- **Left Shift** â€” Sprint
-- **R** â€” Reload
-- **B** â€” Bullet time
-- **Q / E** â€” Previous / Next Weapon
-- **Secondary trigger with one pistol** â€” Scope, when enabled
+- **Space** - Jump / Swim
+- **C** - Crouch; press during a dodge for a cartwheel or backflip
+- **Left Shift** - Sprint
+- **R** - Reload
+- **B** - Bullet time
+- **Q / E** - Previous / Next Weapon
+- **Secondary trigger with one pistol** - Scope, when enabled
 
 The exact keys are user-configurable.
 
