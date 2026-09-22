@@ -1161,6 +1161,18 @@ static void render_viewer_sprite_layer(view_data *view, RasterizerClass *RasPtr)
 		textured_rectangle.x1 += weapon_sway_x;
 		textured_rectangle.y0 += weapon_sway_y;
 		textured_rectangle.y1 += weapon_sway_y;
+
+		/* The software/fixed renderer cannot rotate this rectangle, so accompany
+		 * the camera lean with a small lateral viewmodel drift. */
+		if (current_player)
+		{
+			const int strafe_weapon_offset=
+				(static_cast<int>(current_player->sprintathon_strafe_roll) *
+				 view->screen_width * 3) /
+				(FULL_CIRCLE * 40);
+			textured_rectangle.x0 += strafe_weapon_offset;
+			textured_rectangle.x1 += strafe_weapon_offset;
+		}
 		
 		// Smoothly lower the weapon while sprinting.
 		static float sprint_weapon_lower = 0.0f;

@@ -2227,6 +2227,18 @@ void RenderRasterize_Shader::render_viewer_sprite_layer(RenderStep renderStep)
 		rect.y0 += weapon_sway_y;
 		rect.y1 += weapon_sway_y;
 
+		// Let the airborne camera lean carry the weapon slightly farther in the
+		// same direction. The actual rotation is applied around its bottom edge.
+		if (current_player)
+		{
+			const int strafe_weapon_offset=
+				(static_cast<int>(current_player->sprintathon_strafe_roll) *
+				 view->screen_width * 3) /
+				(FULL_CIRCLE * 40);
+			rect.x0 += strafe_weapon_offset;
+			rect.x1 += strafe_weapon_offset;
+		}
+
 		/*
 		 * Keep the weapon upright and anchored at the bottom during a
 		 * cartwheel, but let it swing heavily against the camera rotation.
@@ -2383,8 +2395,12 @@ void RenderRasterize_Shader::render_viewer_sprite_layer(RenderStep renderStep)
                 /* make the weapon reflect the owner’s transfer mode */
 		instantiate_rectangle_transfer_mode(view, &rect, display_data.transfer_mode, display_data.transfer_phase);
 
-                render_viewer_sprite(rect, renderStep,
-			display_data.rotation_degrees);
+		const float strafe_weapon_degrees= current_player ?
+			std::max(-8.0f, std::min(8.0f,
+				static_cast<float>(current_player->sprintathon_strafe_roll) *
+					720.0f / static_cast<float>(FULL_CIRCLE))) : 0.0f;
+		render_viewer_sprite(rect, renderStep,
+			display_data.rotation_degrees+strafe_weapon_degrees);
         }
 
         Shader::disable();

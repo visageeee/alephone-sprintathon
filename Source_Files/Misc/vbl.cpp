@@ -79,6 +79,7 @@ Feb 20, 2002 (Woody Zenfell):
 #include "cseries.h"
 #include <string.h>
 #include <stdlib.h>
+#include <atomic>
 
 #include <boost/algorithm/string/predicate.hpp>
 
@@ -1204,6 +1205,12 @@ void move_replay(void)
 
 static uint32_t hotkey_sequence[3] {0};
 static constexpr uint32_t hotkey_used = 0x80000000;
+static std::atomic<bool> sprintathon_bullet_time_binding_is_down {false};
+
+bool sprintathon_bullet_time_binding_down()
+{
+	return sprintathon_bullet_time_binding_is_down.load(std::memory_order_relaxed);
+}
 
 void encode_hotkey_sequence(int hotkey)
 {
@@ -1230,6 +1237,8 @@ uint32 parse_keymap(void)
 {
   uint32 flags = 0;
 
+	sprintathon_bullet_time_binding_is_down.store(false, std::memory_order_relaxed);
+
   if(get_keyboard_controller_status())
     {
 		Uint8 key_map[SDL_NUM_SCANCODES];
@@ -1244,6 +1253,18 @@ uint32 parse_keymap(void)
       // ZZZ: let mouse code simulate keypresses
       mouse_buttons_become_keypresses(key_map);
       joystick_buttons_become_keypresses(key_map);
+
+	  /* Sprintathon reserves Hotkey 12 as the configurable Bullet Time
+	   * control.  Read it from the combined keyboard/mouse/controller map so
+	   * every binding type shown by Preferences works identically. */
+	  for (const SDL_Scancode& code : input_preferences->hotkey_bindings[11])
+	  {
+		  if (key_map[code])
+		  {
+			  sprintathon_bullet_time_binding_is_down.store(true, std::memory_order_relaxed);
+			  break;
+		  }
+	  }
       
       // Parse the keymap
 		for (int i = 0; i < NUMBER_OF_STANDARD_KEY_DEFINITIONS; ++i)
@@ -1292,6 +1313,9 @@ uint32 parse_keymap(void)
 	  {
 		  for (auto i = 0; i < NUMBER_OF_HOTKEYS; ++i)
 		  {
+			  if (i == 11 && input_preferences->sprintathon_enabled &&
+				  input_preferences->sprintathon_bullet_time)
+				  continue;
 			  auto& hotkey = input_preferences->hotkey_bindings[i];
 			  for (auto it : hotkey)
 			  {
@@ -1508,4 +1532,3 @@ void execute_timer_tasks(uint64_t time)
 		}
 	}
 }
-

@@ -927,10 +927,14 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 
 		if (player->sprinting)
 		{
-			// Sprint implies running and blocks both weapon triggers.
+			// Sprint implies running. Keep the grounded firing lock, but allow
+			// airborne attacks while the player continues holding sprint.
 			action_flags |= _run_dont_walk;
-			action_flags &=
-				~(_left_trigger_state | _right_trigger_state);
+			if (!TEST_FLAG(player->variables.flags, _ABOVE_GROUND_BIT))
+			{
+				action_flags &=
+					~(_left_trigger_state | _right_trigger_state);
+			}
 		}
 		else if (player->slide_ticks_remaining > 0)
 		{

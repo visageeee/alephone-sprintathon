@@ -227,6 +227,8 @@ void initialize_player_physics_variables(
 	player->footstep_alternate= false;
 	player->sprintathon_camera_roll= 0;
 	player->sprintathon_camera_pitch= 0;
+	player->sprintathon_strafe_roll= 0;
+	player->sprintathon_strafe_phase= 0;
 	
 	variables->step_phase= 0;
 	variables->step_amplitude= 0;
@@ -800,6 +802,51 @@ static void physics_update(
 		else if (side<0) target_wall_run_roll-= wall_run_roll;
 	}
 
+	/*
+	 * Give sidestepping a restrained visual lean, with a stronger bank in the
+	 * air. This is deliberately cosmetic and does not change player velocity.
+	 * Wall-running and the stronger dodge/slide poses take precedence below.
+	 */
+	int16 target_strafe_roll= 0;
+	const bool airborne= (variables->flags&_ABOVE_GROUND_BIT)!=0;
+	if (sprintathon &&
+		!(variables->flags&_FEET_BELOW_MEDIA_BIT) &&
+		!sprint_wall_running &&
+		(airborne || player->sprinting))
+	{
+		const int8 strafe_direction=
+			(action_flags&_sidestepping_left) ? -1 :
+			(action_flags&_sidestepping_right) ? 1 : 0;
+		const int strafe_roll_degrees=
+			airborne ? 5 : 2;
+		target_strafe_roll= static_cast<int16>(
+			(FULL_CIRCLE*strafe_roll_degrees*strafe_direction)/360);
+	}
+	const int16 strafe_roll_difference=
+		target_strafe_roll-player->sprintathon_strafe_roll;
+	bool advance_strafe_roll= true;
+	if (bullet_time && strafe_roll_difference!=0)
+	{
+		player->sprintathon_strafe_phase+=
+			SPRINTATHON_BULLET_TIME_PERCENT;
+		if (player->sprintathon_strafe_phase<100)
+			advance_strafe_roll= false;
+		else
+			player->sprintathon_strafe_phase-= 100;
+	}
+	else
+		player->sprintathon_strafe_phase= 0;
+	if (strafe_roll_difference!=0 && advance_strafe_roll)
+	{
+		int16 strafe_roll_step=
+			strafe_roll_difference/(target_strafe_roll ? 3 : 5);
+		if (strafe_roll_step==0)
+			strafe_roll_step= strafe_roll_difference>0 ? 1 : -1;
+		player->sprintathon_strafe_roll+= strafe_roll_step;
+	}
+	if (!sprint_wall_running)
+		target_wall_run_roll+= player->sprintathon_strafe_roll;
+
 	// Ease in quickly and return a little more gently. Keep a one-unit minimum
 	// step so the fixed-angle value always reaches its target.
 	int16 target_camera_pitch= 0;
@@ -828,7 +875,7 @@ static void physics_update(
 	// Airborne sprint sway disappears on the first airborne tick.
 	if (sprintathon && player->sprinting &&
 		(variables->flags&_ABOVE_GROUND_BIT) && !sprint_wall_running &&
-		target_camera_pitch==0)
+		target_camera_pitch==0 && player->sprintathon_strafe_roll==0)
 	{
 		player->sprintathon_camera_roll= 0;
 	}

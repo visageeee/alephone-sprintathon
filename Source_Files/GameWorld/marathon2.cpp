@@ -132,6 +132,8 @@ Feb 8, 2003 (Woody Zenfell):
 #include "SoundsPatch.h"
 #include "shell_options.h"
 
+extern bool sprintathon_bullet_time_binding_down();
+
 /* ---------- constants */
 
 /* ---------- globals */
@@ -595,14 +597,13 @@ update_world()
 		static bool bullet_time_key_was_down= false;
 		static bool bullet_time_has_toggled= false;
 		static uint32 bullet_time_last_toggle_tick= 0;
-		const Uint8 *keyboard_state= SDL_GetKeyboardState(nullptr);
 		const bool bullet_time_available=
 			input_preferences->sprintathon_enabled &&
 			input_preferences->sprintathon_bullet_time &&
 			!game_is_networked &&
 			!game_is_being_replayed();
 		const bool bullet_time_key_down=
-			bullet_time_available && keyboard_state[SDL_SCANCODE_B];
+			bullet_time_available && sprintathon_bullet_time_binding_down();
 		if (bullet_time_key_down && !bullet_time_key_was_down)
 		{
 			const uint32 now= machine_tick_count();

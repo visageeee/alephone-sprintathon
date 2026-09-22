@@ -938,7 +938,7 @@ void handle_preferences(bool in_game)
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(swimming_w, sprintathon_swimming, "Modern Swimming");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(ledge_grab_w, sprintathon_ledge_grab, "Ledge-Grabbing");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(footsteps_w, sprintathon_footsteps, "Footstep Sounds");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(bullet_time_w, sprintathon_bullet_time, "Bullet Time (B)");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(bullet_time_w, sprintathon_bullet_time, "Bullet Time");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(bullet_time_blur_w, sprintathon_bullet_time_blur, "Bullet Time Blur");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(bullet_time_heavy_blur_w, sprintathon_bullet_time_heavy_blur, "Heavy Bullet Time Blur");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(pistol_scope_w, sprintathon_pistol_scope, "Pistol Scope");
@@ -3242,7 +3242,7 @@ static const char* hotkey_action_name[NUMBER_OF_HOTKEYS] = {
 	"Hotkey 9",
 	"Hotkey 10",
 	"Hotkey 11",
-	"Hotkey 12",
+	"Bullet Time",
 };
 
 static key_binding_map default_hotkey_bindings = {
@@ -3257,7 +3257,8 @@ static key_binding_map default_hotkey_bindings = {
 	{ 8, { SDL_SCANCODE_9 }},
 	{ 9, { SDL_SCANCODE_T }},
 	{ 10, { SDL_SCANCODE_G }},
-	{ 11, { SDL_SCANCODE_B }}
+	{ 11, { static_cast<SDL_Scancode>(
+		AO_SCANCODE_BASE_MOUSE_BUTTON + SDL_BUTTON_MIDDLE - 1) }}
 };
 
 class w_prefs_key;
@@ -3905,7 +3906,7 @@ static void sprintathon_dialog(void *arg)
 	ADD_SPRINTATHON_TOGGLE(swimming_w, sprintathon_swimming, "Modern Swimming");
 	ADD_SPRINTATHON_TOGGLE(ledge_grab_w, sprintathon_ledge_grab, "Ledge-Grabbing");
 	ADD_SPRINTATHON_TOGGLE(footsteps_w, sprintathon_footsteps, "Footstep Sounds");
-	ADD_SPRINTATHON_TOGGLE(bullet_time_w, sprintathon_bullet_time, "Bullet Time (B)");
+	ADD_SPRINTATHON_TOGGLE(bullet_time_w, sprintathon_bullet_time, "Bullet Time");
 	ADD_SPRINTATHON_TOGGLE(bullet_time_blur_w, sprintathon_bullet_time_blur, "Bullet Time Blur");
 	ADD_SPRINTATHON_TOGGLE(bullet_time_heavy_blur_w, sprintathon_bullet_time_heavy_blur, "Heavy Bullet Time Blur");
 	ADD_SPRINTATHON_TOGGLE(pistol_scope_w, sprintathon_pistol_scope, "Pistol Scope");
@@ -4239,6 +4240,7 @@ static placeable *build_embedded_controls(
 		{false, "Show FPS", embedded_shell_binding, 7},
 		{false, "Network Stats", embedded_shell_binding, 9},
 		{true, "Other", embedded_game_binding, 0},
+		{false, "Bullet Time", embedded_hotkey_binding, 11},
 		{false, "Turn Left", embedded_game_binding, 2},
 		{false, "Turn Right", embedded_game_binding, 3},
 		{false, "Look Up", embedded_game_binding, 8},
@@ -4316,7 +4318,7 @@ static placeable *build_embedded_controls(
 	tabs->add(mouselook, true);
 
 	std::vector<embedded_binding_row> hotkey_rows;
-	for (int i = 0; i < NUMBER_OF_HOTKEYS; ++i)
+	for (int i = 0; i < NUMBER_OF_HOTKEYS - 1; ++i)
 		hotkey_rows.push_back({false, hotkey_action_name[i],
 			embedded_hotkey_binding, i});
 	vertical_placer *hotkeys = new vertical_placer;
@@ -4324,7 +4326,7 @@ static placeable *build_embedded_controls(
 	hotkeys->dual_add(new w_static_text(
 		"Hotkeys 1-9 select weapons; Lua scripts may override them."), d);
 	hotkeys->dual_add(new w_static_text(
-		"Hotkeys 10-12 are reserved for Lua scripts."), d);
+		"Hotkeys 10-11 are reserved for Lua scripts."), d);
 	w_embedded_binding_grid *hotkey_grid =
 		new w_embedded_binding_grid(state, hotkey_rows, 12);
 	hotkeys->dual_add(hotkey_grid, d);
@@ -4719,7 +4721,7 @@ static void controls_dialog(void *arg)
 	hotkey_table->dual_add(new w_label("Mouse"), d);
 	hotkey_table->dual_add(new w_label("Controller"), d);
 
-	for (auto i = 0; i < NUMBER_OF_HOTKEYS; ++i)
+	for (auto i = 0; i < NUMBER_OF_HOTKEYS - 1; ++i)
 	{
 		if (i == 9)
 		{
@@ -4737,7 +4739,7 @@ static void controls_dialog(void *arg)
 
 	hotkeys->add(new w_spacer(), true);
 	hotkeys->dual_add(new w_static_text("Hotkeys 1-9 are used to switch weapons, but can be overridden by Lua scripts"), d);
-	hotkeys->dual_add(new w_static_text("Hotkeys 10-12 are reserved for Lua scripts"), d);
+	hotkeys->dual_add(new w_static_text("Hotkeys 10-11 are reserved for Lua scripts"), d);
 
 	vertical_placer *iface = new vertical_placer();
 	table_placer *interface_table = new table_placer(4, get_theme_space(ITEM_WIDGET), true);
@@ -4782,6 +4784,24 @@ static void controls_dialog(void *arg)
 	iface->add(interface_table, true);
 
 	vertical_placer *other = new vertical_placer();
+	table_placer *other_bindings = new table_placer(
+		4, get_theme_space(ITEM_WIDGET), true);
+	other_bindings->col_flags(0, placeable::kAlignRight);
+	other_bindings->col_flags(1, placeable::kAlignLeft);
+	other_bindings->col_flags(2, placeable::kAlignLeft);
+	other_bindings->col_flags(3, placeable::kAlignLeft);
+	other_bindings->add(new w_spacer(), true);
+	other_bindings->dual_add(new w_label("Keyboard"), d);
+	other_bindings->dual_add(new w_label("Mouse"), d);
+	other_bindings->dual_add(new w_label("Controller"), d);
+	other_bindings->dual_add(new w_label("Bullet Time"), d);
+	{
+		auto range = hotkey_w.equal_range(11);
+		for (auto binding = range.first; binding != range.second; ++binding)
+			other_bindings->dual_add(binding->second, d);
+	}
+	other->add(other_bindings, true);
+	other->add(new w_spacer());
 	other->dual_add(new w_static_text("These keyboard shortcuts cannot be changed."), d);
 	other->add(new w_spacer());
 

@@ -469,6 +469,8 @@ struct player_data
 	bool footstep_alternate;			// alternate the two footstep samples
 	int16 sprintathon_camera_roll;		// signed visual roll, in engine angle units
 	int16 sprintathon_camera_pitch;		// visual-only pitch offset
+	int16 sprintathon_strafe_roll;		// smoothed grounded/airborne sidestep lean
+	uint8 sprintathon_strafe_phase;		// bullet-time cadence accumulator
 
 	int32_t ticks_at_death;		// not serialized
 
