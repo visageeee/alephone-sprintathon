@@ -271,6 +271,8 @@ struct OGL_ConfigureData
 	int16 LandscapeLightShaftLength;
 	int16 LandscapeLightShaftDirection;
 	int16 LandscapeLightShaftElevation;
+	bool AnamorphicLensFlares;
+	int16 AnamorphicLensFlareStrength;
 	bool AnimatedMediaRipples;
 	int16 AnimatedMediaOpacity;
 	int16 AnimatedMediaRippleStrength;
@@ -286,6 +288,7 @@ struct OGL_ConfigureData
 	bool ForceFogBlack;
 	bool ForceFogDistanceDarkening;
 	bool DeepFogHaze;
+	int16 DriftingFogIntensity;
 	int16 ForceFogWeatherPreset;
 };
 

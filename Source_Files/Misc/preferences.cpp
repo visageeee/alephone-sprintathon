@@ -619,7 +619,7 @@ void handle_preferences(bool in_game)
 	graphics_view->dual_add(graphics_bobbing_w, d);
 	tab_placer *graphics_tabs = new tab_placer;
 	const vector<string> graphics_tab_labels = {
-		"DISPLAY", "RENDERING", "TEXTURES", "LIQUIDS", "FOG"
+		"DISPLAY", "RENDERING", "LIGHT FX", "TEXTURES", "LIQUIDS", "FOG"
 	};
 	graphics_page->dual_add(new w_tab(graphics_tab_labels, graphics_tabs), d);
 	vertical_placer *graphics_display_page =
@@ -1051,6 +1051,10 @@ void handle_preferences(bool in_game)
 		360, graphics_preferences->OGL_Configure.LandscapeLightShaftDirection);
 	w_degree_slider *ogl_landscape_light_shaft_elevation_w = new w_degree_slider(
 		91, graphics_preferences->OGL_Configure.LandscapeLightShaftElevation);
+	w_toggle *ogl_anamorphic_lens_flares_w = new w_toggle(
+		graphics_preferences->OGL_Configure.AnamorphicLensFlares);
+	w_percentage_slider *ogl_anamorphic_lens_flare_strength_w = new w_percentage_slider(
+		101, graphics_preferences->OGL_Configure.AnamorphicLensFlareStrength);
 	w_toggle *ogl_vsync_w = new w_toggle(graphics_preferences->OGL_Configure.WaitForVSync);
 	w_toggle *ogl_npot_w = new w_toggle(graphics_preferences->OGL_Configure.Use_NPOT);
 	static const char *effects_quality_labels[] = {"Off", "Low", "Medium", "High", "Ultra", nullptr};
@@ -1066,7 +1070,9 @@ void handle_preferences(bool in_game)
 		 ogl_ambient_occlusion_w, ogl_ambient_occlusion_strength_w,
 		 ogl_landscape_light_shafts_w,
 		 ogl_landscape_light_shaft_strength_w,
-		 ogl_landscape_light_shaft_length_w, ogl_effects_w,
+		 ogl_landscape_light_shaft_length_w,
+		 ogl_anamorphic_lens_flares_w,
+		 ogl_anamorphic_lens_flare_strength_w, ogl_effects_w,
 		 ogl_aniso_w](w_select*) {
 			const int preset = graphics_preset_w->get_selection();
 			if (preset == 0)
@@ -1082,6 +1088,8 @@ void handle_preferences(bool in_game)
 			ogl_landscape_light_shafts_w->set_selection(high);
 			ogl_landscape_light_shaft_strength_w->set_selection(30);
 			ogl_landscape_light_shaft_length_w->set_selection(50);
+			ogl_anamorphic_lens_flares_w->set_selection(high);
+			ogl_anamorphic_lens_flare_strength_w->set_selection(35);
 			ogl_effects_w->set_selection(preset);
 			// Labels are Off, 1x, 2x, 4x, 8x, 16x.
 			ogl_aniso_w->set_selection(preset + 1);
@@ -1093,17 +1101,8 @@ void handle_preferences(bool in_game)
 	ADD_RENDERING_ROW("3D Models", ogl_models_w);
 	ADD_RENDERING_ROW("3D Perspective", ogl_perspective_w);
 	ADD_RENDERING_ROW("Tilt Sprites with Camera", ogl_billboard_w);
-	ADD_RENDERING_ROW("Bloom Effects", ogl_bloom_w);
 	ADD_RENDERING_ROW("Bump Mapping", ogl_bump_w);
 	ADD_RENDERING_ROW("Refractive Invisibility", ogl_refractive_invisibility_w);
-	ADD_RENDERING_ROW("Sprite Shadows", ogl_sprite_shadows_w);
-	ADD_RENDERING_ROW("Ambient Occlusion", ogl_ambient_occlusion_w);
-	ADD_RENDERING_ROW("AO Strength", ogl_ambient_occlusion_strength_w);
-	ADD_RENDERING_ROW("Landscape Light Shafts", ogl_landscape_light_shafts_w);
-	ADD_RENDERING_ROW("Shaft Strength", ogl_landscape_light_shaft_strength_w);
-	ADD_RENDERING_ROW("Shaft Length", ogl_landscape_light_shaft_length_w);
-	ADD_RENDERING_ROW("Sun Direction", ogl_landscape_light_shaft_direction_w);
-	ADD_RENDERING_ROW("Sun Elevation", ogl_landscape_light_shaft_elevation_w);
 	ADD_RENDERING_ROW("Scripted Effects Quality", ogl_effects_w);
 	ADD_RENDERING_ROW("VSync", ogl_vsync_w);
 	ADD_RENDERING_ROW("Anisotropic Filtering", ogl_aniso_w);
@@ -1111,6 +1110,27 @@ void handle_preferences(bool in_game)
 #undef ADD_RENDERING_ROW
 	rendering_page->add(rendering, true);
 	graphics_tabs->add(rendering_page, true);
+
+	vertical_placer *light_fx_page = new vertical_placer(get_theme_space(ITEM_WIDGET));
+	light_fx_page->center_vertically();
+	light_fx_page->min_width(scale_dialog_value(430));
+	table_placer *light_fx = make_preferences_table();
+#define ADD_LIGHT_FX_ROW(caption, widget) \
+	light_fx->dual_add((widget)->label(caption), d); light_fx->dual_add(widget, d)
+	ADD_LIGHT_FX_ROW("Bloom Effects", ogl_bloom_w);
+	ADD_LIGHT_FX_ROW("Sprite Shadows", ogl_sprite_shadows_w);
+	ADD_LIGHT_FX_ROW("Ambient Occlusion", ogl_ambient_occlusion_w);
+	ADD_LIGHT_FX_ROW("AO Strength", ogl_ambient_occlusion_strength_w);
+	ADD_LIGHT_FX_ROW("Landscape Light Shafts", ogl_landscape_light_shafts_w);
+	ADD_LIGHT_FX_ROW("Shaft Strength", ogl_landscape_light_shaft_strength_w);
+	ADD_LIGHT_FX_ROW("Shaft Length", ogl_landscape_light_shaft_length_w);
+	ADD_LIGHT_FX_ROW("Sun Direction", ogl_landscape_light_shaft_direction_w);
+	ADD_LIGHT_FX_ROW("Sun Elevation", ogl_landscape_light_shaft_elevation_w);
+	ADD_LIGHT_FX_ROW("Anamorphic Lens Flares", ogl_anamorphic_lens_flares_w);
+	ADD_LIGHT_FX_ROW("Lens Flare Strength", ogl_anamorphic_lens_flare_strength_w);
+#undef ADD_LIGHT_FX_ROW
+	light_fx_page->add(light_fx, true);
+	graphics_tabs->add(light_fx_page, true);
 
 	vertical_placer *textures_page = new vertical_placer(get_theme_space(ITEM_WIDGET));
 	textures_page->center_vertically();
@@ -1219,12 +1239,15 @@ void handle_preferences(bool in_game)
 	w_toggle *fog_black_w = new w_toggle(graphics_preferences->OGL_Configure.ForceFogBlack);
 	w_toggle *fog_darken_w = new w_toggle(graphics_preferences->OGL_Configure.ForceFogDistanceDarkening);
 	w_toggle *fog_haze_w = new w_toggle(graphics_preferences->OGL_Configure.DeepFogHaze);
+	w_percentage_slider *fog_drift_intensity_w = new w_percentage_slider(
+		201, graphics_preferences->OGL_Configure.DriftingFogIntensity);
 #define ADD_FOG_ROW(caption, widget) fog->dual_add((widget)->label(caption), d); fog->dual_add(widget, d)
 	ADD_FOG_ROW("Fog", fog_enabled_w); ADD_FOG_ROW("Fog in All Levels", fog_force_w);
 	ADD_FOG_ROW("Media-relative Forced Fog", fog_media_w); ADD_FOG_ROW("Weather Preset", fog_weather_w);
 	ADD_FOG_ROW("Animated Density", fog_animated_w); ADD_FOG_ROW("Density Increases with Depth", fog_depth_w);
 	ADD_FOG_ROW("Black Fog", fog_black_w); ADD_FOG_ROW("Darken with Distance", fog_darken_w);
 	ADD_FOG_ROW("Deep Fog Haze", fog_haze_w);
+	ADD_FOG_ROW("Drifting Fog Intensity", fog_drift_intensity_w);
 #undef ADD_FOG_ROW
 	fog_page->add(fog, true); graphics_tabs->add(fog_page, true);
 	pages->choose_tab(category_pages[0]);
@@ -1354,6 +1377,10 @@ void handle_preferences(bool in_game)
 		ogl_landscape_light_shaft_direction_w->get_selection();
 	graphics_preferences->OGL_Configure.LandscapeLightShaftElevation =
 		ogl_landscape_light_shaft_elevation_w->get_selection();
+	graphics_preferences->OGL_Configure.AnamorphicLensFlares =
+		ogl_anamorphic_lens_flares_w->get_selection();
+	graphics_preferences->OGL_Configure.AnamorphicLensFlareStrength =
+		ogl_anamorphic_lens_flare_strength_w->get_selection();
 	graphics_preferences->OGL_Configure.WaitForVSync = ogl_vsync_w->get_selection();
 	graphics_preferences->OGL_Configure.Use_NPOT = ogl_npot_w->get_selection();
 	graphics_preferences->ephemera_quality = ogl_effects_w->get_selection();
@@ -1395,6 +1422,8 @@ void handle_preferences(bool in_game)
 	graphics_preferences->OGL_Configure.ForceFogBlack = fog_black_w->get_selection();
 	graphics_preferences->OGL_Configure.ForceFogDistanceDarkening = fog_darken_w->get_selection();
 	graphics_preferences->OGL_Configure.DeepFogHaze = fog_haze_w->get_selection();
+	graphics_preferences->OGL_Configure.DriftingFogIntensity =
+		fog_drift_intensity_w->get_selection();
 	graphics_preferences->pickup_flash =
 		graphics_pickup_flash_w->get_selection();
 	const bool embedded_hud = graphics_hud_w->get_selection();
@@ -5619,6 +5648,10 @@ InfoTree graphics_preferences_tree()
 		graphics_preferences->OGL_Configure.LandscapeLightShaftDirection);
 	root.put_attr("landscape_light_shaft_elevation",
 		graphics_preferences->OGL_Configure.LandscapeLightShaftElevation);
+	root.put_attr("anamorphic_lens_flares",
+		graphics_preferences->OGL_Configure.AnamorphicLensFlares);
+	root.put_attr("anamorphic_lens_flare_strength",
+		graphics_preferences->OGL_Configure.AnamorphicLensFlareStrength);
 	root.put_attr("animated_media_ripples",
 		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
 	root.put_attr("animated_media_opacity",
@@ -5649,6 +5682,8 @@ InfoTree graphics_preferences_tree()
 		graphics_preferences->OGL_Configure.ForceFogDistanceDarkening);
 	root.put_attr("deep_fog_haze",
 		graphics_preferences->OGL_Configure.DeepFogHaze);
+	root.put_attr("drifting_fog_intensity",
+		graphics_preferences->OGL_Configure.DriftingFogIntensity);
 	root.put_attr("force_fog_weather_preset",
 		graphics_preferences->OGL_Configure.ForceFogWeatherPreset);
 	root.put_attr("movie_export_video_quality", graphics_preferences->movie_export_video_quality);
@@ -6741,6 +6776,10 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 		graphics_preferences->OGL_Configure.LandscapeLightShaftDirection, 0, 359);
 	root.read_attr_bounded<int16>("landscape_light_shaft_elevation",
 		graphics_preferences->OGL_Configure.LandscapeLightShaftElevation, 0, 90);
+	root.read_attr("anamorphic_lens_flares",
+		graphics_preferences->OGL_Configure.AnamorphicLensFlares);
+	root.read_attr_bounded<int16>("anamorphic_lens_flare_strength",
+		graphics_preferences->OGL_Configure.AnamorphicLensFlareStrength, 0, 100);
 	root.read_attr("animated_media_ripples",
 		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
 	root.read_attr_bounded<int16>("animated_media_opacity",
@@ -6771,6 +6810,8 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 		graphics_preferences->OGL_Configure.ForceFogDistanceDarkening);
 	root.read_attr("deep_fog_haze",
 		graphics_preferences->OGL_Configure.DeepFogHaze);
+	root.read_attr_bounded<int16>("drifting_fog_intensity",
+		graphics_preferences->OGL_Configure.DriftingFogIntensity, 0, 200);
 	root.read_attr_bounded<int16>("force_fog_weather_preset",
 		graphics_preferences->OGL_Configure.ForceFogWeatherPreset, 0, 3);
 	root.read_attr_bounded<int16>("movie_export_video_quality", graphics_preferences->movie_export_video_quality, 0, 100);

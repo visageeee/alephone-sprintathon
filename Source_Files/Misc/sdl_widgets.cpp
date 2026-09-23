@@ -438,9 +438,12 @@ void w_hyperlink::draw(SDL_Surface *s) const
 
 w_tab::w_tab(const vector<string>& _labels, tab_placer *_placer) : widget(TAB_WIDGET), labels(_labels), placer(_placer), active_tab(1), pressed_tab(0)
 {
+	const int tab_gap = scale_dialog_value(3);
 	saved_min_height = get_theme_space(TAB_WIDGET, BUTTON_HEIGHT);
 	for (vector<string>::iterator it = labels.begin(); it != labels.end(); ++it)
 	{
+		if (it != labels.begin())
+			saved_min_width += tab_gap;
 		int l_space = (it == labels.begin()) ? get_theme_space(TAB_WIDGET, BUTTON_L_SPACE) : get_theme_space(TAB_WIDGET, TAB_LC_SPACE);
 		int r_space = (it == labels.end() - 1) ? get_theme_space(TAB_WIDGET, BUTTON_R_SPACE) : get_theme_space(TAB_WIDGET, TAB_RC_SPACE);
 		int width = l_space + r_space + font->text_width(it->c_str(), style);
@@ -474,9 +477,12 @@ w_tab::~w_tab()
 
 void w_tab::draw(SDL_Surface *s) const 
 {
+	const int tab_gap = scale_dialog_value(3);
 	int x = rect.x;
 	for (int i = 0; i < labels.size(); ++i)
 	{
+		if (i > 0)
+			x += tab_gap;
 		int state;
 		if (!enabled)
 			state = DISABLED_STATE;
@@ -547,15 +553,18 @@ void w_tab::draw(SDL_Surface *s) const
 
 		font->draw_text(s, labels[i].c_str(), labels[i].size(), x + l_space, rect.y + get_theme_space(TAB_WIDGET, BUTTON_T_SPACE) + font->get_ascent(), get_theme_color(TAB_WIDGET, state, FOREGROUND_COLOR), style);
 
-		x += l_space + c_space + r_space;
-	}
+		// Tabs used to share one dim outer frame, which made adjacent labels read
+		// as a single control. Give every tab its own high-contrast outline and a
+		// small gap so the divisions remain visible in dark preference themes.
+		SDL_Rect tab_frame = {
+			x, rect.y,
+			l_space + c_space + r_space,
+			get_theme_space(TAB_WIDGET, BUTTON_HEIGHT)
+		};
+		draw_rectangle(s, &tab_frame,
+			get_theme_color(TAB_WIDGET, state, FOREGROUND_COLOR));
 
-	if (!use_theme_images(TAB_WIDGET))
-	{
-		uint32 pixel = get_theme_color(TAB_WIDGET, DEFAULT_STATE, FRAME_COLOR);
-		// draw the frame
-		SDL_Rect frame = { rect.x, rect.y, x - rect.x, get_theme_space(TAB_WIDGET, BUTTON_HEIGHT) };
-		draw_rectangle(s, &frame, pixel);
+		x += l_space + c_space + r_space;
 	}
 }
 
@@ -577,9 +586,12 @@ void w_tab::click(int x, int y)
 		}
 		else
 		{
+			const int tab_gap = scale_dialog_value(3);
 			int width = 0;
 			for (int i = 0; i < labels.size(); ++i)
 			{
+				if (i > 0)
+					width += tab_gap;
 				if (x > width && x < width + widths[i])
 				{
 					choose_tab(i);

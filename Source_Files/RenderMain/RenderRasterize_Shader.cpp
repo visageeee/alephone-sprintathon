@@ -294,6 +294,119 @@ static GLuint sprintathon_capture_scene_color(GLsizei width, GLsizei height)
 	return color_texture;
 }
 
+struct SprintathonShaftSource
+{
+	GLuint framebuffer = 0;
+	GLuint color = 0;
+	GLuint depth = 0;
+	GLsizei width = 0;
+	GLsizei height = 0;
+	GLint previous_framebuffer = 0;
+	GLint previous_viewport[4] = {0, 0, 0, 0};
+	GLint previous_matrix_mode = GL_MODELVIEW;
+	bool active = false;
+};
+
+static SprintathonShaftSource sprintathon_shaft_source;
+static const float sprintathon_shaft_overscan = 1.60f;
+
+static bool sprintathon_begin_shaft_source(GLsizei main_width,
+	GLsizei main_height, const GLfloat *projection)
+{
+	if (!FBO_Allowed)
+		return false;
+
+	SprintathonShaftSource& source = sprintathon_shaft_source;
+	const GLsizei width = std::max<GLsizei>(1, (main_width * 3 + 3) / 4);
+	const GLsizei height = std::max<GLsizei>(1, (main_height * 3 + 3) / 4);
+
+	if (!source.framebuffer)
+		glGenFramebuffersEXT(1, &source.framebuffer);
+	if (!source.color)
+		glGenTextures(1, &source.color);
+	if (!source.depth)
+		glGenTextures(1, &source.depth);
+
+	if (width != source.width || height != source.height)
+	{
+		glActiveTextureARB(GL_TEXTURE1_ARB);
+		glBindTexture(GL_TEXTURE_RECTANGLE_ARB, source.color);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA8, width, height,
+			0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+		glActiveTextureARB(GL_TEXTURE3_ARB);
+		glBindTexture(GL_TEXTURE_RECTANGLE_ARB, source.depth);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_DEPTH_COMPONENT24,
+			width, height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+		source.width = width;
+		source.height = height;
+	}
+
+	glGetIntegerv(GL_FRAMEBUFFER_BINDING_EXT, &source.previous_framebuffer);
+	glGetIntegerv(GL_VIEWPORT, source.previous_viewport);
+	glGetIntegerv(GL_MATRIX_MODE, &source.previous_matrix_mode);
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, source.framebuffer);
+	glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT,
+		GL_TEXTURE_RECTANGLE_ARB, source.color, 0);
+	glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_DEPTH_ATTACHMENT_EXT,
+		GL_TEXTURE_RECTANGLE_ARB, source.depth, 0);
+	if (glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT) !=
+		GL_FRAMEBUFFER_COMPLETE_EXT)
+	{
+		glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, source.previous_framebuffer);
+		glActiveTextureARB(GL_TEXTURE0_ARB);
+		return false;
+	}
+
+	glPushAttrib(GL_ALL_ATTRIB_BITS);
+	glViewport(0, 0, width, height);
+	glDisable(GL_SCISSOR_TEST);
+	glDrawBuffer(GL_COLOR_ATTACHMENT0_EXT);
+	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+	glClearDepth(1.0);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	GLfloat expanded_projection[16];
+	std::copy(projection, projection + 16, expanded_projection);
+	expanded_projection[0] /= sprintathon_shaft_overscan;
+	expanded_projection[5] /= sprintathon_shaft_overscan;
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadMatrixf(expanded_projection);
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	source.active = true;
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+	return true;
+}
+
+static void sprintathon_end_shaft_source()
+{
+	SprintathonShaftSource& source = sprintathon_shaft_source;
+	if (!source.active)
+		return;
+
+	glMatrixMode(GL_MODELVIEW);
+	glPopMatrix();
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+	glMatrixMode(source.previous_matrix_mode);
+	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, source.previous_framebuffer);
+	glPopAttrib();
+	glViewport(source.previous_viewport[0], source.previous_viewport[1],
+		source.previous_viewport[2], source.previous_viewport[3]);
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+	source.active = false;
+}
+
 static void sprintathon_draw_ambient_occlusion(GLuint color_texture,
 	GLuint depth_texture, GLsizei width, GLsizei height,
 	const GLfloat *projection, float strength, float fog_mode)
@@ -417,7 +530,7 @@ static void sprintathon_draw_ambient_occlusion(GLuint color_texture,
 static void sprintathon_draw_fog_haze(GLuint color_texture,
 	GLuint depth_texture, GLsizei width, GLsizei height,
 	const GLfloat *projection, float fog_mode, float global_fog_blend,
-	bool distortion_enabled, bool clouds_enabled)
+	bool distortion_enabled, bool clouds_enabled, float cloud_intensity)
 {
 	glPushAttrib(GL_ALL_ATTRIB_BITS);
 	glDisable(GL_DEPTH_TEST);
@@ -441,6 +554,7 @@ static void sprintathon_draw_fog_haze(GLuint color_texture,
 	shader->setFloat(Shader::U_Time, sprintathon_fog_haze_phase());
 	shader->setFloat(Shader::U_FogMode, fog_mode);
 	shader->setFloat(Shader::U_BloomScale, global_fog_blend);
+	shader->setFloat(Shader::U_BloomShift, cloud_intensity);
 	shader->setFloat(Shader::U_MediaRipple,
 		distortion_enabled ? 1.0f : 0.0f);
 	shader->setFloat(Shader::U_MediaWetness,
@@ -473,7 +587,8 @@ static void sprintathon_draw_fog_haze(GLuint color_texture,
 }
 
 static void sprintathon_draw_landscape_light_shafts(GLuint color_texture,
-	GLuint depth_texture, GLsizei width, GLsizei height,
+	GLuint source_color, GLuint source_depth, GLsizei width, GLsizei height,
+	GLsizei source_width, GLsizei source_height,
 	const GLfloat *projection, float camera_yaw, float camera_pitch,
 	float strength, float length, float sun_azimuth, float sun_elevation)
 {
@@ -494,6 +609,9 @@ static void sprintathon_draw_landscape_light_shafts(GLuint color_texture,
 	shader->enable();
 	shader->setFloat(Shader::U_PixelWidth, static_cast<float>(width));
 	shader->setFloat(Shader::U_PixelHeight, static_cast<float>(height));
+	shader->setFloat(Shader::U_OffsetX, static_cast<float>(source_width));
+	shader->setFloat(Shader::U_OffsetY, static_cast<float>(source_height));
+	shader->setFloat(Shader::U_Repeat, sprintathon_shaft_overscan);
 	shader->setFloat(Shader::U_BloomScale, strength);
 	shader->setFloat(Shader::U_BloomShift, length);
 	shader->setFloat(Shader::U_LogicalWidth, projection[0]);
@@ -503,6 +621,59 @@ static void sprintathon_draw_landscape_light_shafts(GLuint color_texture,
 	shader->setFloat(Shader::U_SunAzimuth, sun_azimuth);
 	shader->setFloat(Shader::U_SunElevation, sun_elevation);
 
+	glActiveTextureARB(GL_TEXTURE3_ARB);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, source_depth);
+	glActiveTextureARB(GL_TEXTURE1_ARB);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, source_color);
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, color_texture);
+
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+	glBegin(GL_QUADS);
+	glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);
+	glTexCoord2f(static_cast<float>(width), 0.0f); glVertex2f(1.0f, -1.0f);
+	glTexCoord2f(static_cast<float>(width), static_cast<float>(height)); glVertex2f(1.0f, 1.0f);
+	glTexCoord2f(0.0f, static_cast<float>(height)); glVertex2f(-1.0f, 1.0f);
+	glEnd();
+	glPopMatrix();
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+	glMatrixMode(GL_MODELVIEW);
+	Shader::disable();
+	glPopAttrib();
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+}
+
+static void sprintathon_draw_anamorphic_lens_flare(GLuint color_texture,
+	GLuint depth_texture, GLsizei width, GLsizei height,
+	const GLfloat *projection, float strength, float fog_mode)
+{
+	glPushAttrib(GL_ALL_ATTRIB_BITS);
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_BLEND);
+	glDisable(GL_ALPHA_TEST);
+	glDisable(GL_SCISSOR_TEST);
+	glDisable(GL_CULL_FACE);
+	glDisable(GL_STENCIL_TEST);
+	glDisable(GL_CLIP_PLANE0);
+	glDisable(GL_CLIP_PLANE1);
+	glDepthMask(GL_FALSE);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+	Shader *shader = Shader::get(Shader::S_AnamorphicLensFlare);
+	shader->enable();
+	shader->setFloat(Shader::U_PixelWidth, static_cast<float>(width));
+	shader->setFloat(Shader::U_PixelHeight, static_cast<float>(height));
+	shader->setFloat(Shader::U_BloomScale, strength);
+	shader->setFloat(Shader::U_ScaleX, projection[10]);
+	shader->setFloat(Shader::U_ScaleY, projection[14]);
+	shader->setFloat(Shader::U_FogMode, fog_mode);
 	glActiveTextureARB(GL_TEXTURE2_ARB);
 	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, depth_texture);
 	glActiveTextureARB(GL_TEXTURE0_ARB);
@@ -698,7 +869,16 @@ void RenderRasterize_Shader::render_tree() {
 		ogl_config.ForceFogAnimatedDensity;
 	const bool fog_post_effects_enabled = fog_haze_enabled ||
 		rising_fog_clouds_enabled;
+	const bool shaft_source_ready = ogl_config.LandscapeLightShafts &&
+		sprintathon_begin_shaft_source(framebuffer_width, framebuffer_height,
+			scene_projection);
+	if (shaft_source_ready)
+	{
+		RenderRasterizerClass::render_tree(kDiffuse);
+		sprintathon_end_shaft_source();
+	}
 	if (ogl_config.AmbientOcclusion || ogl_config.LandscapeLightShafts ||
+		ogl_config.AnamorphicLensFlares ||
 		fog_post_effects_enabled)
 		scene_depth = sprintathon_capture_scene_depth(
 			framebuffer_width, framebuffer_height);
@@ -714,6 +894,16 @@ void RenderRasterize_Shader::render_tree() {
 			ogl_config.AmbientOcclusionStrength / 100.0f,
 			fogmode);
 	}
+	if (ogl_config.AnamorphicLensFlares)
+	{
+		// Detect emitters before deep-haze and drifting-cloud post effects. Fog
+		// added by those passes can therefore cover a flare, but never create one.
+		GLuint flare_color = sprintathon_capture_scene_color(
+			framebuffer_width, framebuffer_height);
+		sprintathon_draw_anamorphic_lens_flare(flare_color, scene_depth,
+			framebuffer_width, framebuffer_height, scene_projection,
+			ogl_config.AnamorphicLensFlareStrength / 100.0f, fogmode);
+	}
 	if (fog_post_effects_enabled)
 	{
 		GLuint fog_haze_color = sprintathon_capture_scene_color(
@@ -721,22 +911,26 @@ void RenderRasterize_Shader::render_tree() {
 		sprintathon_draw_fog_haze(fog_haze_color, scene_depth,
 			framebuffer_width, framebuffer_height, scene_projection,
 			fogmode, 1.0f - media_fog_enabled, fog_haze_enabled,
-			rising_fog_clouds_enabled);
+			rising_fog_clouds_enabled,
+			ogl_config.DriftingFogIntensity / 100.0f);
 	}
-	if (ogl_config.LandscapeLightShafts)
+	if (ogl_config.LandscapeLightShafts && shaft_source_ready)
 	{
 		// Recapture after AO so the shaft pass preserves its shaded world image.
 		GLuint shaft_color = sprintathon_capture_scene_color(
 			framebuffer_width, framebuffer_height);
-		sprintathon_draw_landscape_light_shafts(shaft_color, scene_depth,
-			framebuffer_width, framebuffer_height, scene_projection,
+		sprintathon_draw_landscape_light_shafts(shaft_color,
+			sprintathon_shaft_source.color, sprintathon_shaft_source.depth,
+			framebuffer_width, framebuffer_height,
+			sprintathon_shaft_source.width, sprintathon_shaft_source.height,
+			scene_projection,
 			virtual_yaw, virtual_pitch,
 			ogl_config.LandscapeLightShaftStrength / 100.0f,
 			ogl_config.LandscapeLightShaftLength / 100.0f,
-			ogl_config.LandscapeLightShaftDirection * 0.017453292519943295f,
+			(ogl_config.LandscapeLightShaftDirection - 90.0f) *
+				0.017453292519943295f,
 			ogl_config.LandscapeLightShaftElevation * 0.017453292519943295f);
 	}
-
 	// Draw the view weapon after world-only AO but before other whole-scene
 	// effects, preserving underwater refraction and bloom behavior.
 	render_viewer_sprite_layer(kDiffuse);

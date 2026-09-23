@@ -104,6 +104,7 @@ const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] =
 	"ambient_occlusion_composite",
 	"fog_haze",
 	"landscape_light_shafts",
+	"anamorphic_lens_flare",
 	"bloom",
 	"landscape",
 	"landscape_bloom",
@@ -655,7 +656,7 @@ void main(void) {
 
 	defaultVertexPrograms["fog_haze"] =
 		defaultVertexPrograms["underwater_ripple"];
-	defaultFragmentPrograms["fog_haze"] = R"(
+defaultFragmentPrograms["fog_haze"] = R"(
 uniform sampler2DRect texture0;
 uniform sampler2DRect texture2;
 uniform float pixelWidth;
@@ -665,6 +666,7 @@ uniform float scaley;
 uniform float time;
 uniform float fogMode;
 uniform float bloomScale;
+uniform float bloomShift;
 uniform float mediaRipple;
 uniform float mediaWetness;
 
@@ -758,7 +760,7 @@ void main(void) {
 		float clouds = smoothstep(0.34, 0.68, broadClouds);
 		float cloudDepth = smoothstep(0.18, 0.82, fogAmount) *
 			bloomScale;
-		float addedFog = clouds * cloudDepth * 0.20;
+		float addedFog = clouds * cloudDepth * 0.20 * bloomShift;
 		result.rgb = mix(result.rgb, gl_Fog.color.rgb, addedFog);
 	}
 	gl_FragColor = result;
@@ -767,11 +769,15 @@ void main(void) {
 
 	defaultVertexPrograms["landscape_light_shafts"] =
 		defaultVertexPrograms["underwater_ripple"];
-	defaultFragmentPrograms["landscape_light_shafts"] = R"(
+defaultFragmentPrograms["landscape_light_shafts"] = R"(
 uniform sampler2DRect texture0;
-uniform sampler2DRect texture2;
+uniform sampler2DRect texture1;
+uniform sampler2DRect texture3;
 uniform float pixelWidth;
 uniform float pixelHeight;
+uniform float offsetx;
+uniform float offsety;
+uniform float repeat;
 uniform float bloomScale;
 uniform float bloomShift;
 uniform float logicalWidth;
@@ -804,26 +810,60 @@ void main(void) {
 	vec2 sunNdc = vec2(
 		sunDirection.x * logicalWidth / safeViewZ,
 		viewY * logicalHeight / safeViewZ);
-	vec2 sourceNormalized = clamp(vec2(0.5) + sunNdc * 0.5,
-		vec2(-0.75), vec2(1.75));
-	vec2 source = sourceNormalized * vec2(pixelWidth, pixelHeight);
-	float frontFade = smoothstep(-0.08, 0.22, viewZ);
-	// A high sun commonly sits well above a horizontal view; retain its shafts
-	// while it is moderately offscreen and fade only at extreme projections.
-	float offscreenFade = 1.0 - smoothstep(2.50, 6.00, length(sunNdc));
+	// Preserve the true projected direction even when the sun is far outside
+	// the framebuffer. Component-wise clamping to an off-screen rectangle made
+	// the apparent shaft angle rotate as each axis reached the clamp separately.
+	vec2 sourceDimensions = vec2(offsetx, offsety);
+	vec2 sourceNormalized = vec2(0.5) + sunNdc * (0.5 / repeat);
+	vec2 source = sourceNormalized * sourceDimensions;
+	// Keep the atmospheric scattering visible around and somewhat beyond the
+	// camera's side plane. It should not vanish as soon as the sun leaves view.
+	float frontFade = smoothstep(-0.75, 0.05, viewZ);
+	// A high sun can project a long way above the framebuffer when looking down.
+	// Fade only at truly extreme projections rather than near the screen edge.
+	float offscreenFade = 1.0 - smoothstep(24.0, 64.0, length(sunNdc));
 	float sunVisibility = frontFade * offscreenFade;
 	// More closely spaced samples avoid the visible stair-stepping produced
-	// when long shafts stretched only a couple of dozen landscape samples.
-	vec2 stepVector = (source - p) * (bloomShift / 48.0);
-	vec2 q = p;
+	// when long shafts stretched only a couple of dozen landscape samples. Cap
+	// the traced distance so a far-offscreen sun does not make each tap leap over
+	// most of the visible landscape.
+	vec2 sourceP = (p / vec2(pixelWidth, pixelHeight) - vec2(0.5)) /
+		repeat + vec2(0.5);
+	sourceP *= sourceDimensions;
+	vec2 rayVector = source - sourceP;
+	float rayDistance = length(rayVector);
+	vec2 rayDirection = rayVector / max(rayDistance, 0.001);
+	float maximumTraceDistance = max(sourceDimensions.x,
+		sourceDimensions.y) * 1.35;
+	float desiredTraceDistance = min(rayDistance, maximumTraceDistance) *
+		bloomShift;
+	// Fit all taps between this fragment and the framebuffer boundary. This
+	// keeps a constant sample count and smoothly reduces spacing near an edge,
+	// instead of losing taps in discrete bands or repeating the outermost row.
+	vec2 maximumCoordinate = sourceDimensions - vec2(0.5);
+	float distanceToVerticalEdge = 1000000.0;
+	if (rayDirection.x > 0.0001)
+		distanceToVerticalEdge = (maximumCoordinate.x - sourceP.x) / rayDirection.x;
+	else if (rayDirection.x < -0.0001)
+		distanceToVerticalEdge = (0.5 - sourceP.x) / rayDirection.x;
+	float distanceToHorizontalEdge = 1000000.0;
+	if (rayDirection.y > 0.0001)
+		distanceToHorizontalEdge = (maximumCoordinate.y - sourceP.y) / rayDirection.y;
+	else if (rayDirection.y < -0.0001)
+		distanceToHorizontalEdge = (0.5 - sourceP.y) / rayDirection.y;
+	float availableTraceDistance = max(0.0,
+		min(distanceToVerticalEdge, distanceToHorizontalEdge) - 2.0);
+	float traceDistance = min(desiredTraceDistance, availableTraceDistance);
+	vec2 stepVector = rayDirection * (traceDistance / 48.0);
+	vec2 q = sourceP;
 	vec3 shafts = vec3(0.0);
 	float weight = 1.0;
 	float totalWeight = 0.0;
 	for (int i = 0; i < 48; ++i) {
-		q = clamp(q + stepVector, vec2(0.5),
-			vec2(pixelWidth - 0.5, pixelHeight - 0.5));
-		float sampleDepth = texture2DRect(texture2, q).r;
-		vec3 sampleColor = texture2DRect(texture0, q).rgb;
+		q += stepVector;
+		vec2 samplePosition = clamp(q, vec2(0.5), maximumCoordinate);
+		float sampleDepth = texture2DRect(texture3, samplePosition).r;
+		vec3 sampleColor = texture2DRect(texture1, samplePosition).rgb;
 		float peak = max(sampleColor.r, max(sampleColor.g, sampleColor.b));
 		// Only far-depth landscape pixels emit shafts. Use peak channel energy
 		// rather than luminance so saturated blue, red, purple and green skies
@@ -844,6 +884,89 @@ void main(void) {
 	// Keep the additive result restrained; strength remains user-controlled.
 	gl_FragColor = vec4(scene.rgb + shafts * bloomScale * 1.15 *
 		sunVisibility, scene.a);
+}
+)";
+
+	defaultVertexPrograms["anamorphic_lens_flare"] =
+		defaultVertexPrograms["underwater_ripple"];
+	defaultFragmentPrograms["anamorphic_lens_flare"] = R"(
+uniform sampler2DRect texture0;
+uniform sampler2DRect texture2;
+uniform float pixelWidth;
+uniform float pixelHeight;
+uniform float bloomScale;
+uniform float scalex;
+uniform float scaley;
+uniform float fogMode;
+
+float viewDepth(float windowDepth) {
+	float ndcDepth = windowDepth * 2.0 - 1.0;
+	return abs(scaley / (ndcDepth + scalex));
+}
+
+float fogVisibility(float distance) {
+	if (fogMode == 0.0)
+		return clamp((gl_Fog.end - distance) /
+			(gl_Fog.end - gl_Fog.start), 0.0, 1.0);
+	if (fogMode == 1.0)
+		return clamp(exp(-gl_Fog.density * distance), 0.0, 1.0);
+	if (fogMode == 2.0)
+		return clamp(exp(-gl_Fog.density * gl_Fog.density *
+			distance * distance), 0.0, 1.0);
+	return 1.0;
+}
+
+void main(void) {
+	vec2 p = gl_FragCoord.xy;
+	vec2 dimensions = vec2(pixelWidth, pixelHeight);
+	vec4 scene = texture2DRect(texture0, p);
+	vec3 flare = vec3(0.0);
+	float totalWeight = 0.0;
+	// A broad horizontal convolution produces an anamorphic streak. Only very
+	// bright world pixels with real geometry depth may emit, excluding skies.
+	for (int i = -16; i <= 16; ++i) {
+		float tap = float(i) / 16.0;
+		vec2 q = p + vec2(tap * pixelWidth * 0.22, 0.0);
+		q = clamp(q, vec2(0.5), dimensions - vec2(0.5));
+		vec3 sampleColor = texture2DRect(texture0, q).rgb;
+		float sampleDepth = texture2DRect(texture2, q).r;
+		float peak = max(sampleColor.r, max(sampleColor.g, sampleColor.b));
+		float luminance = dot(sampleColor, vec3(0.2126, 0.7152, 0.0722));
+		// Peak-channel energy allows strongly coloured lamps, projectiles and
+		// glowing sprites to emit just as readily as white textures. A small
+		// luminance contribution keeps pale lights smooth without desaturating
+		// the resulting streak.
+		float brightness = max(peak, luminance * 1.15);
+		float visibility = fogVisibility(viewDepth(sampleDepth));
+		// A source must remain substantially clearer than the surrounding fog.
+		// This prevents bright fog colours from masquerading as emitters and
+		// removes real flares smoothly before their lights disappear into haze.
+		float clearOfFog = smoothstep(0.55, 0.90, visibility);
+		float emitter = smoothstep(0.42, 0.88, brightness) *
+			(1.0 - step(0.9995, sampleDepth)) * clearOfFog;
+		// Looking directly toward the lamp matters: emitters fade rapidly as they
+		// leave the central portion of the view.
+		vec2 centered = q / dimensions - vec2(0.5);
+		float facing = 1.0 - smoothstep(0.08, 0.48, length(centered));
+		float weight = exp(-abs(tap) * 3.4);
+		vec3 hue = sampleColor / max(peak, 0.001);
+		// Retain the source hue. The slight cool lift is strongest on neutral
+		// lights and nearly absent from already-saturated coloured emitters.
+		float saturation = peak - min(sampleColor.r,
+			min(sampleColor.g, sampleColor.b));
+		float neutral = 1.0 - smoothstep(0.08, 0.45, saturation);
+		vec3 tint = mix(hue * peak,
+			vec3(0.68, 0.84, 1.0) * peak, neutral * 0.28);
+		flare += tint * emitter * facing * weight;
+		totalWeight += weight;
+	}
+	flare /= max(totalWeight, 0.0001);
+	// A thin blue-white streak with a restrained additive response preserves the
+	// original lamp and avoids turning every bright wall into a bloom cloud.
+	float verticalCore = exp(-abs(p.y - pixelHeight * 0.5) /
+		max(pixelHeight * 0.12, 1.0));
+	flare *= mix(0.62, 1.0, verticalCore);
+	gl_FragColor = vec4(scene.rgb + flare * bloomScale * 2.2, scene.a);
 }
 )";
 

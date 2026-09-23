@@ -238,7 +238,7 @@ void OGL_SetDefaults(OGL_ConfigureData& Data)
 	Data.ModelConfig.MaxSize = 0;
 	
 	// Reasonable default flags
-	Data.Flags = OGL_Flag_Fader | OGL_Flag_Map |
+	Data.Flags = OGL_Flag_Fader | OGL_Flag_Map | OGL_Flag_Blur |
 		OGL_Flag_HUD | OGL_Flag_LiqSeeThru | OGL_Flag_3D_Models | OGL_Flag_ZBuffer |
 		OGL_Flag_Fog | OGL_Flag_MimicSW;
 
@@ -253,17 +253,19 @@ void OGL_SetDefaults(OGL_ConfigureData& Data)
 	Data.WaitForVSync = true;
 	Data.Use_sRGB = false;
 	Data.Use_NPOT = false;
-	Data.SpriteUpscaling = 0;
+	Data.SpriteUpscaling = 2; // 2xSaI plus bilinear filtering
 	Data.WallTextureUpscaling = 0;
 	Data.RefractiveInvisibility = true;
 	Data.SpriteShadows = true;
-	Data.AmbientOcclusion = false;
+	Data.AmbientOcclusion = true;
 	Data.AmbientOcclusionStrength = 35;
-	Data.LandscapeLightShafts = false;
-	Data.LandscapeLightShaftStrength = 30;
-	Data.LandscapeLightShaftLength = 50;
-	Data.LandscapeLightShaftDirection = 180;
+	Data.LandscapeLightShafts = true;
+	Data.LandscapeLightShaftStrength = 50;
+	Data.LandscapeLightShaftLength = 20;
+	Data.LandscapeLightShaftDirection = 0;
 	Data.LandscapeLightShaftElevation = 50;
+	Data.AnamorphicLensFlares = true;
+	Data.AnamorphicLensFlareStrength = 40;
 	Data.AnimatedMediaRipples = true;
 	Data.AnimatedMediaOpacity = 85;
 	Data.AnimatedMediaRippleStrength = 3; // 0.75x
@@ -274,11 +276,12 @@ void OGL_SetDefaults(OGL_ConfigureData& Data)
 	Data.AnimatedSewageRippleSpeed = 3; // 0.75x
 	Data.AnimatedJjaroRippleSpeed = 4; // 1.0x
 	Data.ForceFogMediaRelative = true;
-	Data.ForceFogAnimatedDensity = false;
+	Data.ForceFogAnimatedDensity = true;
 	Data.ForceFogDepthDensity = true;
 	Data.ForceFogBlack = false;
 	Data.ForceFogDistanceDarkening = false;
 	Data.DeepFogHaze = true;
+	Data.DriftingFogIntensity = 50;
 	Data.ForceFogWeatherPreset = 0;
 
 	Data.BillboardXY = false;

@@ -86,6 +86,7 @@ public:
 		S_AmbientOcclusionComposite,
 		S_FogHaze,
 		S_LandscapeLightShafts,
+		S_AnamorphicLensFlare,
 		S_Bloom,
 		S_Landscape,
 		S_LandscapeBloom,
