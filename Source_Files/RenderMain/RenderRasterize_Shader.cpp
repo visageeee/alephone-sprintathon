@@ -179,6 +179,26 @@ static float sprintathon_invisibility_phase()
 	return static_cast<float>(phase);
 }
 
+static float sprintathon_fog_haze_phase()
+{
+	static uint32 last_tick = machine_tick_count();
+	static double phase = 0.0;
+	const uint32 now = machine_tick_count();
+	const uint32 elapsed_ticks = now - last_tick;
+	if (elapsed_ticks > 0)
+	{
+		const double elapsed = std::min(
+			static_cast<double>(elapsed_ticks) / MACHINE_TICKS_PER_SECOND,
+			0.25);
+		const double bullet_time_rate =
+			sprintathon_bullet_time_active() ? 0.35 : 1.0;
+		phase = std::fmod(phase + elapsed * 0.72 * bullet_time_rate,
+			TWO_PI);
+		last_tick = now;
+	}
+	return static_cast<float>(phase);
+}
+
 static void setup_invisibility_refraction(
 	Shader *shader, GLsizei width, GLsizei height, float visibility)
 {
@@ -276,7 +296,7 @@ static GLuint sprintathon_capture_scene_color(GLsizei width, GLsizei height)
 
 static void sprintathon_draw_ambient_occlusion(GLuint color_texture,
 	GLuint depth_texture, GLsizei width, GLsizei height,
-	const GLfloat *projection, float strength)
+	const GLfloat *projection, float strength, float fog_mode)
 {
 	glPushAttrib(GL_ALL_ATTRIB_BITS);
 	glDisable(GL_DEPTH_TEST);
@@ -298,6 +318,65 @@ static void sprintathon_draw_ambient_occlusion(GLuint color_texture,
 	shader->setFloat(Shader::U_ScaleX, projection[10]);
 	shader->setFloat(Shader::U_ScaleY, projection[14]);
 	shader->setFloat(Shader::U_BloomScale, strength);
+	shader->setFloat(Shader::U_FogMode, fog_mode);
+
+	glActiveTextureARB(GL_TEXTURE2_ARB);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, depth_texture);
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, color_texture);
+
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+	glBegin(GL_QUADS);
+	glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);
+	glTexCoord2f(static_cast<float>(width), 0.0f); glVertex2f(1.0f, -1.0f);
+	glTexCoord2f(static_cast<float>(width), static_cast<float>(height)); glVertex2f(1.0f, 1.0f);
+	glTexCoord2f(0.0f, static_cast<float>(height)); glVertex2f(-1.0f, 1.0f);
+	glEnd();
+	glPopMatrix();
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+	glMatrixMode(GL_MODELVIEW);
+	Shader::disable();
+	glPopAttrib();
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+}
+
+static void sprintathon_draw_fog_haze(GLuint color_texture,
+	GLuint depth_texture, GLsizei width, GLsizei height,
+	const GLfloat *projection, float fog_mode, float global_fog_blend,
+	bool distortion_enabled, bool clouds_enabled)
+{
+	glPushAttrib(GL_ALL_ATTRIB_BITS);
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_BLEND);
+	glDisable(GL_ALPHA_TEST);
+	glDisable(GL_SCISSOR_TEST);
+	glDisable(GL_CULL_FACE);
+	glDisable(GL_STENCIL_TEST);
+	glDisable(GL_CLIP_PLANE0);
+	glDisable(GL_CLIP_PLANE1);
+	glDepthMask(GL_FALSE);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+	Shader *shader = Shader::get(Shader::S_FogHaze);
+	shader->enable();
+	shader->setFloat(Shader::U_PixelWidth, static_cast<float>(width));
+	shader->setFloat(Shader::U_PixelHeight, static_cast<float>(height));
+	shader->setFloat(Shader::U_ScaleX, projection[10]);
+	shader->setFloat(Shader::U_ScaleY, projection[14]);
+	shader->setFloat(Shader::U_Time, sprintathon_fog_haze_phase());
+	shader->setFloat(Shader::U_FogMode, fog_mode);
+	shader->setFloat(Shader::U_BloomScale, global_fog_blend);
+	shader->setFloat(Shader::U_MediaRipple,
+		distortion_enabled ? 1.0f : 0.0f);
+	shader->setFloat(Shader::U_MediaWetness,
+		clouds_enabled ? 1.0f : 0.0f);
 
 	glActiveTextureARB(GL_TEXTURE2_ARB);
 	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, depth_texture);
@@ -536,7 +615,16 @@ void RenderRasterize_Shader::render_tree() {
 	GLuint scene_depth = 0;
 	GLuint ambient_occlusion_color = 0;
 	const OGL_ConfigureData& ogl_config = Get_OGL_ConfigureData();
-	if (ogl_config.AmbientOcclusion || ogl_config.LandscapeLightShafts)
+	const bool fog_effect_available = fogdata &&
+		(fogdata->IsPresent || any_forced_fallback_fog) && fogmode >= 0.0f;
+	const bool fog_haze_enabled = fog_effect_available &&
+		ogl_config.DeepFogHaze;
+	const bool rising_fog_clouds_enabled = fog_haze_enabled &&
+		ogl_config.ForceFogAnimatedDensity;
+	const bool fog_post_effects_enabled = fog_haze_enabled ||
+		rising_fog_clouds_enabled;
+	if (ogl_config.AmbientOcclusion || ogl_config.LandscapeLightShafts ||
+		fog_post_effects_enabled)
 		scene_depth = sprintathon_capture_scene_depth(
 			framebuffer_width, framebuffer_height);
 	if (ogl_config.AmbientOcclusion)
@@ -548,7 +636,17 @@ void RenderRasterize_Shader::render_tree() {
 		sprintathon_draw_ambient_occlusion(ambient_occlusion_color,
 			scene_depth, framebuffer_width, framebuffer_height,
 			scene_projection,
-			ogl_config.AmbientOcclusionStrength / 100.0f);
+			ogl_config.AmbientOcclusionStrength / 100.0f,
+			fogmode);
+	}
+	if (fog_post_effects_enabled)
+	{
+		GLuint fog_haze_color = sprintathon_capture_scene_color(
+			framebuffer_width, framebuffer_height);
+		sprintathon_draw_fog_haze(fog_haze_color, scene_depth,
+			framebuffer_width, framebuffer_height, scene_projection,
+			fogmode, 1.0f - media_fog_enabled, fog_haze_enabled,
+			rising_fog_clouds_enabled);
 	}
 	if (ogl_config.LandscapeLightShafts)
 	{

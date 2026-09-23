@@ -283,6 +283,7 @@ struct OGL_ConfigureData
 	bool ForceFogDepthDensity;
 	bool ForceFogBlack;
 	bool ForceFogDistanceDarkening;
+	bool DeepFogHaze;
 	int16 ForceFogWeatherPreset;
 };
 

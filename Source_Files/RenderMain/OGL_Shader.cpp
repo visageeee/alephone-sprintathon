@@ -99,6 +99,7 @@ const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] =
     "blur",
 	"underwater_ripple",
 	"ambient_occlusion",
+	"fog_haze",
 	"landscape_light_shafts",
 	"bloom",
 	"landscape",
@@ -499,10 +500,23 @@ uniform float pixelHeight;
 uniform float scalex;
 uniform float scaley;
 uniform float bloomScale;
+uniform float fogMode;
 
 float viewDepth(float windowDepth) {
 	float ndcDepth = windowDepth * 2.0 - 1.0;
 	return abs(scaley / (ndcDepth + scalex));
+}
+
+float fogVisibility(float distance) {
+	if (fogMode == 0.0)
+		return clamp((gl_Fog.end - distance) /
+			(gl_Fog.end - gl_Fog.start), 0.0, 1.0);
+	if (fogMode == 1.0)
+		return clamp(exp(-gl_Fog.density * distance), 0.0, 1.0);
+	if (fogMode == 2.0)
+		return clamp(exp(-gl_Fog.density * gl_Fog.density *
+			distance * distance), 0.0, 1.0);
+	return 1.0;
 }
 
 float occlusionSample(vec2 p, float centerDepth, vec2 offset) {
@@ -555,8 +569,124 @@ void main(void) {
 	// use a deliberately assertive normalization rather than averaging all
 	// twelve taps into near-invisibility.
 	ao = clamp(ao / 3.2, 0.0, 1.0);
-	float shade = 1.0 - ao * 0.78 * bloomScale;
+	// AO is composited after the material shaders have already applied fog.
+	// Fade it by the same remaining scene visibility so it cannot draw dark
+	// creases back over fully fogged geometry.
+	float visibleThroughFog = fogVisibility(viewDepth(centerDepth));
+	float shade = 1.0 - ao * 0.78 * bloomScale * visibleThroughFog;
 	gl_FragColor = vec4(scene.rgb * shade, scene.a);
+}
+)";
+
+	defaultVertexPrograms["fog_haze"] =
+		defaultVertexPrograms["underwater_ripple"];
+	defaultFragmentPrograms["fog_haze"] = R"(
+uniform sampler2DRect texture0;
+uniform sampler2DRect texture2;
+uniform float pixelWidth;
+uniform float pixelHeight;
+uniform float scalex;
+uniform float scaley;
+uniform float time;
+uniform float fogMode;
+uniform float bloomScale;
+uniform float mediaRipple;
+uniform float mediaWetness;
+
+float viewDepth(float windowDepth) {
+	float ndcDepth = windowDepth * 2.0 - 1.0;
+	return abs(scaley / (ndcDepth + scalex));
+}
+
+float fogVisibility(float distance) {
+	if (fogMode == 0.0)
+		return clamp((gl_Fog.end - distance) /
+			(gl_Fog.end - gl_Fog.start), 0.0, 1.0);
+	if (fogMode == 1.0)
+		return clamp(exp(-gl_Fog.density * distance), 0.0, 1.0);
+	if (fogMode == 2.0)
+		return clamp(exp(-gl_Fog.density * gl_Fog.density *
+			distance * distance), 0.0, 1.0);
+	return 1.0;
+}
+
+float fogCloudHash(vec2 p) {
+	vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+	p3 += dot(p3, p3.yzx + 33.33);
+	return fract((p3.x + p3.y) * p3.z);
+}
+
+float periodicFogNoise(vec2 p, float period) {
+	vec2 cell = floor(p);
+	vec2 blend = fract(p);
+	blend = blend * blend * (3.0 - 2.0 * blend);
+	float lowerLeft = fogCloudHash(mod(cell, period));
+	float lowerRight = fogCloudHash(mod(cell + vec2(1.0, 0.0), period));
+	float upperLeft = fogCloudHash(mod(cell + vec2(0.0, 1.0), period));
+	float upperRight = fogCloudHash(mod(cell + vec2(1.0, 1.0), period));
+	return mix(mix(lowerLeft, lowerRight, blend.x),
+		mix(upperLeft, upperRight, blend.x), blend.y);
+}
+
+void main(void) {
+	vec2 p = gl_TexCoord[0].xy;
+	vec4 scene = texture2DRect(texture0, p);
+	float centerDepth = texture2DRect(texture2, p).r;
+	// Clear/far depth is the landscape. Keep skies perfectly stable.
+	if (centerDepth >= 0.9995 || fogMode < 0.0) {
+		gl_FragColor = scene;
+		return;
+	}
+
+	float sceneDistance = viewDepth(centerDepth);
+	float visibility = fogVisibility(sceneDistance);
+	float fogAmount = 1.0 - visibility;
+	// Begin well inside the fog rather than making the whole view swim.
+	float haze = smoothstep(0.30, 0.78, fogAmount) * bloomScale *
+		mediaRipple;
+	// Two broad, incommensurate waves avoid a visibly repeating scroll.
+	vec2 uv = p / vec2(pixelWidth, pixelHeight);
+	vec2 wave = vec2(
+		sin(uv.y * 39.0 + time * 2.0) +
+			0.38 * sin((uv.x + uv.y) * 83.0 - time),
+		cos(uv.x * 43.0 - time * 2.0) +
+			0.34 * sin((uv.x - uv.y) * 71.0 + time));
+	// Integer time multipliers make every component meet exactly when the
+	// CPU-side phase wraps at two pi, avoiding a periodic animation jump.
+	vec2 warped = clamp(p + wave * vec2(1.15, 0.85) * haze,
+		vec2(0.5), vec2(pixelWidth - 0.5, pixelHeight - 0.5));
+
+	// Do not pull foreground silhouettes into the fog at depth boundaries.
+	float warpedDepth = texture2DRect(texture2, warped).r;
+	float relativeDepthDifference = abs(viewDepth(warpedDepth) -
+		sceneDistance) / max(sceneDistance, 0.0001);
+	float sameSurface = 1.0 - smoothstep(0.025, 0.12,
+		relativeDepthDifference);
+	vec4 distorted = texture2DRect(texture0, warped);
+	vec4 result = mix(scene, distorted, haze * sameSurface);
+
+	// Animated Density adds irregular banks of fog that rise through the view.
+	// Scene depth offsets the noise domain, so the fog occupies the world rather
+	// than reading as horizontal bands painted across the screen. The noise
+	// layer travels by exactly one lattice period per wrapped CPU phase, keeping
+	// the animation seamless without expensive trigonometry. A single smooth
+	// noise field keeps the depth variation while halving the hash work of the
+	// previous two-layer version.
+	if (mediaWetness > 0.5) {
+		const float inverseTwoPi = 0.159154943;
+		float cycle = time * inverseTwoPi;
+		float depthLayer = fogAmount * 5.0;
+		vec2 broadPosition = vec2(
+			uv.x * 4.0 + depthLayer * 0.83,
+			uv.y * 3.0 + depthLayer * 1.17 - cycle * 8.0);
+		float broadClouds = periodicFogNoise(broadPosition, 8.0);
+		float clouds = smoothstep(0.34, 0.68, broadClouds);
+		float cloudDepth = smoothstep(0.18, 0.82, fogAmount) *
+			bloomScale;
+		float addedFog = clouds * cloudDepth * 0.20;
+		result.rgb = mix(result.rgb, gl_Fog.color.rgb, addedFog);
+	}
+	gl_FragColor = result;
 }
 )";
 

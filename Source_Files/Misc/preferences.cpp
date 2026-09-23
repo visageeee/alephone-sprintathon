@@ -1197,11 +1197,13 @@ void handle_preferences(bool in_game)
 	w_toggle *fog_depth_w = new w_toggle(graphics_preferences->OGL_Configure.ForceFogDepthDensity);
 	w_toggle *fog_black_w = new w_toggle(graphics_preferences->OGL_Configure.ForceFogBlack);
 	w_toggle *fog_darken_w = new w_toggle(graphics_preferences->OGL_Configure.ForceFogDistanceDarkening);
+	w_toggle *fog_haze_w = new w_toggle(graphics_preferences->OGL_Configure.DeepFogHaze);
 #define ADD_FOG_ROW(caption, widget) fog->dual_add((widget)->label(caption), d); fog->dual_add(widget, d)
 	ADD_FOG_ROW("Fog", fog_enabled_w); ADD_FOG_ROW("Fog in All Levels", fog_force_w);
 	ADD_FOG_ROW("Media-relative Forced Fog", fog_media_w); ADD_FOG_ROW("Weather Preset", fog_weather_w);
 	ADD_FOG_ROW("Animated Density", fog_animated_w); ADD_FOG_ROW("Density Increases with Depth", fog_depth_w);
 	ADD_FOG_ROW("Black Fog", fog_black_w); ADD_FOG_ROW("Darken with Distance", fog_darken_w);
+	ADD_FOG_ROW("Deep Fog Haze", fog_haze_w);
 #undef ADD_FOG_ROW
 	fog_page->add(fog, true); graphics_tabs->add(fog_page, true);
 	pages->choose_tab(category_pages[0]);
@@ -1367,6 +1369,7 @@ void handle_preferences(bool in_game)
 	graphics_preferences->OGL_Configure.ForceFogDepthDensity = fog_depth_w->get_selection();
 	graphics_preferences->OGL_Configure.ForceFogBlack = fog_black_w->get_selection();
 	graphics_preferences->OGL_Configure.ForceFogDistanceDarkening = fog_darken_w->get_selection();
+	graphics_preferences->OGL_Configure.DeepFogHaze = fog_haze_w->get_selection();
 	graphics_preferences->pickup_flash =
 		graphics_pickup_flash_w->get_selection();
 	const bool embedded_hud = graphics_hud_w->get_selection();
@@ -5615,6 +5618,8 @@ InfoTree graphics_preferences_tree()
 		graphics_preferences->OGL_Configure.ForceFogBlack);
 	root.put_attr("force_fog_distance_darkening",
 		graphics_preferences->OGL_Configure.ForceFogDistanceDarkening);
+	root.put_attr("deep_fog_haze",
+		graphics_preferences->OGL_Configure.DeepFogHaze);
 	root.put_attr("force_fog_weather_preset",
 		graphics_preferences->OGL_Configure.ForceFogWeatherPreset);
 	root.put_attr("movie_export_video_quality", graphics_preferences->movie_export_video_quality);
@@ -6731,6 +6736,8 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 		graphics_preferences->OGL_Configure.ForceFogBlack);
 	root.read_attr("force_fog_distance_darkening",
 		graphics_preferences->OGL_Configure.ForceFogDistanceDarkening);
+	root.read_attr("deep_fog_haze",
+		graphics_preferences->OGL_Configure.DeepFogHaze);
 	root.read_attr_bounded<int16>("force_fog_weather_preset",
 		graphics_preferences->OGL_Configure.ForceFogWeatherPreset, 0, 3);
 	root.read_attr_bounded<int16>("movie_export_video_quality", graphics_preferences->movie_export_video_quality, 0, 100);

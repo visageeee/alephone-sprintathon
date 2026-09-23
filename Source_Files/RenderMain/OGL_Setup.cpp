@@ -276,6 +276,7 @@ void OGL_SetDefaults(OGL_ConfigureData& Data)
 	Data.ForceFogDepthDensity = true;
 	Data.ForceFogBlack = false;
 	Data.ForceFogDistanceDarkening = false;
+	Data.DeepFogHaze = true;
 	Data.ForceFogWeatherPreset = 0;
 
 	Data.BillboardXY = false;

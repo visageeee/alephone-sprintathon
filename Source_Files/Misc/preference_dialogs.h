@@ -51,6 +51,7 @@ protected:
 	ToggleWidget*		m_forceFogDepthDensityWidget;
 	ToggleWidget*		m_forceFogBlackWidget;
 	ToggleWidget*		m_forceFogDistanceDarkeningWidget;
+	ToggleWidget*		m_deepFogHazeWidget;
 	SelectorWidget*		m_forceFogWeatherPresetWidget;
 	ToggleWidget*		m_colourEffectsWidget;
 	ToggleWidget*		m_transparentLiquidsWidget;

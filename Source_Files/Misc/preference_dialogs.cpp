@@ -163,6 +163,7 @@ OpenGLDialog::~OpenGLDialog()
 	delete m_forceFogDepthDensityWidget;
 	delete m_forceFogBlackWidget;
 	delete m_forceFogDistanceDarkeningWidget;
+	delete m_deepFogHazeWidget;
 	delete m_forceFogWeatherPresetWidget;
 	delete m_colourEffectsWidget;
 	delete m_transparentLiquidsWidget;
@@ -236,6 +237,9 @@ void OpenGLDialog::OpenGLPrefsByRunning ()
 	binders.insert<bool> (
 		m_forceFogDistanceDarkeningWidget,
 		&forceFogDistanceDarkeningPref);
+	BoolPref deepFogHazePref (
+		graphics_preferences->OGL_Configure.DeepFogHaze);
+	binders.insert<bool> (m_deepFogHazeWidget, &deepFogHazePref);
 	Int16Pref forceFogWeatherPresetPref (
 		graphics_preferences->OGL_Configure.ForceFogWeatherPreset);
 	binders.insert<int> (
@@ -516,6 +520,11 @@ public:
 			m_dialog);
 		fog_table->dual_add(force_fog_distance_darkening_w, m_dialog);
 
+		w_toggle *deep_fog_haze_w = new w_toggle(true);
+		fog_table->dual_add(
+			deep_fog_haze_w->label("Deep Fog Haze"), m_dialog);
+		fog_table->dual_add(deep_fog_haze_w, m_dialog);
+
 		w_toggle *fader_w = new w_toggle(false);
 		general_table->dual_add(fader_w->label("Color Effects"), m_dialog);
 		general_table->dual_add(fader_w, m_dialog);
@@ -755,6 +764,7 @@ public:
 			new ToggleWidget (force_fog_black_w);
 		m_forceFogDistanceDarkeningWidget =
 			new ToggleWidget (force_fog_distance_darkening_w);
+		m_deepFogHazeWidget = new ToggleWidget (deep_fog_haze_w);
 		m_forceFogWeatherPresetWidget =
 			new PopupSelectorWidget (force_fog_weather_preset_w);
 		m_colourEffectsWidget = new ToggleWidget (fader_w);
