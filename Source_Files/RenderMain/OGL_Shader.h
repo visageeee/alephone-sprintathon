@@ -81,6 +81,7 @@ public:
         S_Blur,
 		S_UnderwaterRipple,
 		S_AmbientOcclusion,
+		S_AmbientOcclusionComposite,
 		S_FogHaze,
 		S_LandscapeLightShafts,
 		S_Bloom,

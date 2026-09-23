@@ -298,6 +298,12 @@ static void sprintathon_draw_ambient_occlusion(GLuint color_texture,
 	GLuint depth_texture, GLsizei width, GLsizei height,
 	const GLfloat *projection, float strength, float fog_mode)
 {
+	static GLuint ao_texture = 0;
+	static GLsizei ao_texture_width = 0;
+	static GLsizei ao_texture_height = 0;
+	const GLsizei mask_width = std::max<GLsizei>(1, (width + 1) / 2);
+	const GLsizei mask_height = std::max<GLsizei>(1, (height + 1) / 2);
+
 	glPushAttrib(GL_ALL_ATTRIB_BITS);
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_BLEND);
@@ -311,17 +317,79 @@ static void sprintathon_draw_ambient_occlusion(GLuint color_texture,
 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
+	// Keep the AO field separate from scene color so it can be softened without
+	// blurring wall textures. Half resolution provides a broad, inexpensive
+	// kernel and remains compatible with the renderer's framebuffer-copy path.
+	glActiveTextureARB(GL_TEXTURE1_ARB);
+	if (!ao_texture)
+		glGenTextures(1, &ao_texture);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, ao_texture);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	if (mask_width != ao_texture_width || mask_height != ao_texture_height)
+	{
+		glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA,
+			mask_width, mask_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+		ao_texture_width = mask_width;
+		ao_texture_height = mask_height;
+	}
+
+	glViewport(0, 0, mask_width, mask_height);
 	Shader *shader = Shader::get(Shader::S_AmbientOcclusion);
 	shader->enable();
 	shader->setFloat(Shader::U_PixelWidth, static_cast<float>(width));
 	shader->setFloat(Shader::U_PixelHeight, static_cast<float>(height));
 	shader->setFloat(Shader::U_ScaleX, projection[10]);
 	shader->setFloat(Shader::U_ScaleY, projection[14]);
+
+	glActiveTextureARB(GL_TEXTURE2_ARB);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, depth_texture);
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+
+	glMatrixMode(GL_PROJECTION);
+	glPushMatrix();
+	glLoadIdentity();
+	glMatrixMode(GL_MODELVIEW);
+	glPushMatrix();
+	glLoadIdentity();
+	glBegin(GL_QUADS);
+	glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);
+	glTexCoord2f(static_cast<float>(width), 0.0f); glVertex2f(1.0f, -1.0f);
+	glTexCoord2f(static_cast<float>(width), static_cast<float>(height)); glVertex2f(1.0f, 1.0f);
+	glTexCoord2f(0.0f, static_cast<float>(height)); glVertex2f(-1.0f, 1.0f);
+	glEnd();
+	glPopMatrix();
+	glMatrixMode(GL_PROJECTION);
+	glPopMatrix();
+	glMatrixMode(GL_MODELVIEW);
+	Shader::disable();
+
+	// The mask currently occupies the lower-left half-size viewport. Copy it to
+	// its own texture; the following full-screen scene composite immediately
+	// restores the overwritten framebuffer region before presentation.
+	glActiveTextureARB(GL_TEXTURE1_ARB);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, ao_texture);
+	glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0,
+		0, 0, mask_width, mask_height);
+
+	glViewport(0, 0, width, height);
+	shader = Shader::get(Shader::S_AmbientOcclusionComposite);
+	shader->enable();
+	shader->setFloat(Shader::U_PixelWidth, static_cast<float>(width));
+	shader->setFloat(Shader::U_PixelHeight, static_cast<float>(height));
+	shader->setFloat(Shader::U_ScaleX, projection[10]);
+	shader->setFloat(Shader::U_ScaleY, projection[14]);
+	shader->setFloat(Shader::U_LogicalWidth, projection[0]);
+	shader->setFloat(Shader::U_LogicalHeight, projection[5]);
 	shader->setFloat(Shader::U_BloomScale, strength);
 	shader->setFloat(Shader::U_FogMode, fog_mode);
 
 	glActiveTextureARB(GL_TEXTURE2_ARB);
 	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, depth_texture);
+	glActiveTextureARB(GL_TEXTURE1_ARB);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, ao_texture);
 	glActiveTextureARB(GL_TEXTURE0_ARB);
 	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, color_texture);
 

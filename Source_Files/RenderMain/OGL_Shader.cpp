@@ -99,6 +99,7 @@ const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] =
     "blur",
 	"underwater_ripple",
 	"ambient_occlusion",
+	"ambient_occlusion_composite",
 	"fog_haze",
 	"landscape_light_shafts",
 	"bloom",
@@ -493,12 +494,88 @@ void initDefaultPrograms() {
 
 	defaultVertexPrograms["ambient_occlusion"] = defaultVertexPrograms["underwater_ripple"];
 defaultFragmentPrograms["ambient_occlusion"] = R"(
-uniform sampler2DRect texture0;
 uniform sampler2DRect texture2;
 uniform float pixelWidth;
 uniform float pixelHeight;
 uniform float scalex;
 uniform float scaley;
+
+float viewDepth(float windowDepth) {
+	float ndcDepth = windowDepth * 2.0 - 1.0;
+	return abs(scaley / (ndcDepth + scalex));
+}
+
+float creaseOcclusion(vec2 p, float centerDepth, vec2 offset) {
+	vec2 minimumPixel = vec2(0.5);
+	vec2 maximumPixel = vec2(pixelWidth - 0.5, pixelHeight - 0.5);
+	float positiveDepth = texture2DRect(texture2,
+		clamp(p + offset, minimumPixel, maximumPixel)).r;
+	float negativeDepth = texture2DRect(texture2,
+		clamp(p - offset, minimumPixel, maximumPixel)).r;
+	// Landscapes render at the clear/far depth. They neither receive AO nor
+	// contribute as occluders, preventing dark outlines against the sky.
+	if (positiveDepth >= 0.9995 || negativeDepth >= 0.9995)
+		return 0.0;
+	float centerDistance = viewDepth(centerDepth);
+	float inverseCenterDistance = 1.0 / max(centerDistance, 0.0001);
+	float positiveDelta = (centerDistance - viewDepth(positiveDepth)) *
+		inverseCenterDistance;
+	float negativeDelta = (centerDistance - viewDepth(negativeDepth)) *
+		inverseCenterDistance;
+
+	// Opposite samples on a flat surface have equal and opposite depth slopes,
+	// so their signed sum cancels. At a concave junction that sum becomes
+	// positive even when perspective makes one of the two samples slightly
+	// farther away. This is a depth-curvature test rather than a contact shadow.
+	float concavity = max(positiveDelta + negativeDelta, 0.0);
+	float crease = smoothstep(0.0007, 0.018, concavity);
+
+	// Reject the large depth steps produced by sprites and surfaces crossing in
+	// front of one another, even if a second edge happens to be nearby.
+	float continuousSurface = 1.0 - smoothstep(0.055, 0.13,
+		max(abs(positiveDelta), abs(negativeDelta)));
+	return crease * continuousSurface;
+}
+
+void main(void) {
+	// This pass renders into a half-size viewport while sampling full-size
+	// depth. Derive the source coordinate per fragment to avoid the diagonal
+	// interpolation seam seen with compatibility-profile quad coordinates.
+	vec2 p = gl_FragCoord.xy * 2.0;
+	float centerDepth = texture2DRect(texture2, p).r;
+	if (centerDepth >= 0.9995) {
+		gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+		return;
+	}
+
+	// Grow the screen-space radius near the camera so the sampled area remains
+	// approximately stable in world space instead of collapsing at close range.
+	float centerDistance = viewDepth(centerDepth);
+	float radiusScale = clamp(2048.0 / max(centerDistance, 1.0), 0.70, 3.25);
+	float ao = 0.0;
+	ao += creaseOcclusion(p, centerDepth, vec2(4.0, 0.0) * radiusScale);
+	ao += creaseOcclusion(p, centerDepth, vec2(0.0, 4.0) * radiusScale);
+	ao += creaseOcclusion(p, centerDepth, vec2(3.0, 3.0) * radiusScale);
+	ao += creaseOcclusion(p, centerDepth, vec2(3.0, -3.0) * radiusScale);
+	// Four opposing pairs cover horizontal, vertical, and diagonal junctions.
+	// The half-resolution mask makes these eight reads substantially cheaper.
+	ao = clamp(ao / 1.10, 0.0, 1.0);
+	gl_FragColor = vec4(ao, ao, ao, 1.0);
+}
+)";
+
+	defaultVertexPrograms["ambient_occlusion_composite"] =
+		defaultVertexPrograms["underwater_ripple"];
+	defaultFragmentPrograms["ambient_occlusion_composite"] = R"(
+uniform sampler2DRect texture0;
+uniform sampler2DRect texture1;
+uniform sampler2DRect texture2;
+uniform float pixelWidth;
+uniform float pixelHeight;
+uniform float scalex;
+uniform float scaley;
+uniform float logicalWidth;
+uniform float logicalHeight;
 uniform float bloomScale;
 uniform float fogMode;
 
@@ -519,32 +596,40 @@ float fogVisibility(float distance) {
 	return 1.0;
 }
 
-float occlusionSample(vec2 p, float centerDepth, vec2 offset) {
-	vec2 q = clamp(p + offset, vec2(0.5),
+vec2 aoBlurTap(vec2 p, vec2 maskPoint, vec2 offset,
+	float centerDistance, float spatialWeight) {
+	vec2 depthPoint = clamp(p + offset * 2.0, vec2(0.5),
 		vec2(pixelWidth - 0.5, pixelHeight - 0.5));
-	float sampleDepth = texture2DRect(texture2, q).r;
-	// Landscapes render at the clear/far depth. They neither receive AO nor
-	// contribute as occluders, preventing dark outlines against the sky.
+	float sampleDepth = texture2DRect(texture2, depthPoint).r;
 	if (sampleDepth >= 0.9995)
-		return 0.0;
-	float centerDistance = viewDepth(centerDepth);
-	float sampleDistance = viewDepth(sampleDepth);
-	// A neighbouring sample closer to the camera can occlude this pixel.
-	// Comparing reconstructed view distances keeps the threshold stable from
-	// the player's feet to the far end of a corridor.
-	float relativeDelta =
-		(centerDistance - sampleDistance) / max(centerDistance, 0.0001);
-	// Very large jumps are normally sprite silhouettes rather than nearby
-	// concave geometry. Suppress them to avoid fuzzy outlines around actors,
-	// pickups, and effects while retaining medium-scale architectural AO.
-	float contact = smoothstep(0.0015, 0.065, relativeDelta);
-	float silhouetteReject =
-		1.0 - smoothstep(0.20, 0.52, relativeDelta);
-	return contact * silhouetteReject;
+		return vec2(0.0);
+	float relativeDifference = abs(viewDepth(sampleDepth) -
+		centerDistance) / max(centerDistance, 0.0001);
+	float weight = spatialWeight * (1.0 - smoothstep(0.018, 0.095,
+		relativeDifference));
+	return vec2(texture2DRect(texture1, maskPoint + offset).r * weight,
+		weight);
+}
+
+float blurredAO(vec2 p, float centerDistance) {
+	vec2 maskPoint = p * 0.5;
+	vec2 accumulated = vec2(
+		texture2DRect(texture1, maskPoint).r * 7.0, 7.0);
+	accumulated += aoBlurTap(p, maskPoint, vec2( 0.65,  0.0), centerDistance, 2.0);
+	accumulated += aoBlurTap(p, maskPoint, vec2(-0.65,  0.0), centerDistance, 2.0);
+	accumulated += aoBlurTap(p, maskPoint, vec2( 0.0,  0.65), centerDistance, 2.0);
+	accumulated += aoBlurTap(p, maskPoint, vec2( 0.0, -0.65), centerDistance, 2.0);
+	accumulated += aoBlurTap(p, maskPoint, vec2( 0.90,  0.90), centerDistance, 1.0);
+	accumulated += aoBlurTap(p, maskPoint, vec2(-0.90,  0.90), centerDistance, 1.0);
+	accumulated += aoBlurTap(p, maskPoint, vec2( 0.90, -0.90), centerDistance, 1.0);
+	accumulated += aoBlurTap(p, maskPoint, vec2(-0.90, -0.90), centerDistance, 1.0);
+	return accumulated.x / max(accumulated.y, 0.0001);
 }
 
 void main(void) {
-	vec2 p = gl_TexCoord[0].xy;
+	// Screen-space coordinates are exact here and cannot disagree across the
+	// two triangles used to draw the fullscreen compatibility quad.
+	vec2 p = gl_FragCoord.xy;
 	vec4 scene = texture2DRect(texture0, p);
 	float centerDepth = texture2DRect(texture2, p).r;
 	if (centerDepth >= 0.9995) {
@@ -552,28 +637,16 @@ void main(void) {
 		return;
 	}
 
-	float ao = 0.0;
-	ao += occlusionSample(p, centerDepth, vec2( 4.0,  0.0));
-	ao += occlusionSample(p, centerDepth, vec2(-4.0,  0.0));
-	ao += occlusionSample(p, centerDepth, vec2( 0.0,  4.0));
-	ao += occlusionSample(p, centerDepth, vec2( 0.0, -4.0));
-	ao += occlusionSample(p, centerDepth, vec2( 7.0,  7.0));
-	ao += occlusionSample(p, centerDepth, vec2(-7.0,  7.0));
-	ao += occlusionSample(p, centerDepth, vec2( 7.0, -7.0));
-	ao += occlusionSample(p, centerDepth, vec2(-7.0, -7.0));
-	ao += 0.65 * occlusionSample(p, centerDepth, vec2( 12.0,  0.0));
-	ao += 0.65 * occlusionSample(p, centerDepth, vec2(-12.0,  0.0));
-	ao += 0.65 * occlusionSample(p, centerDepth, vec2( 0.0,  12.0));
-	ao += 0.65 * occlusionSample(p, centerDepth, vec2( 0.0, -12.0));
-	// A nearby corner commonly registers in only two or three directions, so
-	// use a deliberately assertive normalization rather than averaging all
-	// twelve taps into near-invisibility.
-	ao = clamp(ao / 3.2, 0.0, 1.0);
-	// AO is composited after the material shaders have already applied fog.
-	// Fade it by the same remaining scene visibility so it cannot draw dark
-	// creases back over fully fogged geometry.
-	float visibleThroughFog = fogVisibility(viewDepth(centerDepth));
-	float shade = 1.0 - ao * 0.78 * bloomScale * visibleThroughFog;
+	float axialDistance = viewDepth(centerDepth);
+	vec2 ndc = p / vec2(pixelWidth, pixelHeight) * 2.0 - 1.0;
+	float radialDistance = axialDistance * sqrt(1.0 +
+		(ndc.x * ndc.x) / max(logicalWidth * logicalWidth, 0.0001) +
+		(ndc.y * ndc.y) / max(logicalHeight * logicalHeight, 0.0001));
+	float visibility = fogVisibility(radialDistance);
+	// AO disappears before the underlying material is fully swallowed by fog.
+	float fogFade = visibility * visibility;
+	float ao = blurredAO(p, axialDistance);
+	float shade = 1.0 - ao * 0.78 * bloomScale * fogFade;
 	gl_FragColor = vec4(scene.rgb * shade, scene.a);
 }
 )";
