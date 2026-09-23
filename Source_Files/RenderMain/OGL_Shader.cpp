@@ -78,6 +78,8 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"scaley",
 	"yaw",
 	"pitch",
+	"sunAzimuth",
+	"sunElevation",
 	"selfLuminosity",
 	"gammaAdjust",
 	"logicalWidth",
@@ -772,13 +774,44 @@ uniform float pixelWidth;
 uniform float pixelHeight;
 uniform float bloomScale;
 uniform float bloomShift;
+uniform float logicalWidth;
+uniform float logicalHeight;
+uniform float yaw;
+uniform float pitch;
+uniform float sunAzimuth;
+uniform float sunElevation;
 
 void main(void) {
-	vec2 p = gl_TexCoord[0].xy;
+	vec2 p = gl_FragCoord.xy;
 	vec4 scene = texture2DRect(texture0, p);
-	// Aim just above the screen. This makes visible bright landscape pour
-	// downward through skyline gaps without requiring scenario light metadata.
-	vec2 source = vec2(pixelWidth * 0.5, pixelHeight * 1.08);
+	// The configured world-space sun remains stable while the camera turns.
+	float relativeAzimuth = sunAzimuth - yaw;
+	float horizontalLength = cos(sunElevation);
+	vec3 sunDirection = vec3(
+		horizontalLength * sin(relativeAzimuth),
+		sin(sunElevation),
+		horizontalLength * cos(relativeAzimuth));
+
+	// Rotate the fixed direction by camera pitch, then project it with the same
+	// horizontal and vertical scales used for world geometry.
+	float cosinePitch = cos(pitch);
+	float sinePitch = sin(pitch);
+	float viewY = sunDirection.y * cosinePitch -
+		sunDirection.z * sinePitch;
+	float viewZ = sunDirection.y * sinePitch +
+		sunDirection.z * cosinePitch;
+	float safeViewZ = max(viewZ, 0.08);
+	vec2 sunNdc = vec2(
+		sunDirection.x * logicalWidth / safeViewZ,
+		viewY * logicalHeight / safeViewZ);
+	vec2 sourceNormalized = clamp(vec2(0.5) + sunNdc * 0.5,
+		vec2(-0.75), vec2(1.75));
+	vec2 source = sourceNormalized * vec2(pixelWidth, pixelHeight);
+	float frontFade = smoothstep(-0.08, 0.22, viewZ);
+	// A high sun commonly sits well above a horizontal view; retain its shafts
+	// while it is moderately offscreen and fade only at extreme projections.
+	float offscreenFade = 1.0 - smoothstep(2.50, 6.00, length(sunNdc));
+	float sunVisibility = frontFade * offscreenFade;
 	// More closely spaced samples avoid the visible stair-stepping produced
 	// when long shafts stretched only a couple of dozen landscape samples.
 	vec2 stepVector = (source - p) * (bloomShift / 48.0);
@@ -809,7 +842,8 @@ void main(void) {
 	}
 	shafts /= max(totalWeight, 0.0001);
 	// Keep the additive result restrained; strength remains user-controlled.
-	gl_FragColor = vec4(scene.rgb + shafts * bloomScale * 1.15, scene.a);
+	gl_FragColor = vec4(scene.rgb + shafts * bloomScale * 1.15 *
+		sunVisibility, scene.a);
 }
 )";
 

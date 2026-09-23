@@ -400,6 +400,21 @@ public:
 	}
 };
 
+class w_degree_slider : public w_slider
+{
+public:
+	w_degree_slider(int count, int degrees) :
+		w_slider(count, A1_PIN(degrees, 0, count - 1))
+	{
+		init_formatted_value();
+	}
+
+	std::string formatted_value(void) override
+	{
+		return std::to_string(get_selection()) + "\xc2\xb0";
+	}
+};
+
 extern float View_FOV_Normal();
 extern bool shapes_file_is_m1();
 
@@ -1032,6 +1047,10 @@ void handle_preferences(bool in_game)
 		101, graphics_preferences->OGL_Configure.LandscapeLightShaftStrength);
 	w_percentage_slider *ogl_landscape_light_shaft_length_w = new w_percentage_slider(
 		101, graphics_preferences->OGL_Configure.LandscapeLightShaftLength);
+	w_degree_slider *ogl_landscape_light_shaft_direction_w = new w_degree_slider(
+		360, graphics_preferences->OGL_Configure.LandscapeLightShaftDirection);
+	w_degree_slider *ogl_landscape_light_shaft_elevation_w = new w_degree_slider(
+		91, graphics_preferences->OGL_Configure.LandscapeLightShaftElevation);
 	w_toggle *ogl_vsync_w = new w_toggle(graphics_preferences->OGL_Configure.WaitForVSync);
 	w_toggle *ogl_npot_w = new w_toggle(graphics_preferences->OGL_Configure.Use_NPOT);
 	static const char *effects_quality_labels[] = {"Off", "Low", "Medium", "High", "Ultra", nullptr};
@@ -1083,6 +1102,8 @@ void handle_preferences(bool in_game)
 	ADD_RENDERING_ROW("Landscape Light Shafts", ogl_landscape_light_shafts_w);
 	ADD_RENDERING_ROW("Shaft Strength", ogl_landscape_light_shaft_strength_w);
 	ADD_RENDERING_ROW("Shaft Length", ogl_landscape_light_shaft_length_w);
+	ADD_RENDERING_ROW("Sun Direction", ogl_landscape_light_shaft_direction_w);
+	ADD_RENDERING_ROW("Sun Elevation", ogl_landscape_light_shaft_elevation_w);
 	ADD_RENDERING_ROW("Scripted Effects Quality", ogl_effects_w);
 	ADD_RENDERING_ROW("VSync", ogl_vsync_w);
 	ADD_RENDERING_ROW("Anisotropic Filtering", ogl_aniso_w);
@@ -1329,6 +1350,10 @@ void handle_preferences(bool in_game)
 		ogl_landscape_light_shaft_strength_w->get_selection();
 	graphics_preferences->OGL_Configure.LandscapeLightShaftLength =
 		ogl_landscape_light_shaft_length_w->get_selection();
+	graphics_preferences->OGL_Configure.LandscapeLightShaftDirection =
+		ogl_landscape_light_shaft_direction_w->get_selection();
+	graphics_preferences->OGL_Configure.LandscapeLightShaftElevation =
+		ogl_landscape_light_shaft_elevation_w->get_selection();
 	graphics_preferences->OGL_Configure.WaitForVSync = ogl_vsync_w->get_selection();
 	graphics_preferences->OGL_Configure.Use_NPOT = ogl_npot_w->get_selection();
 	graphics_preferences->ephemera_quality = ogl_effects_w->get_selection();
@@ -5590,6 +5615,10 @@ InfoTree graphics_preferences_tree()
 		graphics_preferences->OGL_Configure.LandscapeLightShaftStrength);
 	root.put_attr("landscape_light_shaft_length",
 		graphics_preferences->OGL_Configure.LandscapeLightShaftLength);
+	root.put_attr("landscape_light_shaft_direction",
+		graphics_preferences->OGL_Configure.LandscapeLightShaftDirection);
+	root.put_attr("landscape_light_shaft_elevation",
+		graphics_preferences->OGL_Configure.LandscapeLightShaftElevation);
 	root.put_attr("animated_media_ripples",
 		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
 	root.put_attr("animated_media_opacity",
@@ -6708,6 +6737,10 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 		graphics_preferences->OGL_Configure.LandscapeLightShaftStrength, 0, 100);
 	root.read_attr_bounded<int16>("landscape_light_shaft_length",
 		graphics_preferences->OGL_Configure.LandscapeLightShaftLength, 0, 100);
+	root.read_attr_bounded<int16>("landscape_light_shaft_direction",
+		graphics_preferences->OGL_Configure.LandscapeLightShaftDirection, 0, 359);
+	root.read_attr_bounded<int16>("landscape_light_shaft_elevation",
+		graphics_preferences->OGL_Configure.LandscapeLightShaftElevation, 0, 90);
 	root.read_attr("animated_media_ripples",
 		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
 	root.read_attr_bounded<int16>("animated_media_opacity",

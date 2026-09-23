@@ -474,7 +474,8 @@ static void sprintathon_draw_fog_haze(GLuint color_texture,
 
 static void sprintathon_draw_landscape_light_shafts(GLuint color_texture,
 	GLuint depth_texture, GLsizei width, GLsizei height,
-	float strength, float length)
+	const GLfloat *projection, float camera_yaw, float camera_pitch,
+	float strength, float length, float sun_azimuth, float sun_elevation)
 {
 	glPushAttrib(GL_ALL_ATTRIB_BITS);
 	glDisable(GL_DEPTH_TEST);
@@ -495,6 +496,12 @@ static void sprintathon_draw_landscape_light_shafts(GLuint color_texture,
 	shader->setFloat(Shader::U_PixelHeight, static_cast<float>(height));
 	shader->setFloat(Shader::U_BloomScale, strength);
 	shader->setFloat(Shader::U_BloomShift, length);
+	shader->setFloat(Shader::U_LogicalWidth, projection[0]);
+	shader->setFloat(Shader::U_LogicalHeight, projection[5]);
+	shader->setFloat(Shader::U_Yaw, camera_yaw);
+	shader->setFloat(Shader::U_Pitch, camera_pitch);
+	shader->setFloat(Shader::U_SunAzimuth, sun_azimuth);
+	shader->setFloat(Shader::U_SunElevation, sun_elevation);
 
 	glActiveTextureARB(GL_TEXTURE2_ARB);
 	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, depth_texture);
@@ -722,9 +729,12 @@ void RenderRasterize_Shader::render_tree() {
 		GLuint shaft_color = sprintathon_capture_scene_color(
 			framebuffer_width, framebuffer_height);
 		sprintathon_draw_landscape_light_shafts(shaft_color, scene_depth,
-			framebuffer_width, framebuffer_height,
+			framebuffer_width, framebuffer_height, scene_projection,
+			virtual_yaw, virtual_pitch,
 			ogl_config.LandscapeLightShaftStrength / 100.0f,
-			ogl_config.LandscapeLightShaftLength / 100.0f);
+			ogl_config.LandscapeLightShaftLength / 100.0f,
+			ogl_config.LandscapeLightShaftDirection * 0.017453292519943295f,
+			ogl_config.LandscapeLightShaftElevation * 0.017453292519943295f);
 	}
 
 	// Draw the view weapon after world-only AO but before other whole-scene

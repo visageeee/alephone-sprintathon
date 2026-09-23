@@ -269,6 +269,8 @@ struct OGL_ConfigureData
 	bool LandscapeLightShafts;
 	int16 LandscapeLightShaftStrength;
 	int16 LandscapeLightShaftLength;
+	int16 LandscapeLightShaftDirection;
+	int16 LandscapeLightShaftElevation;
 	bool AnimatedMediaRipples;
 	int16 AnimatedMediaOpacity;
 	int16 AnimatedMediaRippleStrength;

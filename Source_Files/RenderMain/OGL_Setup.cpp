@@ -262,6 +262,8 @@ void OGL_SetDefaults(OGL_ConfigureData& Data)
 	Data.LandscapeLightShafts = false;
 	Data.LandscapeLightShaftStrength = 30;
 	Data.LandscapeLightShaftLength = 50;
+	Data.LandscapeLightShaftDirection = 180;
+	Data.LandscapeLightShaftElevation = 50;
 	Data.AnimatedMediaRipples = true;
 	Data.AnimatedMediaOpacity = 85;
 	Data.AnimatedMediaRippleStrength = 3; // 0.75x

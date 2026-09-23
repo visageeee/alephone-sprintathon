@@ -60,6 +60,8 @@ public:
 		U_ScaleY,
 		U_Yaw,
 		U_Pitch,
+		U_SunAzimuth,
+		U_SunElevation,
 		U_SelfLuminosity,
 		U_GammaAdjust,
 		U_LogicalWidth,
