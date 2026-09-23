@@ -240,7 +240,7 @@ void OGL_SetDefaults(OGL_ConfigureData& Data)
 	// Reasonable default flags
 	Data.Flags = OGL_Flag_Fader | OGL_Flag_Map | OGL_Flag_Blur |
 		OGL_Flag_HUD | OGL_Flag_LiqSeeThru | OGL_Flag_3D_Models | OGL_Flag_ZBuffer |
-		OGL_Flag_Fog | OGL_Flag_MimicSW;
+		OGL_Flag_Fog | OGL_Flag_ForceFog | OGL_Flag_MimicSW;
 
         Data.AnisotropyLevel = 0.0; // off
 	Data.Multisamples = 0; // off
@@ -275,11 +275,11 @@ void OGL_SetDefaults(OGL_ConfigureData& Data)
 	Data.AnimatedGooRippleSpeed = 7; // 1.75x
 	Data.AnimatedSewageRippleSpeed = 3; // 0.75x
 	Data.AnimatedJjaroRippleSpeed = 4; // 1.0x
-	Data.ForceFogMediaRelative = true;
+	Data.ForceFogMediaRelative = false;
 	Data.ForceFogAnimatedDensity = true;
 	Data.ForceFogDepthDensity = true;
 	Data.ForceFogBlack = false;
-	Data.ForceFogDistanceDarkening = false;
+	Data.ForceFogDistanceDarkening = true;
 	Data.DeepFogHaze = true;
 	Data.DriftingFogIntensity = 50;
 	Data.ForceFogWeatherPreset = 0;
