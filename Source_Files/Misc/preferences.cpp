@@ -338,6 +338,69 @@ private:
 	size_t m_chosen;
 };
 
+// Graphics choices share the tab theme: a white frame and a filled selection.
+class w_graphics_choice_button : public w_button
+{
+public:
+	w_graphics_choice_button(const char *caption, action_proc proc, void *arg,
+		std::function<bool()> selected, bool preset = false) :
+		w_button(caption, proc, arg), m_selected(selected), m_preset(preset) { }
+
+	void draw(SDL_Surface *s) const override
+	{
+		w_button::draw(s);
+		const uint32 white = SDL_MapRGB(s->format, 255, 255, 255);
+		SDL_Rect frame = rect;
+		draw_rectangle(s, &frame, white);
+		if (m_selected())
+		{
+			SDL_Rect fill = { static_cast<Sint16>(rect.x + 1),
+				static_cast<Sint16>(rect.y + 1),
+				static_cast<Uint16>(rect.w - 2),
+				static_cast<Uint16>(rect.h - 2) };
+			SDL_FillRect(s, &fill, m_preset ?
+				SDL_MapRGB(s->format, 236, 176, 124) : white);
+			draw_text(s, text.c_str(),
+				rect.x + get_theme_space(type, BUTTON_L_SPACE),
+				rect.y + get_theme_space(type, BUTTON_T_SPACE) + font->get_ascent(),
+				SDL_MapRGB(s->format, 0, 0, 0), font, style);
+		}
+	}
+private:
+	std::function<bool()> m_selected;
+	bool m_preset;
+};
+
+class w_preset_description : public w_static_text
+{
+public:
+	w_preset_description() : w_static_text("", MESSAGE_WIDGET)
+	{
+		saved_min_width = scale_dialog_value(430);
+		saved_min_height = font->get_line_height() * 2 + scale_dialog_value(5);
+	}
+	void set_description(const char *first, const char *second)
+	{
+		m_first = first;
+		m_second = second;
+		dirty = true;
+	}
+	void draw(SDL_Surface *s) const override
+	{
+		const uint32 color = get_theme_color(MESSAGE_WIDGET, DEFAULT_STATE, 0);
+		const int ascent = font->get_ascent();
+		draw_text(s, m_first.c_str(),
+			rect.x + (rect.w - text_width(m_first.c_str(), font, style)) / 2,
+			rect.y + ascent, color, font, style);
+		draw_text(s, m_second.c_str(),
+			rect.x + (rect.w - text_width(m_second.c_str(), font, style)) / 2,
+			rect.y + font->get_line_height() + scale_dialog_value(5) + ascent,
+			color, font, style);
+	}
+private:
+	std::string m_first, m_second;
+};
+
 class w_sprintathon_rate_slider : public w_slider
 {
 public:
@@ -528,7 +591,7 @@ void handle_preferences(bool in_game)
 
 	/* Begin embedding Graphics with its most frequently used display options. */
 	vertical_placer *graphics_page =
-		new vertical_placer(get_theme_space(ITEM_WIDGET));
+		new vertical_placer(scale_dialog_value(3));
 	graphics_page->center_vertically();
 	graphics_page->min_width(scale_dialog_value(430));
 	table_placer *graphics_display =
@@ -618,10 +681,45 @@ void handle_preferences(bool in_game)
 	graphics_view->dual_add(graphics_bobbing_w->label("View Bobbing"), d);
 	graphics_view->dual_add(graphics_bobbing_w, d);
 	tab_placer *graphics_tabs = new tab_placer;
-	const vector<string> graphics_tab_labels = {
-		"DISPLAY", "RENDERING", "LIGHT FX", "TEXTURES", "LIQUIDS", "FOG"
+	int graphics_active_tab = 0;
+	struct graphics_tab_action {
+		tab_placer *tabs;
+		dialog *dialogue;
+		int *active;
+		int index;
 	};
-	graphics_page->dual_add(new w_tab(graphics_tab_labels, graphics_tabs), d);
+	graphics_tab_action graphics_tab_actions[7];
+	const char *graphics_tab_labels[] = {
+		"PRESETS", "DISPLAY", "RENDERING", "LIGHT FX",
+		"TEXTURES", "LIQUIDS", "FOG"
+	};
+	auto add_graphics_tab_button = [&](horizontal_placer *row, int index) {
+		graphics_tab_actions[index] = { graphics_tabs, &d, &graphics_active_tab, index };
+		row->dual_add(new w_graphics_choice_button(graphics_tab_labels[index],
+			[](void *arg) {
+				auto *action = static_cast<graphics_tab_action *>(arg);
+				action->tabs->choose_tab(action->index);
+				*action->active = action->index;
+				action->dialogue->draw();
+			}, &graphics_tab_actions[index],
+			[&, index]() { return graphics_active_tab == index; }), d);
+	};
+	horizontal_placer *preset_tab_row = new horizontal_placer;
+	add_graphics_tab_button(preset_tab_row, 0);
+	graphics_page->add(preset_tab_row, true);
+	for (int first = 1; first < 7; first += 3)
+	{
+		horizontal_placer *row =
+			new horizontal_placer(scale_dialog_value(3));
+		for (int i = first; i < first + 3; ++i)
+			add_graphics_tab_button(row, i);
+		graphics_page->add(row, true);
+	}
+	vertical_placer *graphics_presets_page =
+		new vertical_placer(get_theme_space(ITEM_WIDGET));
+	graphics_presets_page->center_vertically();
+	graphics_presets_page->min_width(scale_dialog_value(430));
+	graphics_tabs->add(graphics_presets_page, true);
 	vertical_placer *graphics_display_page =
 		new vertical_placer(get_theme_space(ITEM_WIDGET));
 	graphics_display_page->center_vertically();
@@ -1024,9 +1122,32 @@ void handle_preferences(bool in_game)
 	rendering_page->min_width(scale_dialog_value(430));
 	table_placer *rendering = make_preferences_table();
 	static const char *graphics_preset_labels[] = {
-		"Custom", "Low", "Medium", "High", nullptr
+		"Custom", "Low", "Medium", "High", "Total Sprintathon", nullptr
 	};
 	w_select *graphics_preset_w = new w_select(0, graphics_preset_labels);
+	w_preset_description *graphics_preset_description_w =
+		new w_preset_description;
+	graphics_preset_description_w->set_description(
+		"Uses individually chosen graphics settings.",
+		"Change any option to return to Custom.");
+	// The selector retains the preset state and existing apply/custom callbacks.
+	// Present its choices as direct actions rather than a cycling selector.
+	struct preset_button_action { w_select *selector; dialog *dialogue; int preset; };
+	preset_button_action preset_actions[5];
+	for (int i = 0; i < 5; ++i)
+	{
+		preset_actions[i] = { graphics_preset_w, &d, i };
+		graphics_presets_page->dual_add(new w_graphics_choice_button(graphics_preset_labels[i],
+			[](void *arg) {
+				auto *action = static_cast<preset_button_action *>(arg);
+				action->selector->set_selection(action->preset, true);
+				action->dialogue->draw();
+			}, &preset_actions[i],
+			[graphics_preset_w, i]() {
+				return graphics_preset_w->get_selection() == static_cast<size_t>(i);
+			}, true), d);
+	}
+	graphics_presets_page->dual_add(graphics_preset_description_w, d);
 	w_toggle *ogl_fader_w = new w_toggle(ogl_flag(OGL_Flag_Fader));
 	w_toggle *ogl_models_w = new w_toggle(ogl_flag(OGL_Flag_3D_Models));
 	w_toggle *ogl_perspective_w = new w_toggle(!ogl_flag(OGL_Flag_MimicSW));
@@ -1064,39 +1185,8 @@ void handle_preferences(bool in_game)
 	for (int value = static_cast<int>(graphics_preferences->OGL_Configure.AnisotropyLevel);
 		value >= 1; value >>= 1) ++aniso_selection;
 	w_select *ogl_aniso_w = new w_select(aniso_selection, aniso_labels);
-	graphics_preset_w->set_selection_changed_callback(
-		[graphics_preset_w, ogl_bloom_w, ogl_bump_w,
-		 ogl_refractive_invisibility_w, ogl_sprite_shadows_w,
-		 ogl_ambient_occlusion_w, ogl_ambient_occlusion_strength_w,
-		 ogl_landscape_light_shafts_w,
-		 ogl_landscape_light_shaft_strength_w,
-		 ogl_landscape_light_shaft_length_w,
-		 ogl_anamorphic_lens_flares_w,
-		 ogl_anamorphic_lens_flare_strength_w, ogl_effects_w,
-		 ogl_aniso_w](w_select*) {
-			const int preset = graphics_preset_w->get_selection();
-			if (preset == 0)
-				return;
-			const bool medium_or_high = preset >= 2;
-			const bool high = preset == 3;
-			ogl_bloom_w->set_selection(medium_or_high);
-			ogl_bump_w->set_selection(medium_or_high);
-			ogl_refractive_invisibility_w->set_selection(medium_or_high);
-			ogl_sprite_shadows_w->set_selection(medium_or_high);
-			ogl_ambient_occlusion_w->set_selection(medium_or_high);
-			ogl_ambient_occlusion_strength_w->set_selection(high ? 35 : 20);
-			ogl_landscape_light_shafts_w->set_selection(high);
-			ogl_landscape_light_shaft_strength_w->set_selection(30);
-			ogl_landscape_light_shaft_length_w->set_selection(50);
-			ogl_anamorphic_lens_flares_w->set_selection(high);
-			ogl_anamorphic_lens_flare_strength_w->set_selection(35);
-			ogl_effects_w->set_selection(preset);
-			// Labels are Off, 1x, 2x, 4x, 8x, 16x.
-			ogl_aniso_w->set_selection(preset + 1);
-		});
 #define ADD_RENDERING_ROW(caption, widget) \
 	rendering->dual_add((widget)->label(caption), d); rendering->dual_add(widget, d)
-	ADD_RENDERING_ROW("Graphics Preset", graphics_preset_w);
 	ADD_RENDERING_ROW("Color Effects", ogl_fader_w);
 	ADD_RENDERING_ROW("3D Models", ogl_models_w);
 	ADD_RENDERING_ROW("3D Perspective", ogl_perspective_w);
@@ -1253,6 +1343,160 @@ void handle_preferences(bool in_game)
 	ADD_FOG_ROW("Drifting Fog Intensity", fog_drift_intensity_w);
 #undef ADD_FOG_ROW
 	fog_page->add(fog, true); graphics_tabs->add(fog_page, true);
+
+	bool applying_graphics_preset = false;
+	auto set_graphics_preset_description =
+		[graphics_preset_description_w](int preset) {
+			static const char *descriptions[][2] = {
+				{ "Uses individually chosen graphics settings.",
+				  "Change any option to return to Custom." },
+				{ "Prioritizes speed with basic lighting.",
+				  "Turns off fog, ripples, and sprite upscaling." },
+				{ "Adds shadows and gentle water ripples.",
+				  "Keeps sprite upscaling and flares off." },
+				{ "Adds sprite upscaling and animated fog.",
+				  "Enables light shafts and lens flares." },
+				{ "Enables all Sprintathon visual effects.",
+				  "Includes drifting fog, lens flares, and ripples." }
+			};
+			const int index = A1_PIN(preset, 0, 4);
+			graphics_preset_description_w->set_description(
+				descriptions[index][0], descriptions[index][1]);
+		};
+
+	graphics_preset_w->set_selection_changed_callback(
+		[&, graphics_preset_w, ogl_bloom_w, ogl_bump_w,
+		 ogl_refractive_invisibility_w, ogl_sprite_shadows_w,
+		 ogl_ambient_occlusion_w, ogl_ambient_occlusion_strength_w,
+		 ogl_landscape_light_shafts_w,
+		 ogl_landscape_light_shaft_strength_w,
+		 ogl_landscape_light_shaft_length_w,
+		 ogl_landscape_light_shaft_direction_w,
+		 ogl_landscape_light_shaft_elevation_w,
+		 ogl_anamorphic_lens_flares_w,
+		 ogl_anamorphic_lens_flare_strength_w, ogl_effects_w,
+		 ogl_aniso_w, sprite_upscaling_w, wall_upscaling_w,
+		 liquid_transparency_w, underwater_distortion_w,
+		 liquid_opacity_w, liquid_ripples_w,
+		 liquid_strength_w, liquid_wetness_w,
+		 fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
+		 fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w,
+		 fog_haze_w, fog_drift_intensity_w](w_select*) {
+			const int preset = graphics_preset_w->get_selection();
+			set_graphics_preset_description(preset);
+			if (preset == 0)
+				return;
+
+			applying_graphics_preset = true;
+			const bool medium_or_better = preset >= 2;
+			const bool high_or_better = preset >= 3;
+			const bool total = preset == 4;
+			ogl_bloom_w->set_selection(medium_or_better);
+			ogl_bump_w->set_selection(medium_or_better);
+			ogl_refractive_invisibility_w->set_selection(medium_or_better);
+			ogl_sprite_shadows_w->set_selection(medium_or_better);
+			ogl_ambient_occlusion_w->set_selection(medium_or_better);
+			ogl_ambient_occlusion_strength_w->set_selection(high_or_better ? 35 : 20);
+			ogl_landscape_light_shafts_w->set_selection(high_or_better);
+			ogl_landscape_light_shaft_strength_w->set_selection(50);
+			ogl_landscape_light_shaft_length_w->set_selection(20);
+			ogl_landscape_light_shaft_direction_w->set_selection(0);
+			ogl_landscape_light_shaft_elevation_w->set_selection(50);
+			ogl_anamorphic_lens_flares_w->set_selection(high_or_better);
+			ogl_anamorphic_lens_flare_strength_w->set_selection(40);
+			ogl_effects_w->set_selection(total ? 4 : preset);
+			// Labels are Off, 1x, 2x, 4x, 8x, 16x.
+			ogl_aniso_w->set_selection(total ? 5 : preset + 1);
+
+			// Each preset sets these controls explicitly, so switching down from
+			// Total also clears its fog, upscaling, and water effects.
+			sprite_upscaling_w->set_selection(high_or_better ? 2 : 0);
+			wall_upscaling_w->set_selection(total ? 2 : 0);
+			liquid_ripples_w->set_selection(medium_or_better);
+			liquid_strength_w->set_selection(high_or_better ? 2 : 1);
+			liquid_wetness_w->set_selection(total ? 8 : 0);
+			liquid_transparency_w->set_selection(total);
+			underwater_distortion_w->set_selection(total);
+			liquid_opacity_w->set_selection(total ? 12 : 15);
+			if (total)
+			{
+				const int liquid_speeds[] = {6, 22, 6, 2, 3};
+				for (int i = 0; i < 5; ++i)
+					liquid_speed_w[i]->set_selection(liquid_speeds[i]);
+			}
+
+			fog_enabled_w->set_selection(medium_or_better);
+			fog_force_w->set_selection(total);
+			fog_media_w->set_selection(false);
+			fog_weather_w->set_selection(0); // Neutral Mist
+			fog_animated_w->set_selection(high_or_better);
+			fog_depth_w->set_selection(high_or_better);
+			fog_black_w->set_selection(false);
+			fog_darken_w->set_selection(high_or_better);
+			fog_haze_w->set_selection(total);
+			fog_drift_intensity_w->set_selection(total ? 50 : high_or_better ? 25 : 0);
+			applying_graphics_preset = false;
+		});
+
+	auto select_custom_preset = [&]() {
+		if (!applying_graphics_preset && graphics_preset_w->get_selection() != 0)
+		{
+			graphics_preset_w->set_selection(0, true);
+			d.draw();
+		}
+	};
+	auto custom_select_changed = [&](w_select*) { select_custom_preset(); };
+	auto custom_slider_changed = [&](w_slider*) { select_custom_preset(); };
+
+	// Any manual edit outside the Presets page makes the active setup Custom.
+	w_select *graphics_select_widgets[] = {
+		graphics_windowed_w, graphics_gamma_w, graphics_fps_w,
+		graphics_skip_intro_w, graphics_limit_vertical_w,
+		graphics_bobbing_w, ogl_fader_w, ogl_models_w, ogl_perspective_w,
+		ogl_billboard_w, ogl_bloom_w, ogl_bump_w,
+		ogl_refractive_invisibility_w, ogl_sprite_shadows_w,
+		ogl_ambient_occlusion_w, ogl_landscape_light_shafts_w,
+		ogl_anamorphic_lens_flares_w, ogl_vsync_w, ogl_npot_w,
+		ogl_effects_w, ogl_aniso_w, sprite_upscaling_w, wall_upscaling_w,
+		model_quality_w, liquid_transparency_w, underwater_distortion_w,
+		liquid_ripples_w,
+		fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
+		fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w, fog_haze_w
+	};
+	for (w_select *widget : graphics_select_widgets)
+		widget->set_selection_changed_callback(custom_select_changed);
+	for (int i = 0; i < OGL_NUMBER_OF_TEXTURE_TYPES; ++i)
+	{
+		texture_quality_w[i]->set_selection_changed_callback(custom_select_changed);
+		texture_near_w[i]->set_selection_changed_callback(custom_select_changed);
+		if (texture_far_w[i])
+			texture_far_w[i]->set_selection_changed_callback(custom_select_changed);
+	}
+	w_slider *graphics_slider_widgets[] = {
+		graphics_fov_w, ogl_ambient_occlusion_strength_w,
+		ogl_landscape_light_shaft_strength_w,
+		ogl_landscape_light_shaft_length_w,
+		ogl_landscape_light_shaft_direction_w,
+		ogl_landscape_light_shaft_elevation_w,
+		ogl_anamorphic_lens_flare_strength_w,
+		liquid_opacity_w, liquid_strength_w, liquid_wetness_w,
+		fog_drift_intensity_w
+	};
+	for (w_slider *widget : graphics_slider_widgets)
+		widget->set_slider_changed_callback(custom_slider_changed);
+	for (int i = 0; i < 5; ++i)
+		liquid_speed_w[i]->set_slider_changed_callback(custom_slider_changed);
+
+	// Preserve the FOV enable/disable behavior while also marking manual edits.
+	graphics_override_fov_w->set_selection_changed_callback(
+		[&, graphics_override_fov_w, graphics_fov_w](w_select*) {
+			graphics_fov_w->set_enabled(graphics_override_fov_w->get_selection());
+			select_custom_preset();
+		});
+	// These pages received controls after they were registered with their tabs.
+	// Hide the completed pages so late-added widgets cannot draw over another
+	// preferences category before Graphics is selected.
+	graphics_presets_page->visible(false);
 	pages->choose_tab(category_pages[0]);
 
 	horizontal_placer *body = new horizontal_placer(
