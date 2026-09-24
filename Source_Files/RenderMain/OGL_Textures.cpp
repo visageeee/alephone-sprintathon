@@ -335,7 +335,7 @@ void TextureState::Reset()
 		gGLTxStats.inUse--;
 		glDeleteTextures(NUMBER_OF_TEXTURES,IDs);
 	}
-	IsUsed = IsGlowing = IsBumped = TexGened[Normal] = TexGened[Glowing] = TexGened[Bump] = false;
+	IsUsed = IsGlowing = IsBumped = IsUpscaled = TexGened[Normal] = TexGened[Glowing] = TexGened[Bump] = false;
 	IDUsage[Normal] = IDUsage[Glowing] = IDUsage[Bump] = unusedFrames = 0;
 }
 
@@ -355,6 +355,9 @@ void TextureState::FrameTick() {
 	} else {
 		unusedFrames++;
 		assert(TextureType != NONE);
+		// 2xSaI conversion is deliberately done during level loading. Do not
+		// discard that work a few seconds later and recreate the first-use hitch.
+		if (IsUpscaled) return;
 		switch (TextureType) {
 		case OGL_Txtr_Wall:
 				if (unusedFrames > 300) Reset(); // at least 10 seconds till wall textures are released
@@ -1367,6 +1370,7 @@ void TextureManager::PlaceTexture(const ImageDescriptor *Image, bool normal_map)
 		upscaled_image.reset(upscale_texture_2xsai(*Image, is_wall_texture));
 		Image = upscaled_image.get();
 		texture_upscaled = true;
+		TxtrStatePtr->IsUpscaled = true;
 	}
 
 	TxtrTypeInfoData& TxtrTypeInfo = TxtrTypeInfoList[TextureType];

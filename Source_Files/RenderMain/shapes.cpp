@@ -2285,6 +2285,12 @@ static struct collection_header *get_collection_header(
 	return get_collection_header(collection_index)->collection;
 }
 
+short get_collection_type(short collection_index)
+{
+	collection_definition *definition = get_collection_definition(collection_index);
+	return definition ? definition->type : _unused_collection;
+}
+
 static struct rgb_color_value *get_collection_colors(
 	short collection_index,
 	short clut_number)

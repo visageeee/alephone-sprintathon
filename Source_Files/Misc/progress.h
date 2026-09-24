@@ -52,6 +52,7 @@ void open_progress_dialog(size_t message_id, bool show_progress_bar = false);
 void close_progress_dialog(void);
 
 void set_progress_dialog_message(size_t message_id);
+void set_progress_dialog_message(const char *message);
 
 void draw_progress_bar(size_t sent, size_t total);
 
@@ -59,4 +60,3 @@ void reset_progress_bar(void);
 void progress_dialog_event(void);
 
 #endif
-

@@ -179,8 +179,14 @@ void w_static_text::draw(SDL_Surface *s) const
 {
 	uint32 pixel;
 	pixel = get_theme_color(theme_type, DEFAULT_STATE, 0);
+	int x = rect.x;
+	const int width = text_width(text, font, style);
+	if (text_alignment == kAlignCenter)
+		x += (rect.w - width) / 2;
+	else if (text_alignment == kAlignRight)
+		x += rect.w - width;
 
-	draw_text(s, text, rect.x, rect.y + font->get_ascent(), pixel, font, style);
+	draw_text(s, text, x, rect.y + font->get_ascent(), pixel, font, style);
 }
 
 void w_label::click(int x, int y)

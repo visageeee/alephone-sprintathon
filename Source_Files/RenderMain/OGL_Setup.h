@@ -282,6 +282,7 @@ struct OGL_ConfigureData
 	int16 AnimatedGooRippleSpeed;
 	int16 AnimatedSewageRippleSpeed;
 	int16 AnimatedJjaroRippleSpeed;
+	bool UnderwaterDistortion;
 	bool ForceFogMediaRelative; // height-limit forced fallback fog to level media
 	bool ForceFogAnimatedDensity;
 	bool ForceFogDepthDensity;
@@ -304,6 +305,7 @@ void OGL_SetDefaults(OGL_ConfigureData& Data);
 // for managing the model and image loading and unloading;
 int OGL_CountModelsImages(short Collection);
 void OGL_LoadModelsImages(short Collection);
+void OGL_SetProgressMessage(const char *message);
 void OGL_UnloadModelsImages(short Collection);
 
 // Reset the textures (walls, sprites, and model skins) (good if they start to crap out)

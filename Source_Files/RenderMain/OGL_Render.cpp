@@ -162,6 +162,7 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 #include "Logging.h"
 #include "screen.h"
 #include "OGL_Shader.h"
+#include "collection_definition.h"
 
 #include <cmath>
 
@@ -176,6 +177,9 @@ static bool _OGL_IsActive = false;
 typedef std::pair<shape_descriptor,int16> TextureWithTransferMode;
 static void PreloadTextures();
 static void PreloadWallTexture(const TextureWithTransferMode& inTexture);
+static int CountSpriteTexturesToPreload();
+static void PreloadSpriteTextures();
+static void PreloadSpriteTexture(short collection, short clut, short frame, short texture_type);
 
 
 // Was OpenGL just inited? If so, then some state may need changing
@@ -583,7 +587,7 @@ bool OGL_StartRun()
 	}
 
 	_OGL_IsActive = true;
-	OGL_StartProgress(count_replacement_collections() + 2);
+	OGL_StartProgress(count_replacement_collections() + CountSpriteTexturesToPreload() + 2);
 
 	// Set up some OpenGL stuff: these will be the defaults for this rendering context
 	
@@ -618,9 +622,11 @@ bool OGL_StartRun()
 	OGL_Rasterizer_Init();
 	
 	OGL_ResetForceSpriteDepth();
+	OGL_SetProgressMessage("replacement textures and models");
 	load_replacement_collections();	
 
 	// Initialize the texture accounting
+	OGL_SetProgressMessage("preparing texture cache");
 	OGL_StartTextures();
 
 	// Reset the font info for OpenGL rendering
@@ -631,11 +637,14 @@ bool OGL_StartRun()
 
 	// Setup for 3D-model rendering
 	ModelRenderObject.Clear();
+	OGL_SetProgressMessage("compiling shaders");
 	SetupShaders();
 	OGL_ProgressCallback(1);
 
 	// Avoid lazy initial texture loading
+	OGL_SetProgressMessage("preparing level textures");
 	PreloadTextures();
+	OGL_SetProgressMessage("finishing level");
 	OGL_ProgressCallback(1);
 	OGL_StopProgress();
 
@@ -701,11 +710,94 @@ void PreloadTextures()
 		}
 	}
 
-	// May want to preload the liquid texture also
-	// Sprites will have the problem of guessing which ones to preload
-
 	// ZZZ: now we have a fairly (we hope) minimal set of texture stuffs, let's load them in.
 	for_each(theSetOfTexturesUsed.begin(), theSetOfTexturesUsed.end(), PreloadWallTexture);
+
+	// Native sprites were historically left to load lazily. With CPU-side
+	// upscaling enabled, that creates a visible hitch the first time each frame
+	// or palette is encountered. Warm every frame in the loaded sprite
+	// collections while the level loading screen is still active.
+	OGL_SetProgressMessage("upscaling sprites");
+	PreloadSpriteTextures();
+}
+
+static bool IsSpriteCollection(short collection)
+{
+	const short type = get_collection_type(collection);
+	return type == _object_collection || type == _scenery_collection;
+}
+
+static int CountSpriteTexturesToPreload()
+{
+	if (Get_OGL_ConfigureData().SpriteUpscaling == 0)
+		return 0;
+
+	int count = 0;
+	for (short collection = 0; collection < MAXIMUM_COLLECTIONS; ++collection)
+	{
+		if (!is_collection_present(collection) || !IsSpriteCollection(collection))
+			continue;
+
+		int num_colors = 0;
+		short clut_count = 0;
+		while (clut_count < MAXIMUM_CLUTS_PER_COLLECTION &&
+			get_collection_colors(collection, clut_count, num_colors))
+			++clut_count;
+
+		count += get_number_of_collection_frames(collection) * clut_count;
+	}
+	return count;
+}
+
+static void PreloadSpriteTextures()
+{
+	if (Get_OGL_ConfigureData().SpriteUpscaling == 0)
+		return;
+
+	for (short collection = 0; collection < MAXIMUM_COLLECTIONS; ++collection)
+	{
+		if (!is_collection_present(collection) || !IsSpriteCollection(collection))
+			continue;
+
+		const short texture_type = collection == _collection_weapons_in_hand ?
+			OGL_Txtr_WeaponsInHand : OGL_Txtr_Inhabitant;
+		const short frame_count = get_number_of_collection_frames(collection);
+		int num_colors = 0;
+
+		for (short clut = 0; clut < MAXIMUM_CLUTS_PER_COLLECTION &&
+			get_collection_colors(collection, clut, num_colors); ++clut)
+		{
+			for (short frame = 0; frame < frame_count; ++frame)
+			{
+				PreloadSpriteTexture(collection, clut, frame, texture_type);
+				OGL_ProgressCallback(1);
+			}
+		}
+	}
+}
+
+static void PreloadSpriteTexture(short collection, short clut, short frame, short texture_type)
+{
+	TextureManager TMgr;
+	TMgr.ShapeDesc = BUILD_DESCRIPTOR(BUILD_COLLECTION(collection, clut), frame);
+	TMgr.LowLevelShape = frame;
+	extended_get_shape_bitmap_and_shading_table(
+		BUILD_COLLECTION(collection, clut), frame,
+		&TMgr.Texture, &TMgr.ShadingTables, _shading_normal);
+	if (!TMgr.Texture || !TMgr.ShadingTables)
+		return;
+
+	TMgr.TransferMode = _textured_transfer;
+	TMgr.TransferData = 0;
+	TMgr.IsShadeless = false;
+	TMgr.TextureType = texture_type;
+
+	if (TMgr.Setup())
+	{
+		TMgr.RenderNormal();
+		if (TMgr.IsGlowMapped())
+			TMgr.RenderGlowing();
+	}
 }
 
 void PreloadWallTexture(const TextureWithTransferMode& inTexture)

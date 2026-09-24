@@ -1200,6 +1200,8 @@ void handle_preferences(bool in_game)
 	liquids_page->center_vertically(); liquids_page->min_width(scale_dialog_value(430));
 	table_placer *liquids = make_preferences_table();
 	w_toggle *liquid_transparency_w = new w_toggle(ogl_flag(OGL_Flag_LiqSeeThru));
+	w_toggle *underwater_distortion_w = new w_toggle(
+		graphics_preferences->OGL_Configure.UnderwaterDistortion);
 	w_embedded_liquid_opacity_slider *liquid_opacity_w =
 		new w_embedded_liquid_opacity_slider(
 			graphics_preferences->OGL_Configure.AnimatedMediaOpacity);
@@ -1216,6 +1218,7 @@ void handle_preferences(bool in_game)
 		&graphics_preferences->OGL_Configure.AnimatedJjaroRippleSpeed};
 	const char *liquid_speed_names[5] = {"Water Ripple Speed", "Lava Ripple Speed", "Goo Ripple Speed", "Sewage Ripple Speed", "Jjaro Ripple Speed"};
 	liquids->dual_add(liquid_transparency_w->label("Transparent Liquids"), d); liquids->dual_add(liquid_transparency_w, d);
+	liquids->dual_add(underwater_distortion_w->label("Underwater Distortion"), d); liquids->dual_add(underwater_distortion_w, d);
 	liquids->dual_add(liquid_opacity_w->label("Liquid Opacity"), d); liquids->dual_add(liquid_opacity_w, d);
 	liquids->dual_add(liquid_ripples_w->label("Animated Media Ripples"), d); liquids->dual_add(liquid_ripples_w, d);
 	liquids->dual_add(liquid_strength_w->label("Ripple Strength"), d); liquids->dual_add(liquid_strength_w, d);
@@ -1409,6 +1412,8 @@ void handle_preferences(bool in_game)
 		sprite_upscaling_w->get_selection();
 	graphics_preferences->OGL_Configure.WallTextureUpscaling =
 		wall_upscaling_w->get_selection();
+	graphics_preferences->OGL_Configure.UnderwaterDistortion =
+		underwater_distortion_w->get_selection();
 	graphics_preferences->OGL_Configure.AnimatedMediaRipples = liquid_ripples_w->get_selection();
 	graphics_preferences->OGL_Configure.AnimatedMediaOpacity =
 		25 + liquid_opacity_w->get_selection() * 5;
@@ -5654,6 +5659,8 @@ InfoTree graphics_preferences_tree()
 		graphics_preferences->OGL_Configure.AnamorphicLensFlareStrength);
 	root.put_attr("animated_media_ripples",
 		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
+	root.put_attr("underwater_distortion",
+		graphics_preferences->OGL_Configure.UnderwaterDistortion);
 	root.put_attr("animated_media_opacity",
 		graphics_preferences->OGL_Configure.AnimatedMediaOpacity);
 	root.put_attr("animated_media_ripple_strength",
@@ -6782,6 +6789,8 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 		graphics_preferences->OGL_Configure.AnamorphicLensFlareStrength, 0, 100);
 	root.read_attr("animated_media_ripples",
 		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
+	root.read_attr("underwater_distortion",
+		graphics_preferences->OGL_Configure.UnderwaterDistortion);
 	root.read_attr_bounded<int16>("animated_media_opacity",
 		graphics_preferences->OGL_Configure.AnimatedMediaOpacity, 25, 100);
 	root.read_attr_bounded<int16>("animated_media_ripple_strength",

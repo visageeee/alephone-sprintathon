@@ -183,6 +183,7 @@ public:
 
         // ZZZ addition: change text after creation
         void set_text(const char* t);
+	void set_alignment(alignment value) { text_alignment = value; dirty = true; }
         
 	bool is_selectable(void) const {return false;}
 
@@ -191,6 +192,7 @@ public:
 protected:
 	char *text;
 	int theme_type;
+	alignment text_alignment = kAlignLeft;
 };
 
 class w_label : public w_static_text {

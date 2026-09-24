@@ -950,7 +950,8 @@ void RenderRasterize_Shader::render_tree() {
 
 	// Refract the completed 3D view while submerged. This runs before the HUD
 	// is composited, so interface text and meters remain crisp.
-	if (view->under_media_boundary && view->origin_polygon_index != NONE)
+	if (Get_OGL_ConfigureData().UnderwaterDistortion &&
+		view->under_media_boundary && view->origin_polygon_index != NONE)
 	{
 		polygon_data *polygon = get_polygon_data(view->origin_polygon_index);
 		if (polygon && polygon->media_index != NONE)

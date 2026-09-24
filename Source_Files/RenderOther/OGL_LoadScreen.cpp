@@ -50,8 +50,8 @@ bool OGL_LoadScreen::Start()
 
 	if (!blitter.Load(image)) return use = false;
 
-	int screenWidth = 640;
-	int screenHeight = 480;
+	int screenWidth = alephone::Screen::instance()->window_width();
+	int screenHeight = alephone::Screen::instance()->window_height();
 	alephone::Screen::instance()->bound_screen(true);
 	
 	// the true width/height
@@ -139,6 +139,17 @@ void OGL_LoadScreen::Progress(const int progress)
 		
 		glPopMatrix();
 	}
+
+	if (!status.empty())
+	{
+		const int screen_width = alephone::Screen::instance()->window_width();
+		const int screen_height = alephone::Screen::instance()->window_height();
+		int text_width = 0;
+		OGL_TextWidth(status.c_str(), static_cast<int>(status.size()), text_width);
+		OGL_RenderText(static_cast<short>((screen_width - text_width) / 2),
+			static_cast<short>(screen_height - 26),
+			status.c_str(), 0xff, 0xff, 0xff);
+	}
 	
 	OGL_SwapBuffers();
 	
@@ -175,6 +186,7 @@ void OGL_LoadScreen::Clear()
 	use = false;
 	useProgress = false;
 	path.clear();
+	status.clear();
 	image.Clear();
 	blitter.Unload();
 }

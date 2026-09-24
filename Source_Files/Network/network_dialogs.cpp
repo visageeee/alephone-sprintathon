@@ -2984,11 +2984,14 @@ void open_progress_dialog(size_t message_id, bool show_progress_bar)
     assert(sProgressDialog == NULL);
     
     sProgressDialog 	= new dialog;
-    sProgressMessage	= new w_static_text(TS_GetCString(strPROGRESS_MESSAGES, message_id));
+	sProgressMessage = new w_static_text(TS_GetCString(strPROGRESS_MESSAGES, message_id));
+	sProgressMessage->set_alignment(widget::kAlignCenter);
     if (show_progress_bar) 
-	    sProgressBar	= new w_progress_bar(200);
+	    sProgressBar = new w_progress_bar(360);
     
-    vertical_placer *placer = new vertical_placer;
+	vertical_placer *placer = new vertical_placer(8);
+	placer->min_width(360);
+	placer->add_flags(placeable::kFill);
     placer->dual_add(sProgressMessage, *sProgressDialog);
     if (show_progress_bar) 
 	    placer->dual_add(sProgressBar, *sProgressDialog);
@@ -3012,6 +3015,13 @@ void set_progress_dialog_message(size_t message_id)
 //    bool done = sProgressDialog->process_events();
 
 //    assert(!done);
+}
+
+void set_progress_dialog_message(const char *message)
+{
+	assert(sProgressMessage != NULL);
+	sProgressMessage->set_text(message ? message : "");
+	sProgressDialog->draw();
 }
 
 void close_progress_dialog(void)
@@ -3162,4 +3172,3 @@ network_gather(bool) {
 #endif
 
 #endif // !defined(DISABLE_NETWORKING)
-

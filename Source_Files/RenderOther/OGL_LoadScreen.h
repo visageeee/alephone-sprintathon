@@ -37,6 +37,7 @@ public:
 	bool Start();
 	void Stop();
 	void Progress(const int percent);
+	void SetStatus(const std::string& text) { status = text; }
 
 	void Set(std::string Path, bool Stretch, bool Scale);
 	void Set(std::string Path, bool Stretch, bool Scale, short X, short Y, short W, short H);
@@ -67,6 +68,7 @@ OGL_LoadScreen() : x(0), y(0), w(0), h(0), use(false), useProgress(false), perce
 	rgb_color colors[2];
 
 	short percent;
+	std::string status;
 
 
 	GLuint texture_ref;

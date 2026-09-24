@@ -335,6 +335,8 @@ uint8* get_shapes_patch_data(size_t &length);
 // LP additions:
 // Whether or not collection is present
 bool is_collection_present(short collection_index);
+// Collection type (_wall_collection, _object_collection, and so on).
+short get_collection_type(short collection_index);
 // Number of texture frames in a collection (good for wall-texture error checking)
 short get_number_of_collection_frames(short collection_index);
 // Number of bitmaps in a collection (good for allocating texture information for OpenGL)

@@ -141,6 +141,20 @@ static int ogl_progress;
 static int total_ogl_progress;
 static bool show_ogl_progress = false;
 static uint64_t last_update_tick;
+static uint64_t progress_stage_started_tick;
+
+static void wait_for_progress_stage()
+{
+	if (!progress_stage_started_tick)
+		return;
+
+	const uint64_t minimum_stage_ticks =
+		MACHINE_TICKS_PER_SECOND / 8 > 0 ? MACHINE_TICKS_PER_SECOND / 8 : 1;
+	const uint64_t now = machine_tick_count();
+	const uint64_t elapsed = now - progress_stage_started_tick;
+	if (elapsed < minimum_stage_ticks)
+		sleep_for_machine_ticks(static_cast<uint32>(minimum_stage_ticks - elapsed));
+}
 
 extern bool OGL_ClearScreen();
 
@@ -156,6 +170,7 @@ void OGL_StartProgress(int total_progress)
 	}
 	show_ogl_progress = true;
 	last_update_tick = machine_tick_count();
+	progress_stage_started_tick = 0;
 }
 
 void OGL_ProgressCallback(int delta_progress)
@@ -175,8 +190,31 @@ void OGL_ProgressCallback(int delta_progress)
 	}
 }
 
+void OGL_SetProgressMessage(const char *message)
+{
+	if (!show_ogl_progress)
+		return;
+	wait_for_progress_stage();
+	const std::string status = std::string("Loading: ") + (message ? message : "");
+
+	if (OGL_LoadScreen::instance()->Use())
+	{
+		OGL_LoadScreen::instance()->SetStatus(status);
+		const int percent = total_ogl_progress > 0 ?
+			100 * ogl_progress / total_ogl_progress : 0;
+		OGL_LoadScreen::instance()->Progress(percent);
+	}
+	else
+	{
+		set_progress_dialog_message(status.c_str());
+	}
+	progress_stage_started_tick = machine_tick_count();
+}
+
 void OGL_StopProgress()
 {
+	wait_for_progress_stage();
+	progress_stage_started_tick = 0;
 	show_ogl_progress = false;
 	if (OGL_LoadScreen::instance()->Use())
 		OGL_LoadScreen::instance()->Stop();
@@ -275,6 +313,7 @@ void OGL_SetDefaults(OGL_ConfigureData& Data)
 	Data.AnimatedGooRippleSpeed = 7; // 1.75x
 	Data.AnimatedSewageRippleSpeed = 3; // 0.75x
 	Data.AnimatedJjaroRippleSpeed = 4; // 1.0x
+	Data.UnderwaterDistortion = true;
 	Data.ForceFogMediaRelative = false;
 	Data.ForceFogAnimatedDensity = true;
 	Data.ForceFogDepthDensity = true;
