@@ -461,8 +461,9 @@ void render_view(
 			OGL_IsActive() &&
 			!view->mimic_sw_perspective &&
 			input_preferences->sprintathon_enabled &&
-			input_preferences->sprintathon_mouselook_mode > 0 &&
-			sprintathon_near_vertical_view;
+			((input_preferences->sprintathon_mouselook_mode > 0 &&
+			  sprintathon_near_vertical_view) ||
+			 (current_player && current_player->slide_roll_ticks_remaining > 0));
 #endif
 		RenderVisTree.build_render_tree();
 		

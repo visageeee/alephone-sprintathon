@@ -2335,7 +2335,7 @@ bool sprintathon_slide_attack(
 	angle facing,
 	const world_point3d *origin,
 	short origin_polygon_index,
-	_fixed damage_scale)
+	_fixed damage_scale, bool slide_hit)
 {
 	const int32 forward_x = cosine_table[facing];
 	const int32 forward_y = sine_table[facing];
@@ -2445,7 +2445,7 @@ bool sprintathon_slide_attack(
 
 			accelerate_monster(
 				target_index,
-				85,
+				slide_hit ? 115 : 85,
 				push_direction,
 				30);
 		}

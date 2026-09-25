@@ -856,9 +856,16 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 			!TEST_FLAG(player->variables.flags, _FEET_BELOW_MEDIA_BIT))
 		{
 			player->slide_ticks_remaining =
-				(TICKS_PER_SECOND * 3) / 4;
+				(TICKS_PER_SECOND * 3) / 2;
 			player->slide_recovery_ticks = 0;
 			player->slide_punch_pending = false;
+			player->slide_roll_tap_window = 0;
+			player->slide_roll_ticks_remaining = 0;
+			player->slide_roll_fraction = 0;
+			player->slide_time_fraction = 0;
+			player->slide_roll_forward_was_down = true;
+			player->slide_roll_used = false;
+			player->slide_roll_queued = false;
 			sprintathon_begin_sweep_attack(player->monster_index);
 
 			if (player_index == current_player_index)

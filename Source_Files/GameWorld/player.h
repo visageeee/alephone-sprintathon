@@ -455,6 +455,13 @@ struct player_data
 	bool reload_key_was_down;			// edge detection for manual reload
 	bool slide_punch_pending;			// emit one melee projectile on slide start
 	uint8 slide_ticks_remaining;			// short forced-movement slide
+	uint8 slide_roll_tap_window;		// second forward press deadline
+	uint8 slide_roll_ticks_remaining;	// camera somersault timer
+	uint8 slide_roll_fraction;		// hundredths of one roll tick
+	uint8 slide_time_fraction;		// hundredths of one slide tick
+	bool slide_roll_forward_was_down;	// require release between taps
+	bool slide_roll_queued;			// one follow-up roll, started at the end of this one
+	bool slide_roll_used;			// at most one roll per slide
 	uint8 slide_recovery_ticks;			// post-slide weapon recovery
 	bool flying_kick_active;			// airborne crouch attack remains active until landing
 	bool flying_kick_requested;		// fresh crouch press, consumed by authoritative physics

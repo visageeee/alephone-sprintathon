@@ -1323,6 +1323,23 @@ void update_world_view_camera()
 		{
 			world_view->virtual_yaw += virtual_aim_delta().yaw;
 			world_view->virtual_pitch += virtual_aim_delta().pitch;
+			// Rotate the visual camera forward without moving the aim direction.
+			if (current_player->slide_roll_ticks_remaining > 0)
+			{
+				constexpr float roll_duration = 30.0f;
+				const float progress = A1_PIN(
+					(roll_duration - current_player->slide_roll_ticks_remaining +
+					 current_player->slide_roll_fraction / 100.0f) / roll_duration,
+					0.0f, 1.0f);
+				// Ease into and out of the somersault. A small final nod dips
+				// downward and rises smoothly back to the original viewpoint.
+				const float eased = progress * progress * (3.0f - 2.0f * progress);
+				const float tail = A1_PIN((progress - 0.78f) / 0.22f, 0.0f, 1.0f);
+				const float dip = (FULL_CIRCLE * 7.0f / 360.0f) *
+					sinf(tail * 3.14159265f);
+				world_view->virtual_pitch -= static_cast<_fixed>(
+					(eased * FULL_CIRCLE + dip) * FIXED_ONE);
+			}
 		}
 	}
 }

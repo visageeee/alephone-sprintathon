@@ -212,6 +212,13 @@ void initialize_player_physics_variables(
 	player->reload_key_was_down= false;
 	player->slide_punch_pending= false;
 	player->slide_ticks_remaining= 0;
+	player->slide_roll_tap_window= 0;
+	player->slide_roll_ticks_remaining= 0;
+	player->slide_roll_fraction= 0;
+	player->slide_time_fraction= 0;
+	player->slide_roll_forward_was_down= false;
+	player->slide_roll_used= false;
+	player->slide_roll_queued= false;
 	player->slide_recovery_ticks= 0;
 	player->flying_kick_active= false;
 	player->flying_kick_requested= false;
@@ -1183,6 +1190,67 @@ static void physics_update(
 	}
 
 	/* Double-tap left, right or backward; dedicated commands stay lateral. */
+	// A slide roll needs two fresh forward presses after the slide starts.
+	// The held sprint-forward key is latched at slide start, so it cannot
+	// count as the first tap. Keep the roll within the remaining slide time.
+	constexpr uint8 slide_roll_duration = 30;
+	if (player->slide_roll_ticks_remaining > 0)
+	{
+		player->slide_roll_fraction += bullet_time ? SPRINTATHON_BULLET_TIME_PERCENT : 100;
+		if (player->slide_roll_fraction >= 100)
+		{
+			player->slide_roll_fraction -= 100;
+			--player->slide_roll_ticks_remaining;
+		}
+	}
+	// A queued follow-up starts exactly when the current somersault ends.
+	// Give the slide enough time to cover the entire second roll.
+	if (player->slide_roll_ticks_remaining == 0 && player->slide_roll_queued &&
+		modern_slide && player->slide_ticks_remaining > 0)
+	{
+		player->slide_roll_ticks_remaining = slide_roll_duration;
+		player->slide_roll_fraction = 0;
+		player->slide_roll_queued = false;
+		player->slide_ticks_remaining = std::max<uint8>(
+			player->slide_ticks_remaining, slide_roll_duration + 1);
+	}
+	if (player->slide_roll_tap_window > 0)
+		--player->slide_roll_tap_window;
+	const bool roll_forward_down =
+		(action_flags & _moving_forward) != 0 &&
+		(action_flags & _absolute_position_mode) == 0;
+	if (!modern_slide || player->slide_ticks_remaining == 0)
+	{
+		player->slide_roll_tap_window = 0;
+		player->slide_roll_queued = false;
+		player->slide_roll_forward_was_down = roll_forward_down;
+	}
+	else
+	{
+		if (roll_forward_down && !player->slide_roll_forward_was_down &&
+			!player->slide_roll_queued &&
+			(player->slide_roll_ticks_remaining > 0 ||
+			 (!player->slide_roll_used &&
+			  player->slide_ticks_remaining > slide_roll_duration + 1)))
+		{
+			if (player->slide_roll_tap_window > 0)
+			{
+				player->slide_roll_tap_window = 0;
+				if (player->slide_roll_ticks_remaining > 0)
+					player->slide_roll_queued = true;
+				else
+				{
+					player->slide_roll_ticks_remaining = slide_roll_duration;
+					player->slide_roll_fraction = 0;
+					player->slide_roll_used = true;
+				}
+			}
+			else
+				player->slide_roll_tap_window = 8;
+		}
+		player->slide_roll_forward_was_down = roll_forward_down;
+	}
+
 	if (player->dodge_tap_window>0)
 		--player->dodge_tap_window;
 	const int8 direct_dodge_direction=
@@ -1537,7 +1605,7 @@ static void physics_update(
 	{
 		if (player->slide_ticks_remaining>0)
 		{
-			const int slide_duration= (TICKS_PER_SECOND*3)/4;
+			const int slide_duration= (TICKS_PER_SECOND*3)/2;
 			const _fixed slide_speed=
 				(constants->maximum_forward_velocity*player->slide_ticks_remaining*2)/
 				std::max<int>(1, slide_duration);
@@ -1553,7 +1621,7 @@ static void physics_update(
 				player->facing,
 				&player->camera_location,
 				player->camera_polygon_index,
-				(FIXED_ONE*7)/16);
+				(FIXED_ONE*7)/16, true);
 		}
 		else
 		{
@@ -1687,7 +1755,12 @@ static void physics_update(
 
 		if (player->slide_ticks_remaining>0)
 		{
-			player->slide_ticks_remaining--;
+			player->slide_time_fraction += bullet_time ? SPRINTATHON_BULLET_TIME_PERCENT : 100;
+			if (player->slide_time_fraction >= 100)
+			{
+				player->slide_time_fraction -= 100;
+				player->slide_ticks_remaining--;
+			}
 			if (player->slide_ticks_remaining==0)
 			{
 				variables->velocity= 0;

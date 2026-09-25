@@ -322,7 +322,7 @@ bool sprintathon_slide_attack(
 	angle facing,
 	const world_point3d *origin,
 	short origin_polygon_index,
-	_fixed damage_scale);
+	_fixed damage_scale, bool slide_hit = false);
 void sprintathon_play_kick_hit_sound(short aggressor_index);
 void sprintathon_play_wall_kick_sound(short aggressor_index);
 void sprintathon_play_footstep_sound(short aggressor_index, bool alternate);

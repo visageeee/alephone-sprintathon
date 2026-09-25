@@ -2297,12 +2297,12 @@ static void render_slide_legs(view_data *view, RenderStep renderStep)
 	}
 
 	OGL_Blitter& visible_legs =
-		back_dodge ? front_legs : slide_legs;
+		(back_dodge || (current_player->slide_roll_used && current_player->slide_ticks_remaining > 0)) ? front_legs : slide_legs;
 
 	if (!visible_legs.Loaded())
 		return;
 
-	constexpr int slide_duration = (TICKS_PER_SECOND * 3) / 4;
+	constexpr int slide_duration = (TICKS_PER_SECOND * 3) / 2;
 	constexpr int back_dodge_duration = 12;
 	constexpr int back_dodge_recovery_duration = 26;
 	const bool flying_kick = current_player->flying_kick_active;
