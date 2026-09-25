@@ -195,6 +195,7 @@ struct embedded_controls_state
 	bool always_run;
 	w_slider *mouse_h_sensitivity;
 	w_slider *mouse_v_sensitivity;
+	w_toggle *invert_vertical_aim;
 	w_select *mouselook_range;
 };
 
@@ -1100,6 +1101,7 @@ void handle_preferences(bool in_game)
 		input_preferences->shell_key_bindings,
 		input_preferences->hotkey_bindings,
 		(input_preferences->modifiers & _inputmod_interchange_run_walk) != 0,
+		nullptr,
 		nullptr,
 		nullptr,
 		nullptr
@@ -4613,6 +4615,12 @@ static placeable *build_embedded_controls(
 		state.mouse_v_sensitivity->label("Vertical Sensitivity"), d);
 	mouselook_table->dual_add(state.mouse_v_sensitivity, d);
 
+	state.invert_vertical_aim = new w_toggle(
+		(input_preferences->modifiers & _inputmod_invert_mouse) != 0);
+	mouselook_table->dual_add(
+		state.invert_vertical_aim->label("Invert Vertical Axis"), d);
+	mouselook_table->dual_add(state.invert_vertical_aim, d);
+
 	static const char *mouselook_range_labels[] = {
 		"Original (30 degrees)", "45 degrees", "60 degrees", "75 degrees",
 		"Full Vertical", nullptr
@@ -4695,6 +4703,13 @@ static void save_embedded_controls(const embedded_controls_state& state)
 			(kSensitivityLogRange / 1000.0f);
 		input_preferences->sens_vertical =
 			static_cast<_fixed>(std::exp(log_value) * FIXED_ONE);
+	}
+	if (state.invert_vertical_aim)
+	{
+		if (state.invert_vertical_aim->get_selection())
+			input_preferences->modifiers |= _inputmod_invert_mouse;
+		else
+			input_preferences->modifiers &= ~_inputmod_invert_mouse;
 	}
 	if (state.mouselook_range)
 		input_preferences->sprintathon_mouselook_mode =
