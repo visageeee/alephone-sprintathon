@@ -1373,6 +1373,40 @@ static void handle_game_key(const SDL_Event &event)
 
 static void process_game_key(const SDL_Event &event)
 {
+	if (get_game_state() == _game_in_progress &&
+		!Console::instance()->input_active())
+	{
+		const SDL_Scancode screenshot_key = event.key.keysym.scancode;
+		if (!event.key.repeat &&
+			((screenshot_key == SDL_SCANCODE_F9 &&
+			  (event.key.keysym.mod & KMOD_SHIFT)) ||
+			 input_preferences->shell_key_bindings[_key_screenshot_mode].count(screenshot_key)))
+		{
+			if (screenshot_mode_active()) {
+				screenshot_mode_end();
+				SDL_SetRelativeMouseMode(SDL_FALSE);
+				resume_game();
+			} else if (!game_is_networked && !game_is_being_replayed() &&
+				get_keyboard_controller_status() && current_player) {
+				screenshot_mode_begin();
+				pause_game();
+				SDL_SetRelativeMouseMode(SDL_TRUE);
+			}
+			return;
+		}
+		if (screenshot_mode_active()) {
+			if (event.key.keysym.sym == SDLK_ESCAPE) {
+				screenshot_mode_end();
+				SDL_SetRelativeMouseMode(SDL_FALSE);
+				resume_game();
+			} else if (event.key.keysym.scancode == SDL_SCANCODE_F9 &&
+				!event.key.repeat) {
+				dump_screen();
+			}
+			return;
+		}
+	}
+
 	switch (get_game_state()) {
 	case _game_in_progress:
 #if defined(__APPLE__) && defined(__MACH__)
@@ -1535,7 +1569,10 @@ static void process_event(const SDL_Event &event)
 	case SDL_MOUSEMOTION:
 		if (get_game_state() == _game_in_progress)
 		{
-			mouse_moved(event.motion.xrel, event.motion.yrel);
+			if (screenshot_mode_active())
+				screenshot_mode_mouse_look(event.motion.xrel, event.motion.yrel);
+			else
+				mouse_moved(event.motion.xrel, event.motion.yrel);
 		}
 		break;
 	case SDL_MOUSEWHEEL:
@@ -1546,10 +1583,30 @@ static void process_event(const SDL_Event &event)
 			if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED)
 				up = !up;
 #endif
-			mouse_scroll(up);
+			const SDL_Scancode code = static_cast<SDL_Scancode>(
+				up ? AO_SCANCODE_MOUSESCROLL_UP : AO_SCANCODE_MOUSESCROLL_DOWN);
+			if (input_preferences->shell_key_bindings[_key_screenshot_mode].count(code)) {
+				SDL_Event key = {};
+				key.type = SDL_KEYDOWN;
+				key.key.keysym.scancode = code;
+				process_game_key(key);
+			} else if (!screenshot_mode_active()) {
+				mouse_scroll(up);
+			}
 		}
 		break;
 	case SDL_MOUSEBUTTONDOWN:
+		if (screenshot_mode_active()) {
+			const SDL_Scancode code = static_cast<SDL_Scancode>(
+				AO_SCANCODE_BASE_MOUSE_BUTTON + event.button.button - 1);
+			if (input_preferences->shell_key_bindings[_key_screenshot_mode].count(code)) {
+				SDL_Event key = {};
+				key.type = SDL_KEYDOWN;
+				key.key.keysym.scancode = code;
+				process_game_key(key);
+			}
+			break;
+		}
 		if (get_game_state() == _game_in_progress) 
 		{
 			if (!get_keyboard_controller_status())
@@ -1571,6 +1628,17 @@ static void process_event(const SDL_Event &event)
 		break;
 	
 	case SDL_CONTROLLERBUTTONDOWN:
+		if (screenshot_mode_active()) {
+			const SDL_Scancode code = static_cast<SDL_Scancode>(
+				AO_SCANCODE_BASE_JOYSTICK_BUTTON + event.cbutton.button);
+			if (input_preferences->shell_key_bindings[_key_screenshot_mode].count(code)) {
+				SDL_Event key = {};
+				key.type = SDL_KEYDOWN;
+				key.key.keysym.scancode = code;
+				process_game_key(key);
+			}
+			break;
+		}
 		if (get_game_state() == _game_in_progress && !get_keyboard_controller_status())
 		{
 			resume_game();
@@ -1624,6 +1692,7 @@ static void process_event(const SDL_Event &event)
 	case SDL_WINDOWEVENT:
 		switch (event.window.event) {
 			case SDL_WINDOWEVENT_FOCUS_LOST:
+				if (screenshot_mode_active()) SDL_SetRelativeMouseMode(SDL_FALSE);
 				if (get_game_state() == _game_in_progress && get_keyboard_controller_status() && !Movie::instance()->IsRecording() && shell_options.replay_directory.empty()) {
 					pause_game();
 				}
@@ -1649,6 +1718,7 @@ static void process_event(const SDL_Event &event)
 				}
 #endif
 				set_game_focus_gained();
+				if (screenshot_mode_active()) SDL_SetRelativeMouseMode(SDL_TRUE);
 				break;
 		}
 		break;

@@ -204,6 +204,7 @@ enum {
 	_key_toggle_fps,
 	_key_activate_console,
 	_key_show_scores,
+	_key_screenshot_mode,
 	NUMBER_OF_SHELL_KEYS
 };
 

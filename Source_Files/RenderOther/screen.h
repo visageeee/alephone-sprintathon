@@ -185,6 +185,12 @@ void start_extravision_effect(bool out);
 
 void render_screen(short ticks_elapsed);
 
+// Solo screenshot mode freezes the simulation and moves only the view.
+bool screenshot_mode_active();
+void screenshot_mode_begin();
+void screenshot_mode_end();
+void screenshot_mode_mouse_look(int dx, int dy);
+
 void toggle_overhead_map_display_status(void);
 
 // Returns whether the size scale had been changed

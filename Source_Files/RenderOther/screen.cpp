@@ -72,6 +72,7 @@
 #include "shell_options.h"
 
 #include <algorithm>
+#include <cmath>
 
 #if defined(__WIN32__) || (defined(__MACH__) && defined(__APPLE__))
 #define MUST_RELOAD_VIEW_CONTEXT
@@ -324,12 +325,12 @@ int Screen::window_width()
 
 bool Screen::hud()
 {
-	return screen_mode.hud;
+	return screen_mode.hud && !screenshot_mode_active();
 }
 
 bool Screen::lua_hud()
 {
-	return screen_mode.hud && LuaHUDRunning();
+	return screen_mode.hud && !screenshot_mode_active() && LuaHUDRunning();
 }
 
 bool Screen::openGL()
@@ -1344,6 +1345,97 @@ void update_world_view_camera()
 	}
 }
 
+// Screenshot mode is local and never changes the player or saved game.
+namespace {
+bool screenshot_camera_enabled = false;
+world_point3d screenshot_origin = {};
+short screenshot_polygon = NONE;
+float screenshot_x = 0, screenshot_y = 0, screenshot_z = 0;
+float screenshot_yaw = 0, screenshot_pitch = 0;
+uint64_t screenshot_last_time = 0;
+}
+
+bool screenshot_mode_active() { return screenshot_camera_enabled; }
+
+void screenshot_mode_begin()
+{
+	update_world_view_camera();
+	screenshot_origin = world_view->origin;
+	screenshot_polygon = world_view->origin_polygon_index;
+	screenshot_x = screenshot_origin.x;
+	screenshot_y = screenshot_origin.y;
+	screenshot_z = screenshot_origin.z;
+	screenshot_yaw = world_view->yaw;
+	screenshot_pitch = world_view->pitch > HALF_CIRCLE ?
+		world_view->pitch - FULL_CIRCLE : world_view->pitch;
+	screenshot_last_time = machine_tick_count();
+	screenshot_camera_enabled = true;
+}
+
+void screenshot_mode_end()
+{
+	screenshot_camera_enabled = false;
+	screenshot_last_time = 0;
+}
+
+void screenshot_mode_mouse_look(int dx, int dy)
+{
+	if (!screenshot_camera_enabled) return;
+	const float radians_per_pixel = FULL_CIRCLE / 2400.0f;
+	screenshot_yaw += dx * radians_per_pixel;
+	screenshot_pitch -= dy * radians_per_pixel;
+	screenshot_pitch = std::max(-FULL_CIRCLE * 5.0f / 24.0f,
+		std::min(FULL_CIRCLE * 5.0f / 24.0f, screenshot_pitch));
+}
+
+static void update_screenshot_camera()
+{
+	const uint64_t now = machine_tick_count();
+	const float dt = screenshot_last_time ?
+		std::min(0.05f, static_cast<float>(now - screenshot_last_time) /
+			MACHINE_TICKS_PER_SECOND) : 0.0f;
+	screenshot_last_time = now;
+	const Uint8* keys = SDL_GetKeyboardState(nullptr);
+	float forward = float(keys[SDL_SCANCODE_W]) - float(keys[SDL_SCANCODE_S]);
+	float strafe = float(keys[SDL_SCANCODE_D]) - float(keys[SDL_SCANCODE_A]);
+	float climb = float(keys[SDL_SCANCODE_E]) - float(keys[SDL_SCANCODE_Q]);
+	const float magnitude = sqrtf(forward * forward + strafe * strafe + climb * climb);
+	if (magnitude > 1.0f) {
+		forward /= magnitude;
+		strafe /= magnitude;
+		climb /= magnitude;
+	}
+	const float speed = WORLD_ONE * (keys[SDL_SCANCODE_LSHIFT] ||
+		keys[SDL_SCANCODE_RSHIFT] ? 6.0f : 2.0f) * dt;
+	const float yaw = screenshot_yaw * (6.28318530718f / FULL_CIRCLE);
+	const float next_x = screenshot_x + speed * (cosf(yaw) * forward - sinf(yaw) * strafe);
+	const float next_y = screenshot_y + speed * (sinf(yaw) * forward + cosf(yaw) * strafe);
+	world_point2d destination = {static_cast<world_distance>(next_x),
+		static_cast<world_distance>(next_y)};
+	const short polygon = world_point_to_polygon_index(&destination);
+	if (polygon != NONE) {
+		screenshot_x = next_x;
+		screenshot_y = next_y;
+		screenshot_polygon = polygon;
+	}
+	const polygon_data* area = get_polygon_data(screenshot_polygon);
+	const float lower = area->floor_height + WORLD_ONE / 16.0f;
+	const float upper = area->ceiling_height - WORLD_ONE / 16.0f;
+	screenshot_z = upper < lower ? (area->floor_height + area->ceiling_height) / 2.0f :
+		std::max(lower, std::min(upper, screenshot_z + speed * climb));
+	screenshot_origin.x = static_cast<world_distance>(screenshot_x);
+	screenshot_origin.y = static_cast<world_distance>(screenshot_y);
+	screenshot_origin.z = static_cast<world_distance>(screenshot_z);
+	world_view->origin = screenshot_origin;
+	world_view->origin_polygon_index = screenshot_polygon;
+	world_view->yaw = NORMALIZE_ANGLE(static_cast<angle>(lroundf(screenshot_yaw)));
+	world_view->pitch = NORMALIZE_ANGLE(static_cast<angle>(lroundf(screenshot_pitch)));
+	world_view->roll = 0;
+	world_view->virtual_yaw = static_cast<_fixed>(screenshot_yaw * FIXED_ONE);
+	world_view->virtual_pitch = static_cast<_fixed>(screenshot_pitch * FIXED_ONE);
+	world_view->show_weapons_in_hand = false;
+}
+
 extern bool is_network_pregame;
 
 void render_screen(short ticks_elapsed)
@@ -1492,6 +1584,7 @@ void render_screen(short ticks_elapsed)
 	}
 
 	interpolate_world_view(heartbeat_fraction);
+	if (screenshot_mode_active()) update_screenshot_camera();
 
 #ifdef HAVE_OPENGL
 	// Is map to be drawn with OpenGL?
@@ -1551,7 +1644,7 @@ void render_screen(short ticks_elapsed)
 	}
     
 	// Render crosshairs
-	if (!world_view->overhead_map_active && !world_view->terminal_mode_active)
+	if (!screenshot_mode_active() && !world_view->overhead_map_active && !world_view->terminal_mode_active)
 	  if (NetAllowCrosshair())
 	    if (Crosshairs_IsActive())
 #ifdef HAVE_OPENGL
@@ -1641,7 +1734,7 @@ void render_screen(short ticks_elapsed)
 			}
 		}
 
-		if (!get_keyboard_controller_status())
+		if (!get_keyboard_controller_status() && !screenshot_mode_active())
 		{
 			darken_world_window();
 		}
@@ -1661,7 +1754,7 @@ void render_screen(short ticks_elapsed)
 	// Swap OpenGL double-buffers
 	if (screen_mode.acceleration != _no_acceleration)
 	{
-		if (!get_keyboard_controller_status())
+		if (!get_keyboard_controller_status() && !screenshot_mode_active())
 		{
 			darken_world_window();
 		}
