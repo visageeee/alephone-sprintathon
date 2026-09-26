@@ -14,6 +14,8 @@
 #include "RenderRasterize_Shader.h"
 
 #include "lightsource.h"
+#include "projectiles.h"
+#include "effects.h"
 #include "media.h"
 #include "player.h"
 #include "weapons.h"
@@ -698,6 +700,176 @@ static void sprintathon_draw_anamorphic_lens_flare(GLuint color_texture,
 	Shader::disable();
 	glPopAttrib();
 	glActiveTextureARB(GL_TEXTURE0_ARB);
+}
+
+
+// Approximate short-range colored projectile light on nearby surfaces.
+static void sprintathon_projectile_light_rgb(float x, float y, float z, float rgb[3])
+{
+    rgb[0] = rgb[1] = rgb[2] = 0.0f;
+    for (const projectile_data& projectile : ProjectileList) {
+        if (!SLOT_IS_USED(&projectile)) continue;
+        float strength = 0.0f;
+        float red = 1.0f, green = 1.0f, blue = 1.0f;
+        switch (projectile.type) {
+            case _projectile_fusion_bolt_minor:
+                strength = 0.36f; red = 0.40f; green = 0.65f; blue = 1.0f; break;
+            case _projectile_fusion_bolt_major:
+                strength = 0.55f; red = 0.50f; green = 0.45f; blue = 1.0f; break;
+            case _projectile_compiler_bolt_minor:
+            case _projectile_compiler_bolt_major:
+                strength = 0.50f; red = 0.95f; green = 0.30f; blue = 0.65f; break;
+            case _projectile_staff_bolt:
+                strength = 0.48f; red = 0.45f; green = 1.0f; blue = 0.50f; break;
+            case _projectile_alien_weapon:
+                strength = 0.55f; red = 1.0f; green = 0.48f; blue = 0.16f; break;
+            case _projectile_minor_defender:
+            case _projectile_major_defender:
+                strength = 0.48f; red = 0.40f; green = 0.80f; blue = 1.0f; break;
+            case _projectile_minor_hummer:
+            case _projectile_major_hummer:
+            case _projectile_durandal_hummer:
+                strength = 0.55f; red = 0.85f; green = 0.45f; blue = 1.0f; break;
+            case _projectile_rocket:
+            case _projectile_juggernaut_rocket:
+            case _projectile_juggernaut_missile:
+            case _projectile_flamethrower_burst:
+                strength = 0.68f; red = 1.0f; green = 0.50f; blue = 0.16f; break;
+            case _projectile_armageddon_sphere:
+            case _projectile_overloaded_fusion_dispersal:
+                strength = 0.68f; red = 0.70f; green = 0.65f; blue = 1.0f; break;
+            default: continue;
+        }
+        const object_data *object = get_object_data(projectile.object_index);
+        if (!object) continue;
+        const float dx = (x - object->location.x) / WORLD_ONE;
+        const float dy = (y - object->location.y) / WORLD_ONE;
+        const float dz = (z - object->location.z) / WORLD_ONE;
+        const float radius = 2.5f;
+        const float falloff = std::max(0.0f, 1.0f - (dx*dx + dy*dy + dz*dz) / (radius*radius));
+        const float amount = strength * falloff * falloff;
+        rgb[0] += amount * red;
+        rgb[1] += amount * green;
+        rgb[2] += amount * blue;
+    }
+    // Explosions are effects, not projectiles: keep their light at the blast site.
+    for (const effect_data& effect : EffectList) {
+        if (!SLOT_IS_USED(&effect) || effect.delay > 0) continue;
+        float radius = 0.0f, strength = 0.0f;
+        switch (effect.type) {
+            case _effect_rocket_explosion:
+                radius = 6.0f; strength = 1.0f; break;
+            case _effect_grenade_explosion:
+                radius = 4.5f; strength = 0.82f; break;
+            default: continue;
+        }
+        const object_data *object = get_object_data(effect.object_index);
+        if (!object) continue;
+        const float dx = (x - object->location.x) / WORLD_ONE;
+        const float dy = (y - object->location.y) / WORLD_ONE;
+        const float dz = (z - object->location.z) / WORLD_ONE;
+        const float falloff = std::max(0.0f, 1.0f -
+            (dx*dx + dy*dy + dz*dz) / (radius*radius));
+        const float amount = strength * falloff * falloff;
+        rgb[0] += amount;
+        rgb[1] += amount * 0.46f;
+        rgb[2] += amount * 0.13f;
+    }
+
+}
+
+// One nearby projectile per surface bounds the shader cost and smooths the glow per pixel.
+static Shader *sprintathon_surface_shader(RenderStep step, short texture_type)
+{
+    if (texture_type != OGL_Txtr_Wall || current_player->infravision_duration)
+        return nullptr;
+    const bool bump = TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_BumpMap);
+    return Shader::get(bump ? (step == kGlow ? Shader::S_BumpBloom : Shader::S_Bump)
+                            : (step == kGlow ? Shader::S_WallBloom : Shader::S_Wall));
+}
+
+static void sprintathon_clear_pixel_light(RenderStep step, short texture_type)
+{
+    Shader *shader = sprintathon_surface_shader(step, texture_type);
+    if (shader) shader->setVector4(Shader::U_SprintathonLightColor, 0, 0, 0, 0);
+}
+
+static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep step, short texture_type)
+{
+    Shader *shader = sprintathon_surface_shader(step, texture_type);
+    if (!shader) return;
+    float radius = 2.5f * WORLD_ONE;
+    float nearest = radius * radius;
+    const object_data *selected = nullptr;
+    float color[3] = {0, 0, 0};
+    for (const projectile_data& projectile : ProjectileList) {
+        if (!SLOT_IS_USED(&projectile)) continue;
+        float r = 0, g = 0, b = 0;
+        switch (projectile.type) {
+            case _projectile_fusion_bolt_minor: r=.18f; g=.24f; b=.48f; break;
+            case _projectile_fusion_bolt_major: r=.28f; g=.22f; b=.60f; break;
+            case _projectile_compiler_bolt_minor:
+            case _projectile_compiler_bolt_major: r=.48f; g=.13f; b=.30f; break;
+            case _projectile_staff_bolt: r=.19f; g=.48f; b=.22f; break;
+            case _projectile_alien_weapon: r=.60f; g=.27f; b=.08f; break;
+            case _projectile_minor_defender:
+            case _projectile_major_defender: r=.20f; g=.36f; b=.50f; break;
+            case _projectile_minor_hummer:
+            case _projectile_major_hummer:
+            case _projectile_durandal_hummer: r=.44f; g=.20f; b=.52f; break;
+            case _projectile_rocket:
+            case _projectile_juggernaut_rocket:
+            case _projectile_juggernaut_missile:
+            case _projectile_flamethrower_burst: r=.70f; g=.32f; b=.09f; break;
+            case _projectile_armageddon_sphere:
+            case _projectile_overloaded_fusion_dispersal: r=.48f; g=.40f; b=.70f; break;
+            default: continue;
+        }
+        const object_data *object = get_object_data(projectile.object_index);
+        if (!object) continue;
+        const float dx = x - object->location.x, dy = y - object->location.y, dz = z - object->location.z;
+        const float distance_squared = dx*dx + dy*dy + dz*dz;
+        if (distance_squared < nearest) {
+            nearest = distance_squared; selected = object;
+            color[0] = r; color[1] = g; color[2] = b;
+        }
+    }
+
+    // Prefer the nearest active blast over a projectile while it is visible.
+    float nearest_explosion = 1000000000.0f;
+    for (const effect_data& effect : EffectList) {
+        if (!SLOT_IS_USED(&effect) || effect.delay > 0) continue;
+        float blast_radius = 0.0f, strength = 0.0f;
+        switch (effect.type) {
+            case _effect_rocket_explosion:
+                blast_radius = 6.0f * WORLD_ONE; strength = 1.0f; break;
+            case _effect_grenade_explosion:
+                blast_radius = 4.5f * WORLD_ONE; strength = 0.82f; break;
+            default: continue;
+        }
+        const object_data *object = get_object_data(effect.object_index);
+        if (!object) continue;
+        const float dx = x - object->location.x;
+        const float dy = y - object->location.y;
+        const float dz = z - object->location.z;
+        const float distance_squared = dx*dx + dy*dy + dz*dz;
+        if (distance_squared < blast_radius * blast_radius &&
+            distance_squared < nearest_explosion) {
+            nearest_explosion = distance_squared;
+            selected = object;
+            radius = blast_radius;
+            color[0] = strength;
+            color[1] = strength * 0.46f;
+            color[2] = strength * 0.13f;
+        }
+    }
+    if (selected) {
+        shader->setVector4(Shader::U_SprintathonLightPosition,
+                           selected->location.x, selected->location.y, selected->location.z, radius);
+        shader->setVector4(Shader::U_SprintathonLightColor, color[0], color[1], color[2], 1.0f);
+    } else {
+        shader->setVector4(Shader::U_SprintathonLightColor, 0, 0, 0, 0);
+    }
 }
 
 void RenderRasterize_Shader::render_tree() {
@@ -1532,12 +1704,37 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
 
 	const shape_descriptor& texture = AnimTxtr_Translate(surface->texture);
 	float intensity = get_light_intensity(surface->lightsource_index) / float(FIXED_ONE - 1);
+    float projectile_rgb[3] = {0.0f, 0.0f, 0.0f};
+    float surface_light_x = 0.0f, surface_light_y = 0.0f;
+    float surface_light_z = surface->height;
+    if (polygon && polygon->vertex_count > 0) {
+        float center_x = 0.0f, center_y = 0.0f;
+        for (short i = 0; i < polygon->vertex_count; ++i) {
+            const world_point2d& vertex = get_endpoint_data(polygon->endpoint_indexes[i])->vertex;
+            center_x += vertex.x; center_y += vertex.y;
+        }
+        center_x /= polygon->vertex_count;
+        center_y /= polygon->vertex_count;
+        surface_light_x = center_x; surface_light_y = center_y;
+        sprintathon_projectile_light_rgb(center_x, center_y, surface->height, projectile_rgb);
+    }
 	float wobble = calcWobble(surface->transfer_mode, view->tick_count);
 	// note: wobble and pulsate behave the same way on floors and ceilings
 	// note 2: stronger wobble looks more like classic with default shaders
 	auto TMgr = setupWallTexture(texture, surface->transfer_mode, wobble * 4.0,
 		0, intensity, offset, renderStep, surface->media_type);
+    if (!graphics_preferences->projectile_lights_per_pixel)
+        glColor4f(std::min(1.0f, intensity + projectile_rgb[0]),
+              std::min(1.0f, intensity + projectile_rgb[1]),
+              std::min(1.0f, intensity + projectile_rgb[2]), 1.0f);
 	if(TMgr->ShapeDesc == UNONE) { return; }
+    if (graphics_preferences->projectile_lights_per_pixel) {
+        glColor4f(intensity, intensity, intensity, 1.0f);
+        sprintathon_set_pixel_light(surface_light_x, surface_light_y, surface_light_z, renderStep, TMgr->TextureType);
+    } else {
+        sprintathon_clear_pixel_light(renderStep, TMgr->TextureType);
+    }
+
 
 	const bool adjustable_media = surface->is_media &&
 		TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_LiqSeeThru);
@@ -1660,6 +1857,15 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
 
 	const shape_descriptor& texture = AnimTxtr_Translate(surface->texture_definition->texture);
 	float intensity = (get_light_intensity(surface->lightsource_index) + surface->ambient_delta) / float(FIXED_ONE - 1);
+    float surface_light_x = (surface->p0.i + surface->p1.i) * 0.5f;
+    float surface_light_y = (surface->p0.j + surface->p1.j) * 0.5f;
+    float surface_light_z = (surface->h0 + std::min(surface->h1, surface->hmax)) * 0.5f + view->origin.z;
+    float projectile_rgb[3];
+    sprintathon_projectile_light_rgb(
+        (surface->p0.i + surface->p1.i) * 0.5f,
+        (surface->p0.j + surface->p1.j) * 0.5f,
+        (surface->h0 + std::min(surface->h1, surface->hmax)) * 0.5f + view->origin.z,
+        projectile_rgb);
 	float wobble = calcWobble(surface->transfer_mode, view->tick_count);
 	float pulsate = 0;
 	if (surface->transfer_mode == _xfer_pulsate) {
@@ -1667,7 +1873,18 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
 		wobble = 0;
 	}
 	auto TMgr = setupWallTexture(texture, surface->transfer_mode, pulsate, wobble, intensity, offset, renderStep);
+    if (!graphics_preferences->projectile_lights_per_pixel)
+        glColor4f(std::min(1.0f, intensity + projectile_rgb[0]),
+              std::min(1.0f, intensity + projectile_rgb[1]),
+              std::min(1.0f, intensity + projectile_rgb[2]), 1.0f);
 	if(TMgr->ShapeDesc == UNONE) { return; }
+    if (graphics_preferences->projectile_lights_per_pixel) {
+        glColor4f(intensity, intensity, intensity, 1.0f);
+        sprintathon_set_pixel_light(surface_light_x, surface_light_y, surface_light_z, renderStep, TMgr->TextureType);
+    } else {
+        sprintathon_clear_pixel_light(renderStep, TMgr->TextureType);
+    }
+
 
 	if (TMgr->IsBlended()) {
 		glEnable(GL_BLEND);

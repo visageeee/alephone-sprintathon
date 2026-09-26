@@ -75,6 +75,8 @@ public:
 		U_ObjectWorldZ,
 		U_MediaRipple,
 		U_MediaWetness,
+		U_SprintathonLightPosition,
+		U_SprintathonLightColor,
 		NUMBER_OF_UNIFORM_LOCATIONS
 	};
 
@@ -149,6 +151,7 @@ public:
 	void unload();
 	void setFloat(UniformName name, float); // shader must be enabled
 	void setMatrix4(UniformName name, float *f);
+	void setVector4(UniformName name, float x, float y, float z, float w);
 
 	int16 passes();
 

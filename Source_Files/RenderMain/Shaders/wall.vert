@@ -5,6 +5,7 @@ varying vec3 viewXY;
 varying vec3 viewDir;
 varying float worldZ;
 varying vec4 vertexColor;
+varying vec3 sprintathonWorldPosition;
 varying float classicDepth;
 void main(void) {
 	gl_Position  = gl_ModelViewProjectionMatrix * gl_Vertex;
@@ -27,6 +28,7 @@ void main(void) {
 	viewDir = -viewDir;
 	worldZ = gl_Vertex.z;
 	vertexColor = gl_Color;
+	sprintathonWorldPosition = gl_Vertex.xyz;
 }
 
 )"

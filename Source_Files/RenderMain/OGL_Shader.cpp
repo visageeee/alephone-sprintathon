@@ -92,7 +92,9 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"mediaFogSoftness",
 	"objectWorldZ",
 	"mediaRipple",
-	"mediaWetness"
+	"mediaWetness",
+	"sprintathonLightPosition",
+	"sprintathonLightColor"
 };
 
 const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] = 
@@ -352,6 +354,10 @@ void Shader::setFloat(UniformName name, float f) {
 		_cached_floats[name] = f;
 		glUniform1fARB(getUniformLocation(name), f);
 	}
+}
+
+void Shader::setVector4(UniformName name, float x, float y, float z, float w) {
+    glUniform4fARB(getUniformLocation(name), x, y, z, w);
 }
 
 void Shader::setMatrix4(UniformName name, float *f) {

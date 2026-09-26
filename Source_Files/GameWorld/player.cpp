@@ -485,6 +485,15 @@ short new_player(
 	{
 		for (short item = 0; item < NUMBER_OF_DEFINED_ITEMS; ++item)
 		{
+			// Keep the fists from the scenario's starting equipment.
+			if (item == _i_knife)
+				continue;
+			// The alien weapon is not part of this starter loadout.
+			if (item == _i_alien_shotgun)
+			{
+				player->items[item] = NONE;
+				continue;
+			}
 			const short kind = get_item_kind(item);
 			if (kind == _weapon)
 				player->items[item] = 1;

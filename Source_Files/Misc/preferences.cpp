@@ -1155,6 +1155,7 @@ void handle_preferences(bool in_game)
 	w_toggle *ogl_perspective_w = new w_toggle(!ogl_flag(OGL_Flag_MimicSW));
 	w_toggle *ogl_billboard_w = new w_toggle(graphics_preferences->OGL_Configure.BillboardXY);
 	w_toggle *ogl_bloom_w = new w_toggle(ogl_flag(OGL_Flag_Blur));
+	w_toggle *projectile_lights_per_pixel_w = new w_toggle(graphics_preferences->projectile_lights_per_pixel);
 	w_toggle *ogl_bump_w = new w_toggle(ogl_flag(OGL_Flag_BumpMap));
 	w_toggle *ogl_refractive_invisibility_w = new w_toggle(
 		graphics_preferences->OGL_Configure.RefractiveInvisibility);
@@ -1210,6 +1211,7 @@ void handle_preferences(bool in_game)
 #define ADD_LIGHT_FX_ROW(caption, widget) \
 	light_fx->dual_add((widget)->label(caption), d); light_fx->dual_add(widget, d)
 	ADD_LIGHT_FX_ROW("Bloom Effects", ogl_bloom_w);
+	ADD_LIGHT_FX_ROW("Per-Pixel Projectile Lights", projectile_lights_per_pixel_w);
 	ADD_LIGHT_FX_ROW("Sprite Shadows", ogl_sprite_shadows_w);
 	ADD_LIGHT_FX_ROW("Ambient Occlusion", ogl_ambient_occlusion_w);
 	ADD_LIGHT_FX_ROW("AO Strength", ogl_ambient_occlusion_strength_w);
@@ -1603,6 +1605,7 @@ void handle_preferences(bool in_game)
 	store_ogl_flag(OGL_Flag_3D_Models, ogl_models_w->get_selection());
 	store_ogl_flag(OGL_Flag_MimicSW, !ogl_perspective_w->get_selection());
 	store_ogl_flag(OGL_Flag_Blur, ogl_bloom_w->get_selection());
+	graphics_preferences->projectile_lights_per_pixel = projectile_lights_per_pixel_w->get_selection();
 	store_ogl_flag(OGL_Flag_BumpMap, ogl_bump_w->get_selection());
 	store_ogl_flag(OGL_Flag_LiqSeeThru, liquid_transparency_w->get_selection());
 	store_ogl_flag(OGL_Flag_Fog, fog_enabled_w->get_selection());
@@ -5888,6 +5891,7 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("software_sdl_driver", graphics_preferences->software_sdl_driver);
 	root.put_attr("fps_target", graphics_preferences->fps_target);
 	root.put_attr("pickup_flash", graphics_preferences->pickup_flash);
+	root.put_attr("projectile_lights_per_pixel", graphics_preferences->projectile_lights_per_pixel);
 	root.put_attr("skip_intro", graphics_preferences->skip_intro);
 	root.put_attr("anisotropy_level", graphics_preferences->OGL_Configure.AnisotropyLevel);
 	root.put_attr("multisamples", graphics_preferences->OGL_Configure.Multisamples);
@@ -6506,6 +6510,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->fps_target = 60;
 	preferences->pickup_flash = true;
 	preferences->skip_intro = false;
+	preferences->projectile_lights_per_pixel = false;
 
 	preferences->movie_export_video_quality = 50;
 	preferences->movie_export_audio_quality = 50;
@@ -7016,6 +7021,7 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("software_sdl_driver", graphics_preferences->software_sdl_driver);
 	root.read_attr("fps_target", graphics_preferences->fps_target);
 	root.read_attr("pickup_flash", graphics_preferences->pickup_flash);
+	root.read_attr("projectile_lights_per_pixel", graphics_preferences->projectile_lights_per_pixel);
 	root.read_attr("skip_intro", graphics_preferences->skip_intro);
 	root.read_attr("anisotropy_level", graphics_preferences->OGL_Configure.AnisotropyLevel);
 	root.read_attr("multisamples", graphics_preferences->OGL_Configure.Multisamples);

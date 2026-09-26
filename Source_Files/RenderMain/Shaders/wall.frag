@@ -20,6 +20,9 @@ varying vec3 viewXY;
 varying vec3 viewDir;
 varying float worldZ;
 varying vec4 vertexColor;
+varying vec3 sprintathonWorldPosition;
+uniform vec4 sprintathonLightPosition;
+uniform vec4 sprintathonLightColor;
 varying float classicDepth;
 
 float getFogFactor(float distance) {
@@ -82,6 +85,9 @@ void main (void) {
 	else {
 		intensity = (vertexColor.rgb * 0.5) + mlFactor; }
 	intensity = clamp(intensity, glow, 1.0);
+    vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition.xyz) / max(sprintathonLightPosition.w, 1.0);
+    float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
+    intensity = clamp(intensity + sprintathonLightColor.rgb * (lightFalloff * lightFalloff), glow, 1.0);
 	intensity = clamp(intensity * rippleHighlight, glow, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)
