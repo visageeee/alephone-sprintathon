@@ -24,6 +24,26 @@ varying vec4 vertexColor;
 varying vec3 sprintathonWorldPosition;
 uniform vec4 sprintathonLightPosition;
 uniform vec4 sprintathonLightColor;
+uniform vec4 sprintathonLightPosition2;
+uniform vec4 sprintathonLightColor2;
+uniform vec4 sprintathonLightPosition3;
+uniform vec4 sprintathonLightColor3;
+uniform vec4 sprintathonLightPosition4;
+uniform vec4 sprintathonLightColor4;
+uniform vec4 sprintathonLightPosition5;
+uniform vec4 sprintathonLightColor5;
+uniform vec4 sprintathonLightPosition6;
+uniform vec4 sprintathonLightColor6;
+uniform vec4 sprintathonSectorEdge0;
+uniform vec4 sprintathonSectorEdge1;
+uniform vec4 sprintathonSectorEdge2;
+uniform vec4 sprintathonSectorEdge3;
+uniform vec4 sprintathonSectorEdge4;
+uniform vec4 sprintathonSectorEdge5;
+uniform vec4 sprintathonSectorEdge6;
+uniform vec4 sprintathonSectorEdge7;
+uniform vec4 sprintathonMuzzlePosition;
+uniform vec4 sprintathonMuzzleColor;
 
 float getFogFactor(float distance) {
 	if (fogMode == 0.0) {
@@ -115,11 +135,103 @@ void main (void) {
 			1.0 + 0.10 * mediaWetness) * wetTextureShade;
 	}
 	intensity = clamp(intensity * diffuse, glow, 1.0);
+    // Only floor/ceiling draws enable the edge uniforms. Blend the regular
+    // sector shade before adding colored per-pixel lights.
+    if (sprintathonSectorEdge0.w >= 0.0) {
+        if (sprintathonSectorEdge0.w >= 0.0) {
+            float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge0.xy) + sprintathonSectorEdge0.z;
+            float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.18 * 1024.0, edgeDistance));
+            float neighborBase = sprintathonSectorEdge0.w > mlFactor ?
+                sprintathonSectorEdge0.w + mlFactor * 0.5 : sprintathonSectorEdge0.w * 0.5 + mlFactor;
+            intensity = mix(intensity, vec3(clamp(neighborBase * diffuse, glow, 1.0)), edgeBlend);
+        }
+        if (sprintathonSectorEdge1.w >= 0.0) {
+            float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge1.xy) + sprintathonSectorEdge1.z;
+            float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.18 * 1024.0, edgeDistance));
+            float neighborBase = sprintathonSectorEdge1.w > mlFactor ?
+                sprintathonSectorEdge1.w + mlFactor * 0.5 : sprintathonSectorEdge1.w * 0.5 + mlFactor;
+            intensity = mix(intensity, vec3(clamp(neighborBase * diffuse, glow, 1.0)), edgeBlend);
+        }
+        if (sprintathonSectorEdge2.w >= 0.0) {
+            float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge2.xy) + sprintathonSectorEdge2.z;
+            float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.18 * 1024.0, edgeDistance));
+            float neighborBase = sprintathonSectorEdge2.w > mlFactor ?
+                sprintathonSectorEdge2.w + mlFactor * 0.5 : sprintathonSectorEdge2.w * 0.5 + mlFactor;
+            intensity = mix(intensity, vec3(clamp(neighborBase * diffuse, glow, 1.0)), edgeBlend);
+        }
+        if (sprintathonSectorEdge3.w >= 0.0) {
+            float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge3.xy) + sprintathonSectorEdge3.z;
+            float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.18 * 1024.0, edgeDistance));
+            float neighborBase = sprintathonSectorEdge3.w > mlFactor ?
+                sprintathonSectorEdge3.w + mlFactor * 0.5 : sprintathonSectorEdge3.w * 0.5 + mlFactor;
+            intensity = mix(intensity, vec3(clamp(neighborBase * diffuse, glow, 1.0)), edgeBlend);
+        }
+        if (sprintathonSectorEdge4.w >= 0.0) {
+            float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge4.xy) + sprintathonSectorEdge4.z;
+            float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.18 * 1024.0, edgeDistance));
+            float neighborBase = sprintathonSectorEdge4.w > mlFactor ?
+                sprintathonSectorEdge4.w + mlFactor * 0.5 : sprintathonSectorEdge4.w * 0.5 + mlFactor;
+            intensity = mix(intensity, vec3(clamp(neighborBase * diffuse, glow, 1.0)), edgeBlend);
+        }
+        if (sprintathonSectorEdge5.w >= 0.0) {
+            float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge5.xy) + sprintathonSectorEdge5.z;
+            float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.18 * 1024.0, edgeDistance));
+            float neighborBase = sprintathonSectorEdge5.w > mlFactor ?
+                sprintathonSectorEdge5.w + mlFactor * 0.5 : sprintathonSectorEdge5.w * 0.5 + mlFactor;
+            intensity = mix(intensity, vec3(clamp(neighborBase * diffuse, glow, 1.0)), edgeBlend);
+        }
+        if (sprintathonSectorEdge6.w >= 0.0) {
+            float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge6.xy) + sprintathonSectorEdge6.z;
+            float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.18 * 1024.0, edgeDistance));
+            float neighborBase = sprintathonSectorEdge6.w > mlFactor ?
+                sprintathonSectorEdge6.w + mlFactor * 0.5 : sprintathonSectorEdge6.w * 0.5 + mlFactor;
+            intensity = mix(intensity, vec3(clamp(neighborBase * diffuse, glow, 1.0)), edgeBlend);
+        }
+        if (sprintathonSectorEdge7.w >= 0.0) {
+            float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge7.xy) + sprintathonSectorEdge7.z;
+            float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.18 * 1024.0, edgeDistance));
+            float neighborBase = sprintathonSectorEdge7.w > mlFactor ?
+                sprintathonSectorEdge7.w + mlFactor * 0.5 : sprintathonSectorEdge7.w * 0.5 + mlFactor;
+            intensity = mix(intensity, vec3(clamp(neighborBase * diffuse, glow, 1.0)), edgeBlend);
+        }
+    }
+    if (sprintathonMuzzleColor.a > 0.0) {
+        vec3 muzzleDelta = (sprintathonWorldPosition - sprintathonMuzzlePosition.xyz) /
+                           max(sprintathonMuzzlePosition.w, 1.0);
+        float muzzleFalloff = max(0.0, 1.0 - dot(muzzleDelta, muzzleDelta));
+        intensity = clamp(intensity + sprintathonMuzzleColor.rgb *
+                          (muzzleFalloff * muzzleFalloff), glow, 1.0);
+    }
     // A uniform branch skips the distance math for unlit surfaces and when the option is off.
     if (sprintathonLightColor.a > 0.0) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition.xyz) / max(sprintathonLightPosition.w, 1.0);
         float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
         intensity = clamp(intensity + sprintathonLightColor.rgb * (lightFalloff * lightFalloff), glow, 1.0);
+    }
+    if (sprintathonLightColor2.a > 0.0) {
+        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition2.xyz) / max(sprintathonLightPosition2.w, 1.0);
+        float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
+        intensity = clamp(intensity + sprintathonLightColor2.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
+    }
+    if (sprintathonLightColor3.a > 0.0) {
+        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition3.xyz) / max(sprintathonLightPosition3.w, 1.0);
+        float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
+        intensity = clamp(intensity + sprintathonLightColor3.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
+    }
+    if (sprintathonLightColor4.a > 0.0) {
+        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition4.xyz) / max(sprintathonLightPosition4.w, 1.0);
+        float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
+        intensity = clamp(intensity + sprintathonLightColor4.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
+    }
+    if (sprintathonLightColor5.a > 0.0) {
+        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition5.xyz) / max(sprintathonLightPosition5.w, 1.0);
+        float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
+        intensity = clamp(intensity + sprintathonLightColor5.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
+    }
+    if (sprintathonLightColor6.a > 0.0) {
+        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition6.xyz) / max(sprintathonLightPosition6.w, 1.0);
+        float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
+        intensity = clamp(intensity + sprintathonLightColor6.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
     }
 	intensity = clamp(intensity * rippleHighlight, glow, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING

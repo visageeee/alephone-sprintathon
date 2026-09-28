@@ -51,6 +51,8 @@ struct render_object_data
 	struct rectangle_definition rectangle;
 	
 	bool casts_character_shadow; // only monster-owned objects, including players
+	bool is_scenery; // limits bright sprite light sources to scenery
+	int16 projectile_index; // used to match rendered colors to projectile lights
 	int16 ymedia;
 };
 

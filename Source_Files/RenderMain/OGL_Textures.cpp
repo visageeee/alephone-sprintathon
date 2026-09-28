@@ -337,6 +337,8 @@ void TextureState::Reset()
 	}
 	IsUsed = IsGlowing = IsBumped = IsUpscaled = TexGened[Normal] = TexGened[Glowing] = TexGened[Bump] = false;
 	IDUsage[Normal] = IDUsage[Glowing] = IDUsage[Bump] = unusedFrames = 0;
+	BrightEmission = false;
+	ProjectileVisualColorValid = false;
 }
 
 void TextureState::FrameTick() {
@@ -695,6 +697,81 @@ bool TextureManager::Setup()
 		if (IsGlowing && (!GlowImage.get() || !GlowImage.get()->IsPresent())) 
 			GlowImage.edit(new ImageDescriptor(TxtrWidth, TxtrHeight, GetOGLTexture(GlowColorTable)));
 		
+
+        // Sample decoded RGBA once per texture, before optional compression/minification.
+        // Uniformly pale textures are deliberately excluded.
+        CTState.BrightEmission = false;
+        CTState.ProjectileVisualColorValid = false;
+        const bool glow_source = IsGlowing && GlowImage.get() && GlowImage.get()->IsPresent();
+        const ImageDescriptor *emission_image =
+            glow_source ?
+                GlowImage.get() : NormalImage.get();
+        if ((TextureType == OGL_Txtr_Wall || TextureType == OGL_Txtr_Inhabitant) &&
+            emission_image &&
+            emission_image->IsPresent() && emission_image->GetFormat() == ImageDescriptor::RGBA8)
+        {
+            const int width = emission_image->GetWidth();
+            const int height = emission_image->GetHeight();
+            const unsigned char *rgba = reinterpret_cast<const unsigned char *>(emission_image->GetBuffer());
+            const int stride_x = std::max(1, width / 128);
+            const int stride_y = std::max(1, height / 128);
+            int bright = 0, sampled = 0, white_scenery_pixels = 0;
+            double sum_x = 0, sum_y = 0, sum_r = 0, sum_g = 0, sum_b = 0;
+            double visual_r = 0, visual_g = 0, visual_b = 0, visual_weight = 0;
+            for (int y = 0; y < height; y += stride_y)
+                for (int x = 0; x < width; x += stride_x) {
+                    const unsigned char *pixel = rgba + 4 * (y * width + x);
+                    ++sampled;
+                    const int luminance = 54 * pixel[0] + 183 * pixel[1] + 19 * pixel[2];
+                    const int peak = std::max(pixel[0], std::max(pixel[1], pixel[2]));
+                    if (TextureType == OGL_Txtr_Inhabitant && pixel[3] >= 220 &&
+                        pixel[0] >= 245 && pixel[1] >= 245 && pixel[2] >= 245)
+                        ++white_scenery_pixels;
+                    if (TextureType == OGL_Txtr_Inhabitant && pixel[3] >= 64 && peak >= 80) {
+                        // Sample the actual rendered palette/glow, weighted toward
+                        // the most luminous visible projectile pixels.
+                        const double weight = (peak - 64) * (pixel[3] / 255.0);
+                        visual_r += pixel[0] * weight;
+                        visual_g += pixel[1] * weight;
+                        visual_b += pixel[2] * weight;
+                        visual_weight += weight;
+                    }
+                    if (glow_source ? (pixel[3] < 32 || peak < 110) :
+                        (pixel[3] < 220 || peak < 220 ||
+                         (luminance < 205 * 256 && peak < 245)))
+                        continue;
+                    ++bright;
+                    sum_x += x + 0.5;
+                    sum_y += y + 0.5;
+                    sum_r += pixel[0]; sum_g += pixel[1]; sum_b += pixel[2];
+                }
+            if (visual_weight > 0) {
+                const double peak = std::max(visual_r, std::max(visual_g, visual_b));
+                if (peak > 0) {
+                    CTState.ProjectileVisualColorValid = true;
+                    CTState.ProjectileVisualColor[0] = static_cast<float>(visual_r / peak);
+                    CTState.ProjectileVisualColor[1] = static_cast<float>(visual_g / peak);
+                    CTState.ProjectileVisualColor[2] = static_cast<float>(visual_b / peak);
+                }
+            }
+            if (bright >= 2 && (glow_source || bright * 4 < sampled ||
+                (TextureType == OGL_Txtr_Inhabitant && white_scenery_pixels >= 2))) {
+                CTState.BrightEmission = true;
+                CTState.BrightU = static_cast<float>(sum_x / (bright * width));
+                CTState.BrightV = static_cast<float>(sum_y / (bright * height));
+                // Use the fraction of sampled pixels, so texture resolution does
+                // not alter brightness. Five percent retains the previous output.
+                // A square root keeps small fixtures visible without giving one
+                // glowing dot the same reach as an entire illuminated panel.
+                const float coverage = static_cast<float>(bright) / sampled;
+                const float emission_strength = std::max(0.15f,
+                    std::min(1.5f, sqrtf(coverage / 0.05f)));
+                CTState.BrightColor[0] = emission_strength * static_cast<float>(sum_r / (bright * 255.0));
+                CTState.BrightColor[1] = emission_strength * static_cast<float>(sum_g / (bright * 255.0));
+                CTState.BrightColor[2] = emission_strength * static_cast<float>(sum_b / (bright * 255.0));
+            }
+        }
+
 		// Display size: may be shrunk
 		int MaxWidth = MAX(TxtrWidth >> TxtrTypeInfo.Resolution, 1);
 		int MaxHeight = MAX(TxtrHeight >> TxtrTypeInfo.Resolution, 1);

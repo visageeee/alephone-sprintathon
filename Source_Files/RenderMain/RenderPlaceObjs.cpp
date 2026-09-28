@@ -367,6 +367,9 @@ render_object_data *RenderPlaceObjsClass::build_render_object(
 				render_object->rectangle.WorldTop = shape_information->world_top;
 				render_object->rectangle.Position = object->location;
 				render_object->casts_character_shadow = (GET_OBJECT_OWNER(object) == _object_is_monster);
+				render_object->is_scenery = (GET_OBJECT_OWNER(object) == _object_is_scenery);
+				render_object->projectile_index =
+					(GET_OBJECT_OWNER(object) == _object_is_projectile) ? object->permutation : NONE;
 				if(rel_origin) {
 					render_object->rectangle.WorldLeft += rel_origin->x;
 					render_object->rectangle.WorldRight += rel_origin->x;

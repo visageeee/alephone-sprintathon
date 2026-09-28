@@ -2,6 +2,7 @@ R"(
 
 uniform sampler2D texture0;
 uniform float glow;
+uniform vec4 sprintathonLightColor;
 uniform float bloomScale;
 uniform float bloomShift;
 uniform float fogMode;
@@ -27,7 +28,7 @@ float getFogFactor(float distance) {
 
 void main (void) {
 	vec4 color = texture2D(texture0, gl_TexCoord[0].xy);
-	vec3 intensity = clamp(vertexColor.rgb, glow, 1.0);
+	vec3 intensity = clamp(vertexColor.rgb + sprintathonLightColor.rgb, glow, 1.0);
 	//intensity = intensity * clamp(2.0 - length(viewDir)/8192.0, 0.0, 1.0);
 	intensity = clamp(intensity * bloomScale + bloomShift, 0.0, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING

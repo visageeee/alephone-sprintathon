@@ -94,7 +94,27 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"mediaRipple",
 	"mediaWetness",
 	"sprintathonLightPosition",
-	"sprintathonLightColor"
+	"sprintathonLightColor",
+	"sprintathonLightPosition2",
+	"sprintathonLightColor2",
+	"sprintathonLightPosition3",
+	"sprintathonLightColor3",
+	"sprintathonLightPosition4",
+	"sprintathonLightColor4",
+	"sprintathonLightPosition5",
+	"sprintathonLightColor5",
+	"sprintathonLightPosition6",
+	"sprintathonLightColor6",
+	"sprintathonSectorEdge0",
+	"sprintathonSectorEdge1",
+	"sprintathonSectorEdge2",
+	"sprintathonSectorEdge3",
+	"sprintathonSectorEdge4",
+	"sprintathonSectorEdge5",
+	"sprintathonSectorEdge6",
+	"sprintathonSectorEdge7",
+	"sprintathonMuzzlePosition",
+	"sprintathonMuzzleColor"
 };
 
 const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] = 

@@ -103,6 +103,15 @@ struct graphics_preferences_data
 	bool pickup_flash;
 	bool skip_intro;
 	bool projectile_lights_per_pixel;
+	bool bright_texture_lights;
+	bool bright_scenery_lights;
+	int16 colored_light_intensity;
+	int16 texture_light_reach;
+	int16 scenery_light_reach;
+	int16 light_render_distance;
+	int16 scenery_light_render_distance;
+	bool player_light_circle;
+	bool soft_sector_light_edges;
 };
 
 enum {

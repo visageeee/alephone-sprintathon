@@ -76,6 +76,10 @@ struct TextureState
 	bool IsGlowing;						// Does the texture have a glow map?
 	bool IsBumped;						// Does the texture have a bump map?
 	bool IsUpscaled;					// Keep costly upscaled textures resident for this level
+	bool BrightEmission;
+	float BrightU, BrightV, BrightColor[3];
+	bool ProjectileVisualColorValid;
+	float ProjectileVisualColor[3];
 	bool TexGened[NUMBER_OF_TEXTURES];	// Which ID's have had their textures generated?
 	int IDUsage[NUMBER_OF_TEXTURES];	// Which ID's are being used?  Reset every frame.
 	int unusedFrames;					// How many frames have passed since we were last used.
@@ -243,6 +247,21 @@ public:
 	// and whether the textures are blended rather than all-or-nothing crisp-edged
 	int GetTextureType() {return TextureType;}	
 	bool IsGlowMapped() {return IsGlowing;}
+    bool GetBrightEmission(float& u, float& v, float rgb[3]) const {
+        if (!TxtrStatePtr || !TxtrStatePtr->BrightEmission) return false;
+        u = TxtrStatePtr->BrightU; v = TxtrStatePtr->BrightV;
+        rgb[0] = TxtrStatePtr->BrightColor[0];
+        rgb[1] = TxtrStatePtr->BrightColor[1];
+        rgb[2] = TxtrStatePtr->BrightColor[2];
+        return true;
+    }
+    bool GetProjectileVisualColor(float rgb[3]) const {
+        if (!TxtrStatePtr || !TxtrStatePtr->ProjectileVisualColorValid) return false;
+        rgb[0] = TxtrStatePtr->ProjectileVisualColor[0];
+        rgb[1] = TxtrStatePtr->ProjectileVisualColor[1];
+        rgb[2] = TxtrStatePtr->ProjectileVisualColor[2];
+        return true;
+    }
 	bool IsBlended() {return (TxtrOptsPtr->OpacityType != OGL_OpacType_Crisp);}
 	bool VoidVisible() {return (TxtrOptsPtr->VoidVisible);}
 	short NormalBlend() {return (TxtrOptsPtr->NormalBlend) + ((NormalImage.get() && NormalImage.get()->IsPremultiplied() && TxtrOptsPtr->NormalBlend < OGL_FIRST_PREMULT_ALPHA) ? OGL_FIRST_PREMULT_ALPHA : 0); }

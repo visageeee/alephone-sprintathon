@@ -689,10 +689,10 @@ void handle_preferences(bool in_game)
 		int *active;
 		int index;
 	};
-	graphics_tab_action graphics_tab_actions[7];
+	graphics_tab_action graphics_tab_actions[8];
 	const char *graphics_tab_labels[] = {
 		"PRESETS", "DISPLAY", "RENDERING", "LIGHT FX",
-		"TEXTURES", "LIQUIDS", "FOG"
+		"PER-PIXEL", "TEXTURES", "LIQUIDS", "FOG"
 	};
 	auto add_graphics_tab_button = [&](horizontal_placer *row, int index) {
 		graphics_tab_actions[index] = { graphics_tabs, &d, &graphics_active_tab, index };
@@ -708,11 +708,11 @@ void handle_preferences(bool in_game)
 	horizontal_placer *preset_tab_row = new horizontal_placer;
 	add_graphics_tab_button(preset_tab_row, 0);
 	graphics_page->add(preset_tab_row, true);
-	for (int first = 1; first < 7; first += 3)
+	for (int first = 1; first < 8; first += 3)
 	{
 		horizontal_placer *row =
 			new horizontal_placer(scale_dialog_value(3));
-		for (int i = first; i < first + 3; ++i)
+		for (int i = first; i < first + 3 && i < 8; ++i)
 			add_graphics_tab_button(row, i);
 		graphics_page->add(row, true);
 	}
@@ -1156,6 +1156,20 @@ void handle_preferences(bool in_game)
 	w_toggle *ogl_billboard_w = new w_toggle(graphics_preferences->OGL_Configure.BillboardXY);
 	w_toggle *ogl_bloom_w = new w_toggle(ogl_flag(OGL_Flag_Blur));
 	w_toggle *projectile_lights_per_pixel_w = new w_toggle(graphics_preferences->projectile_lights_per_pixel);
+	w_toggle *bright_texture_lights_w = new w_toggle(graphics_preferences->bright_texture_lights);
+	w_toggle *bright_scenery_lights_w = new w_toggle(graphics_preferences->bright_scenery_lights);
+	w_percentage_slider *colored_light_intensity_w = new w_percentage_slider(201,
+		graphics_preferences->colored_light_intensity);
+	w_percentage_slider *texture_light_reach_w = new w_percentage_slider(101,
+		graphics_preferences->texture_light_reach);
+	w_percentage_slider *scenery_light_reach_w = new w_percentage_slider(101,
+		graphics_preferences->scenery_light_reach);
+	w_percentage_slider *light_render_distance_w = new w_percentage_slider(101,
+		graphics_preferences->light_render_distance);
+	w_percentage_slider *scenery_light_render_distance_w = new w_percentage_slider(101,
+		graphics_preferences->scenery_light_render_distance);
+	w_toggle *player_light_circle_w = new w_toggle(graphics_preferences->player_light_circle);
+	w_toggle *soft_sector_light_edges_w = new w_toggle(graphics_preferences->soft_sector_light_edges);
 	w_toggle *ogl_bump_w = new w_toggle(ogl_flag(OGL_Flag_BumpMap));
 	w_toggle *ogl_refractive_invisibility_w = new w_toggle(
 		graphics_preferences->OGL_Configure.RefractiveInvisibility);
@@ -1211,7 +1225,7 @@ void handle_preferences(bool in_game)
 #define ADD_LIGHT_FX_ROW(caption, widget) \
 	light_fx->dual_add((widget)->label(caption), d); light_fx->dual_add(widget, d)
 	ADD_LIGHT_FX_ROW("Bloom Effects", ogl_bloom_w);
-	ADD_LIGHT_FX_ROW("Per-Pixel Projectile Lights", projectile_lights_per_pixel_w);
+	ADD_LIGHT_FX_ROW("Blend Sector Shading", soft_sector_light_edges_w);
 	ADD_LIGHT_FX_ROW("Sprite Shadows", ogl_sprite_shadows_w);
 	ADD_LIGHT_FX_ROW("Ambient Occlusion", ogl_ambient_occlusion_w);
 	ADD_LIGHT_FX_ROW("AO Strength", ogl_ambient_occlusion_strength_w);
@@ -1225,6 +1239,30 @@ void handle_preferences(bool in_game)
 #undef ADD_LIGHT_FX_ROW
 	light_fx_page->add(light_fx, true);
 	graphics_tabs->add(light_fx_page, true);
+
+    vertical_placer *per_pixel_page = new vertical_placer(get_theme_space(ITEM_WIDGET));
+    per_pixel_page->center_vertically();
+    per_pixel_page->min_width(scale_dialog_value(430));
+    table_placer *per_pixel = make_preferences_table();
+#define ADD_PER_PIXEL_ROW(caption, widget) \
+    per_pixel->dual_add((widget)->label(caption), d); per_pixel->dual_add(widget, d)
+    ADD_PER_PIXEL_ROW("Per-Pixel Projectile Lights", projectile_lights_per_pixel_w);
+    ADD_PER_PIXEL_ROW("Texture Lights", bright_texture_lights_w);
+    ADD_PER_PIXEL_ROW("Scenery Lights", bright_scenery_lights_w);
+    ADD_PER_PIXEL_ROW("Light Intensity", colored_light_intensity_w);
+    ADD_PER_PIXEL_ROW("Texture Light Reach", texture_light_reach_w);
+    ADD_PER_PIXEL_ROW("Scenery Light Reach", scenery_light_reach_w);
+    ADD_PER_PIXEL_ROW("Texture Render Distance", light_render_distance_w);
+    ADD_PER_PIXEL_ROW("Scenery Render Distance", scenery_light_render_distance_w);
+    ADD_PER_PIXEL_ROW("Player Light Circle", player_light_circle_w);
+#undef ADD_PER_PIXEL_ROW
+    w_preset_description *per_pixel_description = new w_preset_description;
+    per_pixel_description->set_description(
+        "Experimental per-pixel lighting creates colored light",
+        "sources from bright textures and scenery sprites.");
+    per_pixel_page->dual_add(per_pixel_description, d);
+    per_pixel_page->add(per_pixel, true);
+    graphics_tabs->add(per_pixel_page, true);
 
 	vertical_placer *textures_page = new vertical_placer(get_theme_space(ITEM_WIDGET));
 	textures_page->center_vertically();
@@ -1385,7 +1423,12 @@ void handle_preferences(bool in_game)
 		 liquid_strength_w, liquid_wetness_w,
 		 fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
 		 fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w,
-		 fog_haze_w, fog_drift_intensity_w](w_select*) {
+		 fog_haze_w, fog_drift_intensity_w, texture_light_reach_w,
+		 scenery_light_reach_w, light_render_distance_w,
+		 scenery_light_render_distance_w,
+		 colored_light_intensity_w, projectile_lights_per_pixel_w,
+		 bright_texture_lights_w, bright_scenery_lights_w,
+		 player_light_circle_w, soft_sector_light_edges_w](w_select*) {
 			const int preset = graphics_preset_w->get_selection();
 			set_graphics_preset_description(preset);
 			if (preset == 0)
@@ -1395,6 +1438,17 @@ void handle_preferences(bool in_game)
 			const bool medium_or_better = preset >= 2;
 			const bool high_or_better = preset >= 3;
 			const bool total = preset == 4;
+			// Screenshot lighting defaults for High and Total Sprintathon.
+			projectile_lights_per_pixel_w->set_selection(high_or_better);
+			bright_texture_lights_w->set_selection(high_or_better);
+			bright_scenery_lights_w->set_selection(high_or_better);
+			colored_light_intensity_w->set_selection(high_or_better ? 50 : 100);
+			texture_light_reach_w->set_selection(high_or_better ? 40 : 100);
+			scenery_light_reach_w->set_selection(high_or_better ? 20 : 25);
+			light_render_distance_w->set_selection(high_or_better ? 100 : 65);
+			scenery_light_render_distance_w->set_selection(high_or_better ? 100 : 65);
+			player_light_circle_w->set_selection(!high_or_better);
+			soft_sector_light_edges_w->set_selection(medium_or_better);
 			ogl_bloom_w->set_selection(medium_or_better);
 			ogl_bump_w->set_selection(medium_or_better);
 			ogl_refractive_invisibility_w->set_selection(medium_or_better);
@@ -1458,6 +1512,7 @@ void handle_preferences(bool in_game)
 		graphics_skip_intro_w, graphics_limit_vertical_w,
 		graphics_bobbing_w, ogl_fader_w, ogl_models_w, ogl_perspective_w,
 		ogl_billboard_w, ogl_bloom_w, ogl_bump_w,
+		projectile_lights_per_pixel_w, bright_texture_lights_w, bright_scenery_lights_w, player_light_circle_w, soft_sector_light_edges_w,
 		ogl_refractive_invisibility_w, ogl_sprite_shadows_w,
 		ogl_ambient_occlusion_w, ogl_landscape_light_shafts_w,
 		ogl_anamorphic_lens_flares_w, ogl_vsync_w, ogl_npot_w,
@@ -1477,7 +1532,10 @@ void handle_preferences(bool in_game)
 			texture_far_w[i]->set_selection_changed_callback(custom_select_changed);
 	}
 	w_slider *graphics_slider_widgets[] = {
-		graphics_fov_w, ogl_ambient_occlusion_strength_w,
+		graphics_fov_w, colored_light_intensity_w, texture_light_reach_w,
+		scenery_light_reach_w, light_render_distance_w,
+		scenery_light_render_distance_w,
+		ogl_ambient_occlusion_strength_w,
 		ogl_landscape_light_shaft_strength_w,
 		ogl_landscape_light_shaft_length_w,
 		ogl_landscape_light_shaft_direction_w,
@@ -1606,6 +1664,15 @@ void handle_preferences(bool in_game)
 	store_ogl_flag(OGL_Flag_MimicSW, !ogl_perspective_w->get_selection());
 	store_ogl_flag(OGL_Flag_Blur, ogl_bloom_w->get_selection());
 	graphics_preferences->projectile_lights_per_pixel = projectile_lights_per_pixel_w->get_selection();
+	graphics_preferences->bright_texture_lights = bright_texture_lights_w->get_selection();
+	graphics_preferences->bright_scenery_lights = bright_scenery_lights_w->get_selection();
+	graphics_preferences->colored_light_intensity = colored_light_intensity_w->get_selection();
+	graphics_preferences->texture_light_reach = texture_light_reach_w->get_selection();
+	graphics_preferences->scenery_light_reach = scenery_light_reach_w->get_selection();
+	graphics_preferences->light_render_distance = light_render_distance_w->get_selection();
+	graphics_preferences->scenery_light_render_distance = scenery_light_render_distance_w->get_selection();
+	graphics_preferences->player_light_circle = player_light_circle_w->get_selection();
+	graphics_preferences->soft_sector_light_edges = soft_sector_light_edges_w->get_selection();
 	store_ogl_flag(OGL_Flag_BumpMap, ogl_bump_w->get_selection());
 	store_ogl_flag(OGL_Flag_LiqSeeThru, liquid_transparency_w->get_selection());
 	store_ogl_flag(OGL_Flag_Fog, fog_enabled_w->get_selection());
@@ -5892,6 +5959,15 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("fps_target", graphics_preferences->fps_target);
 	root.put_attr("pickup_flash", graphics_preferences->pickup_flash);
 	root.put_attr("projectile_lights_per_pixel", graphics_preferences->projectile_lights_per_pixel);
+	root.put_attr("bright_texture_lights", graphics_preferences->bright_texture_lights);
+	root.put_attr("bright_scenery_lights", graphics_preferences->bright_scenery_lights);
+	root.put_attr("colored_light_intensity", graphics_preferences->colored_light_intensity);
+	root.put_attr("texture_light_reach", graphics_preferences->texture_light_reach);
+	root.put_attr("scenery_light_reach", graphics_preferences->scenery_light_reach);
+	root.put_attr("light_render_distance", graphics_preferences->light_render_distance);
+	root.put_attr("scenery_light_render_distance", graphics_preferences->scenery_light_render_distance);
+	root.put_attr("player_light_circle", graphics_preferences->player_light_circle);
+	root.put_attr("soft_sector_light_edges", graphics_preferences->soft_sector_light_edges);
 	root.put_attr("skip_intro", graphics_preferences->skip_intro);
 	root.put_attr("anisotropy_level", graphics_preferences->OGL_Configure.AnisotropyLevel);
 	root.put_attr("multisamples", graphics_preferences->OGL_Configure.Multisamples);
@@ -6511,6 +6587,15 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->pickup_flash = true;
 	preferences->skip_intro = false;
 	preferences->projectile_lights_per_pixel = false;
+	preferences->bright_texture_lights = false;
+	preferences->bright_scenery_lights = false;
+	preferences->colored_light_intensity = 100;
+	preferences->texture_light_reach = 100;
+	preferences->scenery_light_reach = 25;
+	preferences->light_render_distance = 65;
+	preferences->scenery_light_render_distance = 65;
+	preferences->player_light_circle = true;
+	preferences->soft_sector_light_edges = true;
 
 	preferences->movie_export_video_quality = 50;
 	preferences->movie_export_audio_quality = 50;
@@ -7022,6 +7107,21 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("fps_target", graphics_preferences->fps_target);
 	root.read_attr("pickup_flash", graphics_preferences->pickup_flash);
 	root.read_attr("projectile_lights_per_pixel", graphics_preferences->projectile_lights_per_pixel);
+	root.read_attr("bright_texture_lights", graphics_preferences->bright_texture_lights);
+	graphics_preferences->bright_scenery_lights = graphics_preferences->bright_texture_lights;
+	root.read_attr("bright_scenery_lights", graphics_preferences->bright_scenery_lights);
+	root.read_attr_bounded<int16>("colored_light_intensity",
+		graphics_preferences->colored_light_intensity, 0, 200);
+	root.read_attr_bounded<int16>("texture_light_reach",
+		graphics_preferences->texture_light_reach, 0, 100);
+	root.read_attr_bounded<int16>("scenery_light_reach",
+		graphics_preferences->scenery_light_reach, 0, 100);
+	root.read_attr_bounded<int16>("light_render_distance",
+		graphics_preferences->light_render_distance, 0, 100);
+	root.read_attr_bounded<int16>("scenery_light_render_distance",
+		graphics_preferences->scenery_light_render_distance, 0, 100);
+	root.read_attr("player_light_circle", graphics_preferences->player_light_circle);
+	root.read_attr("soft_sector_light_edges", graphics_preferences->soft_sector_light_edges);
 	root.read_attr("skip_intro", graphics_preferences->skip_intro);
 	root.read_attr("anisotropy_level", graphics_preferences->OGL_Configure.AnisotropyLevel);
 	root.read_attr("multisamples", graphics_preferences->OGL_Configure.Multisamples);

@@ -4,6 +4,7 @@ uniform sampler2D texture0;
 uniform float glow;
 uniform float flare;
 uniform float selfLuminosity;
+uniform vec4 sprintathonLightColor;
 uniform float fogMode;
 uniform float mediaFogEnabled;
 uniform float mediaFogTop;
@@ -33,7 +34,7 @@ void main (void) {
 		intensity = vertexColor.rgb + (mlFactor * 0.5); }
 	else {
 		intensity = (vertexColor.rgb * 0.5) + mlFactor; }
-	intensity = clamp(intensity, glow, 1.0);
+	intensity = clamp(intensity + sprintathonLightColor.rgb, glow, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)
 #endif
