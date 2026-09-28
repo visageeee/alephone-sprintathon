@@ -85,9 +85,12 @@ void main (void) {
 	else {
 		intensity = (vertexColor.rgb * 0.5) + mlFactor; }
 	intensity = clamp(intensity, glow, 1.0);
-    vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition.xyz) / max(sprintathonLightPosition.w, 1.0);
-    float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
-    intensity = clamp(intensity + sprintathonLightColor.rgb * (lightFalloff * lightFalloff), glow, 1.0);
+    // A uniform branch skips the distance math for unlit surfaces and when the option is off.
+    if (sprintathonLightColor.a > 0.0) {
+        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition.xyz) / max(sprintathonLightPosition.w, 1.0);
+        float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
+        intensity = clamp(intensity + sprintathonLightColor.rgb * (lightFalloff * lightFalloff), glow, 1.0);
+    }
 	intensity = clamp(intensity * rippleHighlight, glow, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)

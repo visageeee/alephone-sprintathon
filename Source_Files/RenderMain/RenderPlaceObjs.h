@@ -50,6 +50,7 @@ struct render_object_data
 	
 	struct rectangle_definition rectangle;
 	
+	bool casts_character_shadow; // only monster-owned objects, including players
 	int16 ymedia;
 };
 

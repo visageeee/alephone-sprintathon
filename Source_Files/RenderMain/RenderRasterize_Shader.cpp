@@ -704,9 +704,13 @@ static void sprintathon_draw_anamorphic_lens_flare(GLuint color_texture,
 
 
 // Approximate short-range colored projectile light on nearby surfaces.
+// Evaluated once per rendered frame; idle maps pay no per-surface projectile scans.
+static bool sprintathon_has_active_lighting = false;
+
 static void sprintathon_projectile_light_rgb(float x, float y, float z, float rgb[3])
 {
     rgb[0] = rgb[1] = rgb[2] = 0.0f;
+    if (!sprintathon_has_active_lighting) return;
     for (const projectile_data& projectile : ProjectileList) {
         if (!SLOT_IS_USED(&projectile)) continue;
         float strength = 0.0f;
@@ -798,6 +802,10 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
 {
     Shader *shader = sprintathon_surface_shader(step, texture_type);
     if (!shader) return;
+    if (!sprintathon_has_active_lighting) {
+        shader->setVector4(Shader::U_SprintathonLightColor, 0, 0, 0, 0);
+        return;
+    }
     float radius = 2.5f * WORLD_ONE;
     float nearest = radius * radius;
     const object_data *selected = nullptr;
@@ -873,6 +881,23 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
 }
 
 void RenderRasterize_Shader::render_tree() {
+    sprintathon_has_active_lighting = false;
+    for (const projectile_data& projectile : ProjectileList) {
+        if (SLOT_IS_USED(&projectile)) {
+            sprintathon_has_active_lighting = true;
+            break;
+        }
+    }
+    if (!sprintathon_has_active_lighting) {
+        for (const effect_data& effect : EffectList) {
+            if (SLOT_IS_USED(&effect) && effect.delay == 0 &&
+                (effect.type == _effect_rocket_explosion || effect.type == _effect_grenade_explosion)) {
+                sprintathon_has_active_lighting = true;
+                break;
+            }
+        }
+    }
+
 	GLfloat scene_projection[16];
 	glGetFloatv(GL_PROJECTION_MATRIX, scene_projection);
 
@@ -1716,7 +1741,8 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
         center_x /= polygon->vertex_count;
         center_y /= polygon->vertex_count;
         surface_light_x = center_x; surface_light_y = center_y;
-        sprintathon_projectile_light_rgb(center_x, center_y, surface->height, projectile_rgb);
+        if (!graphics_preferences->projectile_lights_per_pixel)
+            sprintathon_projectile_light_rgb(center_x, center_y, surface->height, projectile_rgb);
     }
 	float wobble = calcWobble(surface->transfer_mode, view->tick_count);
 	// note: wobble and pulsate behave the same way on floors and ceilings
@@ -1861,11 +1887,12 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
     float surface_light_y = (surface->p0.j + surface->p1.j) * 0.5f;
     float surface_light_z = (surface->h0 + std::min(surface->h1, surface->hmax)) * 0.5f + view->origin.z;
     float projectile_rgb[3];
-    sprintathon_projectile_light_rgb(
-        (surface->p0.i + surface->p1.i) * 0.5f,
-        (surface->p0.j + surface->p1.j) * 0.5f,
-        (surface->h0 + std::min(surface->h1, surface->hmax)) * 0.5f + view->origin.z,
-        projectile_rgb);
+    if (!graphics_preferences->projectile_lights_per_pixel)
+        sprintathon_projectile_light_rgb(
+            (surface->p0.i + surface->p1.i) * 0.5f,
+            (surface->p0.j + surface->p1.j) * 0.5f,
+            (surface->h0 + std::min(surface->h1, surface->hmax)) * 0.5f + view->origin.z,
+            projectile_rgb);
 	float wobble = calcWobble(surface->transfer_mode, view->tick_count);
 	float pulsate = 0;
 	if (surface->transfer_mode == _xfer_pulsate) {
@@ -2356,6 +2383,7 @@ void RenderRasterize_Shader::_render_node_object_helper(render_object_data *obje
 	// and invisible transfer modes otherwise produce distracting dark flashes.
 	if (renderStep == kDiffuse &&
 		Get_OGL_ConfigureData().SpriteShadows &&
+		object->casts_character_shadow &&
 		rect.transfer_mode == _textured_transfer &&
 		!(rect.flags & _SHADELESS_BIT) &&
 		object->node && object->node->polygon_index != NONE)

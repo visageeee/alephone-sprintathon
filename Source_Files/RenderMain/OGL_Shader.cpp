@@ -291,6 +291,7 @@ void Shader::init() {
 
 	std::fill_n(_uniform_locations, static_cast<int>(NUMBER_OF_UNIFORM_LOCATIONS), -1);
 	std::fill_n(_cached_floats, static_cast<int>(NUMBER_OF_UNIFORM_LOCATIONS), 0.0);
+	std::fill_n(&_cached_vectors[0][0], 4 * static_cast<int>(NUMBER_OF_UNIFORM_LOCATIONS), -1e30f);
 
 	_loaded = true;
 
@@ -357,7 +358,11 @@ void Shader::setFloat(UniformName name, float f) {
 }
 
 void Shader::setVector4(UniformName name, float x, float y, float z, float w) {
-    glUniform4fARB(getUniformLocation(name), x, y, z, w);
+    float *previous = _cached_vectors[name];
+    if (previous[0] != x || previous[1] != y || previous[2] != z || previous[3] != w) {
+        previous[0] = x; previous[1] = y; previous[2] = z; previous[3] = w;
+        glUniform4fARB(getUniformLocation(name), x, y, z, w);
+    }
 }
 
 void Shader::setMatrix4(UniformName name, float *f) {
