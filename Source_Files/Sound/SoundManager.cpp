@@ -32,6 +32,9 @@ SOUND.C
 #include "shell_options.h"
 #include "Movie.h"
 #include "SoundsPatch.h"
+#include "map.h"
+#include <algorithm>
+#include <vector>
 
 #undef SLOT_IS_USED
 #undef SLOT_IS_FREE
@@ -397,6 +400,7 @@ std::shared_ptr<SoundPlayer> SoundManager::PlaySound(short sound_index,
 	parameters.pitch = pitch;
 	parameters.soft_rewind = soft_rewind;
 	parameters.is_2d = !source;
+	parameters.in_world = _sound_listener_proc() != nullptr;
 	parameters.source_identifier = identifier;
 	if (!source && gain < 1.f)
 	{
@@ -438,6 +442,7 @@ std::shared_ptr<SoundPlayer> SoundManager::DirectPlaySound(short sound_index, an
 	parameters.pitch = pitch;
 
 	world_location3d* listener = _sound_listener_proc();
+	parameters.in_world = listener != nullptr;
 	if (direction != NONE && listener)
 	{
 		SoundVolumes variables;
@@ -498,11 +503,68 @@ void SoundManager::ManagePlayers() {
 	}
 }
 
+// Estimate the enclosed space around the listener. Marathon often divides one
+// room into many polygons, so examine a small connected region rather than just
+// the polygon under the player. Outdoor landscape ceilings never contribute.
+static float sprintathon_cavern_size(short start)
+{
+	if (!dynamic_world || start < 0 || start >= dynamic_world->polygon_count) return 0.f;
+	const polygon_data *origin = get_polygon_data(start);
+	// A sky/landscape ceiling means the listener is outside, regardless of
+	// how many large enclosed polygons are reachable nearby.
+	if (!origin || origin->ceiling_transfer_mode == _xfer_landscape) return 0.f;
+	const int count = dynamic_world->polygon_count;
+	std::vector<uint8_t> visited(count, 0);
+	std::vector<std::pair<short, int>> queue;
+	queue.emplace_back(start, 0);
+	visited[start] = 1;
+	float volume = 0.f;
+	for (size_t head = 0; head < queue.size() && head < 40; ++head) {
+		const auto entry = queue[head];
+		const polygon_data *polygon = get_polygon_data(entry.first);
+		if (!polygon || polygon->ceiling_transfer_mode == _xfer_landscape) continue;
+		const float height = float(polygon->ceiling_height - polygon->floor_height) / WORLD_ONE;
+		if (height < 1.8f) continue;
+		const float area = std::max(0.f, float(polygon->area) / (float(WORLD_ONE) * WORLD_ONE));
+		volume += std::min(area, 180.f) * std::min(height, 8.f);
+		if (entry.second >= 5) continue;
+		for (int i = 0; i < polygon->vertex_count; ++i) {
+			const short next = polygon->adjacent_polygon_indexes[i];
+			if (next < 0 || next >= count || visited[next]) continue;
+			const line_data *line = get_line_data(polygon->line_indexes[i]);
+			const polygon_data *neighbor = get_polygon_data(next);
+			if (!line || !neighbor || LINE_IS_SOLID(line)) continue;
+			if (std::min(polygon->ceiling_height, neighbor->ceiling_height) -
+			    std::max(polygon->floor_height, neighbor->floor_height) < 2 * WORLD_ONE) continue;
+			visited[next] = 1;
+			queue.emplace_back(next, entry.second + 1);
+		}
+	}
+	return std::max(0.f, std::min(1.f, (volume - 160.f) / 700.f));
+}
+
 void SoundManager::UpdateListener()
 {
-	if (!active || !(parameters.flags & _3d_sounds_flag)) return;
+	if (!active || !OpenALManager::Get()) return;
 	auto listener = _sound_listener_proc();
-	if (listener && *listener != OpenALManager::Get()->GetListener()) OpenALManager::Get()->UpdateListener(*listener);
+	static short last_polygon = NONE;
+	static uint64_t last_sample = 0;
+	static float room_size = 0.f;
+	if (listener && (parameters.flags & _cavern_echo_flag)) {
+		const uint64_t now = machine_tick_count();
+		if (listener->polygon_index != last_polygon || now - last_sample > 500) {
+			room_size = sprintathon_cavern_size(listener->polygon_index);
+			last_polygon = listener->polygon_index;
+			last_sample = now;
+		}
+		OpenALManager::Get()->SetCavernEcho(room_size);
+	} else {
+		last_polygon = NONE;
+		OpenALManager::Get()->SetCavernEcho(0.f);
+	}
+	if ((parameters.flags & _3d_sounds_flag) && listener &&
+	    *listener != OpenALManager::Get()->GetListener())
+		OpenALManager::Get()->UpdateListener(*listener);
 }
 
 void SoundManager::Idle()

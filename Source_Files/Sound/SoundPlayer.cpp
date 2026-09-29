@@ -259,6 +259,7 @@ bool SoundPlayer::SetUpALSourceInit() {
 	alSourcei(audio_source->source_id, AL_MAX_GAIN, 0);
 	alSourcei(audio_source->source_id, AL_MIN_GAIN, 0);
 	alSourcei(audio_source->source_id, AL_DIRECT_FILTER, AL_FILTER_NULL);
+	OpenALManager::Get()->AttachCavernEcho(audio_source->source_id, parameters.Get().in_world);
 
 	if (parameters.Get().is_2d) {
 		alSourcei(audio_source->source_id, AL_DISTANCE_MODEL, AL_NONE);

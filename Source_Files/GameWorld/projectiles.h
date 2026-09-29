@@ -109,6 +109,10 @@ enum /* projectile types */
 #define PROJECTILE_IS_SLIDE_PUNCH(p) ((p)->flags&(uint16)0x0800)
 #define SET_PROJECTILE_SLIDE_PUNCH_STATUS(p,v) ((v)?((p)->flags|=(uint16)0x0800):((p)->flags&=(uint16)~0x0800))
 
+// A bullet can glance off a surface only once.
+#define PROJECTILE_HAS_RICOCHETED(p) ((p)->flags&(uint16)0x0400)
+#define SET_PROJECTILE_RICOCHETED(p) ((p)->flags|=(uint16)0x0400)
+
 /* uses SLOT_IS_USED(), SLOT_IS_FREE(), MARK_SLOT_AS_FREE(), MARK_SLOT_AS_USED() macros (0x8000 bit) */
 
 struct projectile_data /* 32 bytes */

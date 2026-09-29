@@ -72,6 +72,8 @@ public:
 	std::shared_ptr<StreamPlayer> PlayStream(CallBackStreamPlayer callback, uint32_t rate, bool stereo, AudioFormat audioFormat, void* userdata);
 	std::unique_ptr<AudioPlayer::AudioSource> PickAvailableSource(const AudioPlayer& audioPlayer);
 	void UpdateListener(world_location3d listener) { listener_location.Set(listener); }
+	void SetCavernEcho(float strength) { cavern_echo_target.store(std::max(0.f, std::min(1.f, strength))); }
+	void AttachCavernEcho(ALuint source, bool in_world) const;
 	const world_location3d& GetListener() const { return listener_location.Get(); }
 	void SetMasterVolume(float volume);
 	void SetMusicVolume(float volume);
@@ -138,6 +140,19 @@ private:
 	AudioParameters audio_parameters;
 	ALCint openal_rendering_format = 0;
 	ALuint low_pass_filter;
+	ALuint cavern_echo_effect = 0;
+	ALuint cavern_echo_slot = 0;
+	std::atomic<float> cavern_echo_target = { 0.f };
+	float cavern_echo_current = 0.f; // audio thread only
+	std::vector<float> cavern_echo_delay; // interleaved PCM delay, audio thread only
+	std::vector<float> cavern_echo_damping; // one low-pass state per output channel
+	size_t cavern_echo_frame = 0;
+	float cavern_echo_wet = 0.f;
+	bool cavern_echo_cleared = true;
+	void MixCavernEcho(uint8* stream, int frames);
+	void UpdateCavernEcho();
+	void GenerateCavernEcho();
+	void DeleteCavernEcho();
 
 	/* format type we supports for mixing / rendering
 	* those are used from the first to the last of the list

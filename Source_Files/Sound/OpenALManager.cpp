@@ -18,6 +18,17 @@
 
 #include "OpenALManager.h"
 #include "Logging.h"
+#include <AL/efx.h>
+
+// EFX is optional: audio continues normally when a device has no effect slots.
+static LPALGENEFFECTS sprintathon_alGenEffects = nullptr;
+static LPALDELETEEFFECTS sprintathon_alDeleteEffects = nullptr;
+static LPALEFFECTI sprintathon_alEffecti = nullptr;
+static LPALEFFECTF sprintathon_alEffectf = nullptr;
+static LPALGENAUXILIARYEFFECTSLOTS sprintathon_alGenAuxiliaryEffectSlots = nullptr;
+static LPALDELETEAUXILIARYEFFECTSLOTS sprintathon_alDeleteAuxiliaryEffectSlots = nullptr;
+static LPALAUXILIARYEFFECTSLOTI sprintathon_alAuxiliaryEffectSloti = nullptr;
+static LPALAUXILIARYEFFECTSLOTF sprintathon_alAuxiliaryEffectSlotf = nullptr;
 
 LPALCLOOPBACKOPENDEVICESOFT OpenALManager::alcLoopbackOpenDeviceSOFT;
 LPALCISRENDERFORMATSUPPORTEDSOFT OpenALManager::alcIsRenderFormatSupportedSOFT;
@@ -80,6 +91,7 @@ void OpenALManager::ProcessAudioQueue() {
 	}
 
 	UpdateListener();
+	UpdateCavernEcho();
 	for (int i = 0; i < audio_players_queue.size(); i++) {
 
 		auto audio = audio_players_queue.front();
@@ -283,11 +295,13 @@ bool OpenALManager::OpenDevice() {
 	}
 
 	if (openal_rendering_format) {
+		const bool has_efx = alcIsExtensionPresent(p_ALCDevice, "ALC_EXT_EFX") == ALC_TRUE;
 		ALCint attrs[] = {
 			ALC_FORMAT_TYPE_SOFT,     openal_rendering_format,
 			ALC_FORMAT_CHANNELS_SOFT, mapping_sdl_openal_channel.at(audio_parameters.channel_type),
 			ALC_FREQUENCY,            static_cast<ALCint>(audio_parameters.rate),
 			ALC_HRTF_SOFT,            audio_parameters.hrtf,
+			has_efx ? ALC_MAX_AUXILIARY_SENDS : 0, has_efx ? 1 : 0,
 			0,
 		};
 
@@ -336,7 +350,67 @@ bool OpenALManager::GenerateEffects() {
 	alFilteri(low_pass_filter, AL_FILTER_TYPE, AL_FILTER_LOWPASS);
 	alFilterf(low_pass_filter, AL_LOWPASS_GAIN, 1.f);
 	alFilterf(low_pass_filter, AL_LOWPASS_GAINHF, 1.f);
-	return alGetError() == AL_NO_ERROR;
+	if (alGetError() != AL_NO_ERROR) return false;
+	GenerateCavernEcho();
+	return true;
+}
+
+void OpenALManager::GenerateCavernEcho() {
+	if (alcIsExtensionPresent(p_ALCDevice, "ALC_EXT_EFX") != ALC_TRUE) return;
+	sprintathon_alGenEffects = reinterpret_cast<LPALGENEFFECTS>(alGetProcAddress("alGenEffects"));
+	sprintathon_alDeleteEffects = reinterpret_cast<LPALDELETEEFFECTS>(alGetProcAddress("alDeleteEffects"));
+	sprintathon_alEffecti = reinterpret_cast<LPALEFFECTI>(alGetProcAddress("alEffecti"));
+	sprintathon_alEffectf = reinterpret_cast<LPALEFFECTF>(alGetProcAddress("alEffectf"));
+	sprintathon_alGenAuxiliaryEffectSlots = reinterpret_cast<LPALGENAUXILIARYEFFECTSLOTS>(alGetProcAddress("alGenAuxiliaryEffectSlots"));
+	sprintathon_alDeleteAuxiliaryEffectSlots = reinterpret_cast<LPALDELETEAUXILIARYEFFECTSLOTS>(alGetProcAddress("alDeleteAuxiliaryEffectSlots"));
+	sprintathon_alAuxiliaryEffectSloti = reinterpret_cast<LPALAUXILIARYEFFECTSLOTI>(alGetProcAddress("alAuxiliaryEffectSloti"));
+	sprintathon_alAuxiliaryEffectSlotf = reinterpret_cast<LPALAUXILIARYEFFECTSLOTF>(alGetProcAddress("alAuxiliaryEffectSlotf"));
+	if (!sprintathon_alGenEffects || !sprintathon_alDeleteEffects ||
+	    !sprintathon_alEffecti || !sprintathon_alEffectf ||
+	    !sprintathon_alGenAuxiliaryEffectSlots ||
+	    !sprintathon_alDeleteAuxiliaryEffectSlots ||
+	    !sprintathon_alAuxiliaryEffectSloti || !sprintathon_alAuxiliaryEffectSlotf) return;
+	sprintathon_alGenEffects(1, &cavern_echo_effect);
+	if (alGetError() != AL_NO_ERROR) { cavern_echo_effect = 0; return; }
+	sprintathon_alEffecti(cavern_echo_effect, AL_EFFECT_TYPE, AL_EFFECT_REVERB);
+	sprintathon_alEffectf(cavern_echo_effect, AL_REVERB_DECAY_TIME, 2.1f);
+	sprintathon_alEffectf(cavern_echo_effect, AL_REVERB_GAIN, 0.25f);
+	sprintathon_alEffectf(cavern_echo_effect, AL_REVERB_REFLECTIONS_GAIN, 0.18f);
+	sprintathon_alEffectf(cavern_echo_effect, AL_REVERB_LATE_REVERB_GAIN, 1.25f);
+	if (alGetError() != AL_NO_ERROR) { DeleteCavernEcho(); return; }
+	sprintathon_alGenAuxiliaryEffectSlots(1, &cavern_echo_slot);
+	if (alGetError() != AL_NO_ERROR) { cavern_echo_slot = 0; DeleteCavernEcho(); return; }
+	sprintathon_alAuxiliaryEffectSloti(cavern_echo_slot, AL_EFFECTSLOT_EFFECT, cavern_echo_effect);
+	sprintathon_alAuxiliaryEffectSlotf(cavern_echo_slot, AL_EFFECTSLOT_GAIN, 0.f);
+	if (alGetError() != AL_NO_ERROR) DeleteCavernEcho();
+}
+
+void OpenALManager::UpdateCavernEcho() {
+	if (!cavern_echo_slot) return;
+	const float target = cavern_echo_target.load() * 0.65f;
+	if (std::abs(target - cavern_echo_current) < 0.002f) return;
+	cavern_echo_current += (target - cavern_echo_current) * 0.04f;
+	sprintathon_alAuxiliaryEffectSlotf(cavern_echo_slot, AL_EFFECTSLOT_GAIN, cavern_echo_current);
+	alGetError(); // optional effect must not interrupt sound playback
+}
+
+void OpenALManager::AttachCavernEcho(ALuint source, bool in_world) const {
+	if (cavern_echo_slot) {
+		alSource3i(source, AL_AUXILIARY_SEND_FILTER,
+			in_world ? cavern_echo_slot : AL_EFFECTSLOT_NULL, 0, AL_FILTER_NULL);
+		alGetError(); // a device may reject sends for some source formats
+	}
+}
+
+void OpenALManager::DeleteCavernEcho() {
+	if (cavern_echo_slot) {
+		sprintathon_alDeleteAuxiliaryEffectSlots(1, &cavern_echo_slot);
+		cavern_echo_slot = 0;
+	}
+	if (cavern_echo_effect) {
+		sprintathon_alDeleteEffects(1, &cavern_echo_effect);
+		cavern_echo_effect = 0;
+	}
 }
 
 ALuint OpenALManager::GetLowPassFilter(float highFrequencyGain) const {
@@ -403,6 +477,10 @@ OpenALManager::OpenALManager(const AudioParameters& parameters) {
 		audio_parameters.rate = sdl_audio_specs_obtained.freq;
 		audio_parameters.channel_type = static_cast<ChannelType>(sdl_audio_specs_obtained.channels);
 		openal_rendering_format = mapping_sdl_openal_format.at(sdl_audio_specs_obtained.format);
+		// Allocate outside the audio callback. Keep one delay tap per output channel.
+		const size_t delay_frames = static_cast<size_t>(std::max(1, sdl_audio_specs_obtained.freq * 28 / 100));
+		cavern_echo_delay.resize(delay_frames * sdl_audio_specs_obtained.channels, 0.f);
+		cavern_echo_damping.resize(sdl_audio_specs_obtained.channels, 0.f);
 	}
 }
 
@@ -410,6 +488,68 @@ void OpenALManager::MixerCallback(void* usr, uint8* stream, int len) {
 	auto manager = (OpenALManager*)usr;
 	int frameSize = manager->sdl_audio_specs_obtained.channels * SDL_AUDIO_BITSIZE(manager->sdl_audio_specs_obtained.format) / 8;
 	manager->GetPlayBackAudio(stream, len / frameSize);
+	manager->MixCavernEcho(stream, len / frameSize);
+}
+
+// A delayed reflection mixed after OpenAL's loopback render also works on
+// devices without EFX. Its wet level follows the enclosed-room estimate.
+void OpenALManager::MixCavernEcho(uint8* stream, int frames) {
+	if (cavern_echo_delay.empty() || frames <= 0) return;
+	const float target = cavern_echo_target.load() * 0.28f;
+	if (target == 0.f && cavern_echo_wet < 0.001f) {
+		if (!cavern_echo_cleared) {
+			std::fill(cavern_echo_delay.begin(), cavern_echo_delay.end(), 0.f);
+			std::fill(cavern_echo_damping.begin(), cavern_echo_damping.end(), 0.f);
+			cavern_echo_cleared = true;
+		}
+		return;
+	}
+	const SDL_AudioFormat format = sdl_audio_specs_obtained.format;
+	if (format != AUDIO_S16SYS && format != AUDIO_F32SYS &&
+	    format != AUDIO_S32SYS && format != AUDIO_U8) return;
+	const size_t channels = sdl_audio_specs_obtained.channels;
+	const size_t delay_frames = cavern_echo_delay.size() / channels;
+	const size_t early_a = std::min(delay_frames - 1,
+		static_cast<size_t>(sdl_audio_specs_obtained.freq * 75 / 1000));
+	const size_t early_b = std::min(delay_frames - 1,
+		static_cast<size_t>(sdl_audio_specs_obtained.freq * 145 / 1000));
+	cavern_echo_cleared = false;
+	for (int frame = 0; frame < frames; ++frame) {
+		cavern_echo_wet += (target - cavern_echo_wet) * 0.0005f;
+		for (size_t channel = 0; channel < channels; ++channel) {
+			const size_t sample = static_cast<size_t>(frame) * channels + channel;
+			const size_t tap = cavern_echo_frame * channels + channel;
+			const size_t tap_a = ((cavern_echo_frame + delay_frames - early_a) % delay_frames) * channels + channel;
+			const size_t tap_b = ((cavern_echo_frame + delay_frames - early_b) % delay_frames) * channels + channel;
+			float input = 0.f;
+			if (format == AUDIO_S16SYS)
+				input = reinterpret_cast<int16_t*>(stream)[sample] / 32768.f;
+			else if (format == AUDIO_F32SYS)
+				input = reinterpret_cast<float*>(stream)[sample];
+			else if (format == AUDIO_S32SYS)
+				input = static_cast<float>(reinterpret_cast<int32_t*>(stream)[sample] / 2147483648.0);
+			else
+				input = (stream[sample] - 128) / 128.f;
+			const float delayed = cavern_echo_delay[tap];
+			const float other_b = channels == 2 ?
+				cavern_echo_delay[tap_b - channel + (channel ^ 1)] : 0.f;
+			const float reflections = cavern_echo_delay[tap_a] * 0.60f +
+				cavern_echo_delay[tap_b] * 0.38f + other_b * 0.12f + delayed * 0.20f;
+			float& damping = cavern_echo_damping[channel];
+			damping += (reflections - damping) * 0.22f;
+			cavern_echo_delay[tap] = std::max(-1.f, std::min(1.f, input + delayed * 0.20f));
+			const float output = std::max(-1.f, std::min(1.f, input + damping * cavern_echo_wet));
+			if (format == AUDIO_S16SYS)
+				reinterpret_cast<int16_t*>(stream)[sample] = static_cast<int16_t>(output * 32767.f);
+			else if (format == AUDIO_F32SYS)
+				reinterpret_cast<float*>(stream)[sample] = output;
+			else if (format == AUDIO_S32SYS)
+				reinterpret_cast<int32_t*>(stream)[sample] = static_cast<int32_t>(output * 2147483647.0);
+			else
+				stream[sample] = static_cast<uint8>(std::max(0.f, std::min(255.f, output * 127.f + 128.f)));
+		}
+		cavern_echo_frame = (cavern_echo_frame + 1) % delay_frames;
+	}
 }
 
 void OpenALManager::CleanEverything() {
@@ -426,6 +566,7 @@ void OpenALManager::CleanEverything() {
 		sources_pool.pop();
 	}
 
+	DeleteCavernEcho();
 	alDeleteFilters(1, &low_pass_filter);
 	bool closedDevice = CloseDevice();
 	assert(closedDevice && "Could not close audio device");

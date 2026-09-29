@@ -841,6 +841,8 @@ void handle_preferences(bool in_game)
 	ADD_EMBEDDED_SOUND_TOGGLE(sound_more_w, _more_sounds_flag, "More Sounds");
 	ADD_EMBEDDED_SOUND_TOGGLE(sound_rapid_w, _lower_restart_delay,
 		"Rapid-fire Sounds");
+	ADD_EMBEDDED_SOUND_TOGGLE(sound_cavern_echo_w, _cavern_echo_flag,
+		"Cavern Echo (Experimental)");
 #undef ADD_EMBEDDED_SOUND_TOGGLE
 	w_percentage_slider *sound_volume_w = new w_percentage_slider(
 		21, static_cast<int>(sound_preferences->volume_db / 2 + 20));
@@ -1045,6 +1047,7 @@ void handle_preferences(bool in_game)
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(crouch_w, sprintathon_crouch, "Crouch / Kick / Slide");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprint_w, sprintathon_sprint, "Sprinting");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(slide_w, sprintathon_slide, "Sprint Sliding");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(ricochet_w, sprintathon_bullet_ricochet, "Bullet Ricochets");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(dodge_w, sprintathon_dodge, "Dodging");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(long_jump_w, sprintathon_long_jump, "Crouch Long-Jump");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(wall_run_w, sprintathon_wall_run, "Wall-Running");
@@ -1776,6 +1779,7 @@ void handle_preferences(bool in_game)
 	if (sound_ambient_w->get_selection()) embedded_sound_flags |= _ambient_sound_flag;
 	if (sound_more_w->get_selection()) embedded_sound_flags |= _more_sounds_flag;
 	if (sound_rapid_w->get_selection()) embedded_sound_flags |= _lower_restart_delay;
+	if (sound_cavern_echo_w->get_selection()) embedded_sound_flags |= _cavern_echo_flag;
 	if (!sound_dialogs_w->get_selection()) embedded_sound_flags |= _mute_dialogs;
 	embedded_sound_changed |= embedded_sound_flags != sound_preferences->flags;
 	sound_preferences->flags = embedded_sound_flags;
@@ -1954,6 +1958,7 @@ void handle_preferences(bool in_game)
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_crouch, crouch_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_sprint, sprint_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_bullet_ricochet, ricochet_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_dodge, dodge_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_long_jump, long_jump_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_wall_run, wall_run_w);
@@ -3388,9 +3393,12 @@ static void sound_dialog(void *arg)
 
 	table->add_row(new w_spacer(), true);
 	table->dual_add_row(new w_static_text("Experimental Sound Options"), d);
-		w_toggle *zrd_w = new w_toggle(TEST_FLAG(sound_preferences->flags, _lower_restart_delay));
+	w_toggle *zrd_w = new w_toggle(TEST_FLAG(sound_preferences->flags, _lower_restart_delay));
 	table->dual_add(zrd_w->label("Rapid-fire Sounds"), d);
 	table->dual_add(zrd_w, d);
+	w_toggle *cavern_echo_w = new w_toggle(TEST_FLAG(sound_preferences->flags, _cavern_echo_flag));
+	table->dual_add(cavern_echo_w->label("Cavern Echo"), d);
+	table->dual_add(cavern_echo_w, d);
 
 	placer->add(table, true);
 
@@ -3418,6 +3426,7 @@ static void sound_dialog(void *arg)
 		if (ambient_w->get_selection()) flags |= _ambient_sound_flag;
 		if (more_w->get_selection()) flags |= _more_sounds_flag;
 		if (zrd_w->get_selection()) flags |= _lower_restart_delay;
+		if (cavern_echo_w->get_selection()) flags |= _cavern_echo_flag;
 		if (!dialog_sounds_w->get_selection()) flags |= _mute_dialogs;
 
 		if (flags != sound_preferences->flags) {
@@ -4278,6 +4287,7 @@ static void sprintathon_dialog(void *arg)
 	ADD_SPRINTATHON_TOGGLE(stamina_dodge_w, sprintathon_stamina_dodge, "Dodging Drains Stamina");
 	ADD_SPRINTATHON_TOGGLE(stamina_bullet_time_w, sprintathon_stamina_bullet_time, "Bullet Time Drains Stamina");
 	ADD_SPRINTATHON_TOGGLE(slide_w, sprintathon_slide, "Sprint Sliding");
+	ADD_SPRINTATHON_TOGGLE(ricochet_w, sprintathon_bullet_ricochet, "Bullet Ricochets");
 	ADD_SPRINTATHON_TOGGLE(dodge_w, sprintathon_dodge, "Dodging");
 	ADD_SPRINTATHON_TOGGLE(long_jump_w, sprintathon_long_jump, "Crouch Long-Jump");
 	ADD_SPRINTATHON_TOGGLE(wall_run_w, sprintathon_wall_run, "Wall-Running");
@@ -4332,6 +4342,7 @@ static void sprintathon_dialog(void *arg)
 		input_preferences->sprintathon_oxygen_recovery_percent =
 			oxygen_recovery_w->get_selection() + 10;
 		STORE_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_bullet_ricochet, ricochet_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_dodge, dodge_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_long_jump, long_jump_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_wall_run, wall_run_w);
@@ -6311,6 +6322,7 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_stamina_dodge", input_preferences->sprintathon_stamina_dodge);
 	root.put_attr("sprintathon_stamina_bullet_time", input_preferences->sprintathon_stamina_bullet_time);
 	root.put_attr("sprintathon_slide", input_preferences->sprintathon_slide);
+	root.put_attr("sprintathon_bullet_ricochet", input_preferences->sprintathon_bullet_ricochet);
 	root.put_attr("sprintathon_dodge", input_preferences->sprintathon_dodge);
 	root.put_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
 	root.put_attr("sprintathon_wall_run", input_preferences->sprintathon_wall_run);
@@ -6703,6 +6715,7 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_stamina_dodge = true;
 	preferences->sprintathon_stamina_bullet_time = true;
 	preferences->sprintathon_slide = true;
+	preferences->sprintathon_bullet_ricochet = false;
 	preferences->sprintathon_dodge = true;
 	preferences->sprintathon_long_jump = true;
 	preferences->sprintathon_wall_run = true;
@@ -7381,6 +7394,7 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_stamina_dodge", input_preferences->sprintathon_stamina_dodge);
 	root.read_attr("sprintathon_stamina_bullet_time", input_preferences->sprintathon_stamina_bullet_time);
 	root.read_attr("sprintathon_slide", input_preferences->sprintathon_slide);
+	root.read_attr("sprintathon_bullet_ricochet", input_preferences->sprintathon_bullet_ricochet);
 	root.read_attr("sprintathon_dodge", input_preferences->sprintathon_dodge);
 	root.read_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
 	root.read_attr("sprintathon_wall_run", input_preferences->sprintathon_wall_run);

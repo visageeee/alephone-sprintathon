@@ -92,6 +92,9 @@ Oct 13, 2000 (Loren Petrich)
 #include "media.h"
 #include "SoundManager.h"
 #include "items.h"
+#include "preferences.h"
+#include <algorithm>
+#include <cmath>
 
 // LP additions
 #include "dynamic_limits.h"
@@ -318,6 +321,70 @@ short new_projectile(
 
 extern void track_contrail_interpolation(int16_t, int16_t);
 
+static bool sprintathon_ricochet(projectile_data *projectile, object_data *object,
+	const world_point3d& old_location, const world_point3d& destination,
+	world_point3d *impact, short polygon_index, short line_index,
+	short obstruction_index, uint16 flags)
+{
+	if (!input_preferences->sprintathon_enabled ||
+		!input_preferences->sprintathon_bullet_ricochet ||
+		PROJECTILE_HAS_RICOCHETED(projectile) ||
+		(flags&(_projectile_hit_monster|_projectile_hit_scenery|
+			_projectile_hit_media|_projectile_hit_landscape))) return false;
+
+	switch (projectile->type)
+	{
+		case _projectile_pistol_bullet:
+		case _projectile_rifle_bullet:
+		case _projectile_shotgun_bullet:
+		case _projectile_trooper_bullet:
+		case _projectile_smg_bullet: break;
+		default: return false;
+	}
+
+	double vx = destination.x-old_location.x;
+	double vy = destination.y-old_location.y;
+	double vz = destination.z-old_location.z;
+	const double length = std::sqrt(vx*vx+vy*vy+vz*vz);
+	if (length < 1) return false;
+
+	if (flags&_projectile_hit_floor || obstruction_index!=NONE)
+	{
+		// Floor and ceiling: only a shallow approach can bounce.
+		if (std::fabs(vz) > 0.42*length) return false;
+		vz = -vz;
+	}
+	else
+	{
+		if (line_index==NONE) return false;
+		const line_data *line = get_line_data(line_index);
+		const world_point2d& a = get_endpoint_data(line->endpoint_indexes[0])->vertex;
+		const world_point2d& b = get_endpoint_data(line->endpoint_indexes[1])->vertex;
+		const double nx = b.y-a.y;
+		const double ny = a.x-b.x;
+		const double normal_length = std::sqrt(nx*nx+ny*ny);
+		if (normal_length < 1) return false;
+		const double normal_component = (vx*nx+vy*ny)/normal_length;
+		if (std::fabs(normal_component) > 0.42*length) return false;
+		vx -= 2*normal_component*nx/normal_length;
+		vy -= 2*normal_component*ny/normal_length;
+	}
+
+	const double horizontal = std::sqrt(vx*vx+vy*vy);
+	if (horizontal < 1) return false;
+	object->facing = arctangent(static_cast<int32>(vx), static_cast<int32>(vy));
+	projectile->elevation = arctangent(static_cast<int32>(horizontal), static_cast<int32>(vz));
+	SET_PROJECTILE_RICOCHETED(projectile);
+	projectile->damage_scale = (projectile->damage_scale*3)/4;
+	world_point3d hit = *impact;
+	// Step back inside the current polygon so the next tick starts clear of the surface.
+	translate_point3d(impact, WORLD_ONE/64, object->facing, projectile->elevation);
+	if (flags&_projectile_hit_floor) impact->z = std::max<int>(impact->z, get_polygon_data(polygon_index)->floor_height+1);
+	else if (obstruction_index!=NONE) impact->z = std::min<int>(impact->z, get_polygon_data(polygon_index)->ceiling_height-1);
+	new_effect(&hit, polygon_index, _effect_bullet_ricochet, object->facing);
+	return true;
+}
+
 /* assumes ∂t==1 tick */
 void move_projectiles(
 	void)
@@ -386,6 +453,7 @@ void move_projectiles(
 					translate_point3d(&new_location, speed, object->facing, projectile->elevation);
 					if (definition->flags&_vertical_wander) new_location.z+= (global_random()&1) ? WANDER_MAGNITUDE : -WANDER_MAGNITUDE;
 					if (definition->flags&_horizontal_wander) translate_point3d(&new_location, (global_random()&1) ? WANDER_MAGNITUDE : -WANDER_MAGNITUDE, NORMALIZE_ANGLE(object->facing+QUARTER_CIRCLE), 0);
+					const world_point3d intended_location = new_location;
 					if (film_profile.infinity_smg)
 					{
 						definition->flags ^= adjusted_definition_flags;
@@ -401,7 +469,14 @@ void move_projectiles(
 					
 					if (flags&_projectile_hit)
 					{
-						if ((flags&_projectile_hit_floor) && (definition->flags&_rebounds_from_floor) &&
+						if (sprintathon_ricochet(projectile, object, old_location,
+							intended_location, &new_location, old_polygon_index,
+							line_index, obstruction_index, flags))
+						{
+							new_polygon_index = old_polygon_index;
+							flags = 0;
+						}
+						else if ((flags&_projectile_hit_floor) && (definition->flags&_rebounds_from_floor) &&
 							projectile->gravity<-MINIMUM_REBOUND_VELOCITY)
 						{
 							play_object_sound(projectile->object_index, definition->rebound_sound);

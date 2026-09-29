@@ -397,7 +397,8 @@ enum // initialization flags (some of these are used by the prefs, which fixes t
 	_extra_memory_flag= 0x0100, /* double usual memory */
 	_extra_extra_memory_flag= 0x0200, /* LP: quadruple usual memory, because RAM is more available */
 	_lower_restart_delay = 0x0400, /* ghs: restart sounds faster */
-	_mute_dialogs = 0x0800
+	_mute_dialogs = 0x0800,
+	_cavern_echo_flag = 0x1000 // experimental room-size-based reverb
 };
 
 enum // _sound_obstructed_proc() flags
@@ -416,4 +417,3 @@ enum // frequencies
 };
 
 #endif
-
