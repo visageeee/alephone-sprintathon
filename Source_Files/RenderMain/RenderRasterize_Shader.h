@@ -19,7 +19,9 @@
 
 #include <memory>
 
+// Places a short-lived red light at the local player's feet.
 #ifdef HAVE_OPENGL
+void sprintathon_drop_flare();
 
 class Blur;
 class RenderRasterize_Shader : public RenderRasterizerClass {

@@ -705,6 +705,54 @@ static void sprintathon_draw_anamorphic_lens_flare(GLuint color_texture,
 }
 
 
+// Game-tick lifetime keeps flares paused along with the game.
+struct SprintathonDroppedFlare {
+    float x, y, z;
+    int32 placed_tick;
+};
+static std::vector<SprintathonDroppedFlare> sprintathon_dropped_flares;
+static int16 sprintathon_flare_level = NONE;
+static constexpr int sprintathon_flare_capacity = 4;
+static constexpr int32 sprintathon_flare_lifetime = 30 * TICKS_PER_SECOND;
+
+static void sprintathon_update_flares()
+{
+    if (sprintathon_flare_level != dynamic_world->current_level_number) {
+        sprintathon_dropped_flares.clear();
+        sprintathon_flare_level = dynamic_world->current_level_number;
+    }
+    const int32 tick = dynamic_world->tick_count;
+    sprintathon_dropped_flares.erase(
+        std::remove_if(sprintathon_dropped_flares.begin(), sprintathon_dropped_flares.end(),
+            [tick](const SprintathonDroppedFlare& flare) {
+                return tick < flare.placed_tick ||
+                    tick - flare.placed_tick >= sprintathon_flare_lifetime;
+            }), sprintathon_dropped_flares.end());
+}
+
+void sprintathon_drop_flare()
+{
+    if (!dynamic_world || !current_player ||
+        !graphics_preferences->projectile_lights_per_pixel) return;
+    sprintathon_update_flares();
+    if (sprintathon_dropped_flares.size() == sprintathon_flare_capacity)
+        sprintathon_dropped_flares.erase(sprintathon_dropped_flares.begin());
+    sprintathon_dropped_flares.push_back({
+        float(current_player->location.x), float(current_player->location.y),
+        float(current_player->floor_height + WORLD_ONE / 8), dynamic_world->tick_count});
+}
+
+static float sprintathon_flare_strength(const SprintathonDroppedFlare& flare)
+{
+    const float age = float(dynamic_world->tick_count - flare.placed_tick) /
+        sprintathon_flare_lifetime;
+    const float burnout = std::min(1.0f, (1.0f - age) * 5.0f);
+    const float phase = float(dynamic_world->tick_count - flare.placed_tick);
+    const float flicker = 0.80f + 0.12f * std::sin(phase * 0.91f) +
+        0.08f * std::sin(phase * 2.47f);
+    return std::max(0.0f, burnout * flicker);
+}
+
 // Approximate short-range colored projectile light on nearby surfaces.
 // Evaluated once per rendered frame; idle maps pay no per-surface projectile scans.
 static bool sprintathon_has_active_lighting = false;
@@ -946,7 +994,7 @@ static float sprintathon_emitter_radius(bool scenery)
 static void sprintathon_set_sprite_light(Shader *shader, const rectangle_definition& rect,
                                         short type, const view_data *camera)
 {
-    if (!sprintathon_has_active_lighting &&
+    if (!sprintathon_has_active_lighting && sprintathon_dropped_flares.empty() &&
         (!(graphics_preferences->bright_texture_lights ||
            graphics_preferences->bright_scenery_lights) || sprintathon_texture_lights.empty())) {
         shader->setVector4(Shader::U_SprintathonLightColor, 0, 0, 0, 0);
@@ -959,6 +1007,18 @@ static void sprintathon_set_sprite_light(Shader *shader, const rectangle_definit
         rect.Position.z + 0.5f * (rect.WorldBottom + rect.WorldTop) * rect.Scale;
     float rgb[3] = {0.0f, 0.0f, 0.0f};
     sprintathon_projectile_light_rgb(x, y, z, rgb);
+    if (graphics_preferences->projectile_lights_per_pixel) {
+        const float gain = graphics_preferences->colored_light_intensity / 100.0f;
+        for (const auto& flare : sprintathon_dropped_flares) {
+            const float dx = x - flare.x, dy = y - flare.y, dz = z - flare.z;
+            const float radius = 5.5f * WORLD_ONE;
+            const float distance = (dx*dx + dy*dy + dz*dz) / (radius*radius);
+            if (distance >= 1.0f) continue;
+            const float strength = sprintathon_flare_strength(flare) * gain *
+                (1.0f - distance) * (1.0f - distance);
+            rgb[0] += strength; rgb[1] += strength * 0.12f; rgb[2] += strength * 0.04f;
+        }
+    }
     if (graphics_preferences->projectile_lights_per_pixel &&
         (graphics_preferences->bright_texture_lights ||
          graphics_preferences->bright_scenery_lights)) {
@@ -1063,10 +1123,12 @@ static void sprintathon_select_view_emitters(const view_data *camera)
         }
         return true;
     };
+    const int texture_slots = sprintathon_dropped_flares.empty() ?
+        sprintathon_emitter_slots : sprintathon_emitter_slots - sprintathon_flare_capacity;
     int scenery_count=0, texture_count=0;
     // Retain a slot only when its old source is still competitive. This
     // prevents two almost-equidistant emitters swapping every frame.
-    for (int i=0; i<sprintathon_emitter_slots; ++i) {
+    for (int i=0; i<texture_slots; ++i) {
         if (!sprintathon_previous_valid[i]) continue;
         size_t rank = 0;
         for (const auto& candidate : candidates) {
@@ -1084,8 +1146,8 @@ static void sprintathon_select_view_emitters(const view_data *camera)
     for (const auto& candidate : candidates) {
         if (!eligible(*candidate.source, scenery_count, texture_count)) continue;
         int slot=0;
-        while (slot<sprintathon_emitter_slots && sprintathon_view_valid[slot]) ++slot;
-        if (slot==sprintathon_emitter_slots) break;
+        while (slot<texture_slots && sprintathon_view_valid[slot]) ++slot;
+        if (slot==texture_slots) break;
         sprintathon_view_emitters[slot]=*candidate.source;
         sprintathon_view_valid[slot]=true;
         if (candidate.source->scenery) ++scenery_count; else ++texture_count;
@@ -1154,7 +1216,9 @@ static void sprintathon_set_view_emitters(Shader *shader)
     };
     const float gain = graphics_preferences->colored_light_intensity / 100.0f;
     for (int i=0; i<sprintathon_emitter_slots; ++i) {
-        if (sprintathon_previous_valid[i]) {
+        if (sprintathon_previous_valid[i] &&
+            (sprintathon_dropped_flares.empty() ||
+             i < sprintathon_emitter_slots - sprintathon_flare_capacity)) {
             const auto& light=sprintathon_previous_emitters[i];
             const float fade=sprintathon_emitter_fade[i]*gain;
             shader->setVector4(positions[i], light.x, light.y, light.z,
@@ -1162,6 +1226,17 @@ static void sprintathon_set_view_emitters(Shader *shader)
             shader->setVector4(colors[i], light.r*fade, light.g*fade,
                                light.b*fade, 1.0f);
         } else shader->setVector4(colors[i], 0, 0, 0, 0);
+    }
+    if (!sprintathon_dropped_flares.empty()) {
+        for (size_t i = 0; i < sprintathon_dropped_flares.size(); ++i) {
+            const int slot = sprintathon_emitter_slots - sprintathon_flare_capacity + int(i);
+            const auto& flare = sprintathon_dropped_flares[i];
+            const float strength = sprintathon_flare_strength(flare) * gain;
+            shader->setVector4(positions[slot], flare.x, flare.y, flare.z,
+                               5.5f * WORLD_ONE);
+            shader->setVector4(colors[slot], strength, strength * 0.12f,
+                               strength * 0.04f, 1.0f);
+        }
     }
 }
 
@@ -1291,6 +1366,7 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
 }
 
 void RenderRasterize_Shader::render_tree() {
+    sprintathon_update_flares();
     if (sprintathon_visual_level != dynamic_world->current_level_number) {
         sprintathon_projectile_visuals.clear();
         sprintathon_visual_level = dynamic_world->current_level_number;

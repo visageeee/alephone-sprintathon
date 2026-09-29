@@ -3599,7 +3599,7 @@ static key_binding_map default_key_bindings = {
 };
 
 static const char *shell_action_name[NUMBER_OF_SHELL_KEYS] = {
-	"Inventory Left", "Inventory Right", "Switch Player View", "Volume Up", "Volume Down", "Zoom Map In", "Zoom Map Out", "Toggle FPS", "Chat/Console", "Network Stats", "Screenshot Mode"
+	"Inventory Left", "Inventory Right", "Switch Player View", "Volume Up", "Volume Down", "Zoom Map In", "Zoom Map Out", "Toggle FPS", "Chat/Console", "Network Stats", "Screenshot Mode", "Drop Flare"
 };
 
 static key_binding_map default_shell_key_bindings = {
@@ -3626,6 +3626,7 @@ static key_binding_map default_shell_key_bindings = {
 	{ 9, { SDL_SCANCODE_N
 	} },
 	{ 10, { } }, // Assign in Controls > Interface; Shift+F9 also works.
+	{ 11, { SDL_SCANCODE_F } }, // Drop Flare.
 };
 
 static const char* hotkey_action_name[NUMBER_OF_HOTKEYS] = {
@@ -4646,7 +4647,8 @@ static placeable *build_embedded_controls(
 		{false, "Look Up", embedded_game_binding, 8},
 		{false, "Look Down", embedded_game_binding, 9},
 		{true, "Camera", embedded_shell_binding, 0},
-		{false, "Screenshot Mode", embedded_shell_binding, 10}
+		{false, "Screenshot Mode", embedded_shell_binding, 10},
+		{false, "Drop Flare", embedded_shell_binding, 11}
 	};
 	vertical_placer *game = new vertical_placer;
 	game->center_vertically();

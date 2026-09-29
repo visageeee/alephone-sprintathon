@@ -217,6 +217,7 @@ enum {
 	_key_activate_console,
 	_key_show_scores,
 	_key_screenshot_mode,
+	_key_drop_flare,
 	NUMBER_OF_SHELL_KEYS
 };
 

@@ -244,6 +244,8 @@ void main (void) {
         float edgeLength2 = dot(edgeVector, edgeVector);
         float alongEdge = dot(sprintathonWorldPosition.xy - sprintathonSectorSpan5.xy, edgeVector);
         if (edgeDistance >= 0.0 && edgeLength2 > 1.0) {
+)"
+R"(
             float t = clamp(alongEdge / edgeLength2, 0.0, 1.0);
             vec2 nearestPoint = sprintathonSectorSpan5.xy + t * edgeVector;
             float segmentDistance = length(sprintathonWorldPosition.xy - nearestPoint);

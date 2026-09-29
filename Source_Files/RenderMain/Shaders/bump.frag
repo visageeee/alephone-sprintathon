@@ -257,6 +257,8 @@ void main (void) {
         float alongEdge = dot(sprintathonWorldPosition.xy - sprintathonSectorSpan4.xy, edgeVector);
         if (edgeDistance >= 0.0 && edgeLength2 > 1.0) {
             float t = clamp(alongEdge / edgeLength2, 0.0, 1.0);
+)"
+R"(
             vec2 nearestPoint = sprintathonSectorSpan4.xy + t * edgeVector;
             float segmentDistance = length(sprintathonWorldPosition.xy - nearestPoint);
             float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.22 * 1024.0, segmentDistance));

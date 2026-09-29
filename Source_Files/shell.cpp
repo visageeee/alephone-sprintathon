@@ -53,6 +53,9 @@
 
 #include "Crosshairs.h"
 #include "OGL_Render.h"
+#ifdef HAVE_OPENGL
+void sprintathon_drop_flare();
+#endif
 #include "OGL_Blitter.h"
 #include "XML_ParseTreeRoot.h"
 #include "FileHandler.h"
@@ -1403,6 +1406,16 @@ static void process_game_key(const SDL_Event &event)
 				!event.key.repeat) {
 				dump_screen();
 			}
+			return;
+		}
+		if (!event.key.repeat && get_keyboard_controller_status() &&
+			!game_is_networked && !game_is_being_replayed() && current_player &&
+			(input_preferences->shell_key_bindings[_key_drop_flare].count(screenshot_key) ||
+			 (screenshot_key == SDL_SCANCODE_F &&
+			  input_preferences->shell_key_bindings[_key_drop_flare].empty()))) {
+#ifdef HAVE_OPENGL
+			sprintathon_drop_flare();
+#endif
 			return;
 		}
 	}
