@@ -1007,7 +1007,7 @@ static float sprintathon_light_render_radius(bool scenery)
 struct SprintathonTextureEmitter {
     float x, y, z, r, g, b;
     bool scenery;
-    uint32 last_seen;
+    uint64_t last_seen;
 };
 static std::vector<SprintathonTextureEmitter> sprintathon_texture_lights;
 static std::vector<SprintathonTextureEmitter> sprintathon_texture_lights_next;
@@ -1508,7 +1508,7 @@ void RenderRasterize_Shader::render_tree() {
         remembered.swap(sprintathon_texture_lights);
         sprintathon_texture_lights.swap(sprintathon_texture_lights_next);
         sprintathon_texture_lights_next.clear();
-        const uint32 now = machine_tick_count();
+        const uint64_t now = machine_tick_count();
         for (const auto& old_light : remembered) {
             // Hold briefly through clipping and occlusion changes, then expire.
             if (now - old_light.last_seen > 700) continue;
