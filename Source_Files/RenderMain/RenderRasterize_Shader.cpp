@@ -717,7 +717,7 @@ struct SprintathonDroppedFlare {
 };
 static std::vector<SprintathonDroppedFlare> sprintathon_dropped_flares;
 static int16 sprintathon_flare_level = NONE;
-static constexpr int sprintathon_flare_capacity = 4;
+static constexpr int sprintathon_flare_capacity = 2;
 static constexpr int32 sprintathon_flare_lifetime = 30 * TICKS_PER_SECOND;
 
 static FileSpecifier sprintathon_flare_sound_file(const char *name)
@@ -805,6 +805,73 @@ static float sprintathon_flare_strength(const SprintathonDroppedFlare& flare)
     const float flicker = 0.80f + 0.12f * std::sin(phase * 0.91f) +
         0.08f * std::sin(phase * 2.47f);
     return std::max(0.0f, burnout * flicker);
+}
+
+// A depth-tested billboard spark at each flare. The shader still lights the world.
+static void sprintathon_draw_flare_stars(const view_data *camera)
+{
+    if (sprintathon_dropped_flares.empty()) return;
+    Shader::disable();
+    GLint active_texture = GL_TEXTURE0_ARB;
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &active_texture);
+    glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT |
+                 GL_CURRENT_BIT | GL_TEXTURE_BIT | GL_POINT_BIT);
+    glActiveTextureARB(GL_TEXTURE0_ARB);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_ALPHA_TEST);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    for (const auto& flare : sprintathon_dropped_flares) {
+        const float flicker = sprintathon_flare_strength(flare);
+        if (flicker <= 0.0f) continue;
+        float dx = camera->origin.x - flare.x;
+        float dy = camera->origin.y - flare.y;
+        float dz = camera->origin.z - flare.z;
+        const float distance = std::sqrt(dx*dx + dy*dy + dz*dz);
+        if (distance < 1.0f) continue;
+        dx /= distance; dy /= distance; dz /= distance;
+        const float horizontal = std::max(0.001f, std::sqrt(dx*dx + dy*dy));
+        const float rx = -dy / horizontal, ry = dx / horizontal;
+        const float ux = -dz*ry, uy = dz*rx, uz = horizontal;
+        const float size = WORLD_ONE * 0.11f;
+        const auto vertex = [&](float u, float v) {
+            glVertex3f(flare.x + rx*u + ux*v,
+                       flare.y + ry*u + uy*v, flare.z + uz*v);
+        };
+        glBegin(GL_TRIANGLE_FAN);
+        glColor4f(1.0f, 0.28f, 0.10f, flicker);
+        vertex(0, 0);
+        for (int i = 0; i <= 16; ++i) {
+            const float angle = i*(6.28318530718f/16.0f);
+            const float length = size*(i%4 == 0 ? 1.30f :
+                                       (i%2 == 0 ? 1.0f : 0.42f));
+            glColor4f(1.0f, 0.10f, 0.04f, 0.0f);
+            vertex(std::cos(angle)*length, std::sin(angle)*length);
+        }
+        glEnd();
+        // Additive layers saturate the compact center to a hot near-white red.
+        for (int pass = 0; pass < 3; ++pass) {
+            glBegin(GL_TRIANGLE_FAN);
+            glColor4f(1.0f, 0.65f, 0.50f, flicker);
+            vertex(0, 0);
+            for (int i = 0; i <= 12; ++i) {
+                const float angle = i*(6.28318530718f/12.0f);
+                glColor4f(1.0f, 0.20f, 0.06f, 0.0f);
+                vertex(std::cos(angle)*size*0.32f, std::sin(angle)*size*0.32f);
+            }
+            glEnd();
+        }
+        glPointSize(4.0f);
+        glBegin(GL_POINTS);
+        glColor4f(1.0f, 0.90f, 0.75f, flicker);
+        vertex(0, 0);
+        glEnd();
+    }
+    glActiveTextureARB(active_texture);
+    glPopAttrib();
 }
 
 // Approximate short-range colored projectile light on nearby surfaces.
@@ -1289,7 +1356,7 @@ static void sprintathon_set_view_emitters(Shader *shader)
             shader->setVector4(positions[slot], flare.x, flare.y, flare.z,
                                5.5f * WORLD_ONE);
             shader->setVector4(colors[slot], strength, strength * 0.12f,
-                               strength * 0.04f, 2.0f); // alpha marks a dropped flare
+                               strength * 0.04f, 1.0f);
         }
     }
 }
@@ -1681,6 +1748,7 @@ void RenderRasterize_Shader::render_tree() {
 		RenderRasterizerClass::render_tree(kDiffuse);
 		sprintathon_end_shaft_source();
 	}
+    sprintathon_draw_flare_stars(view);
 	if (ogl_config.AmbientOcclusion || ogl_config.LandscapeLightShafts ||
 		ogl_config.AnamorphicLensFlares ||
 		fog_post_effects_enabled)
