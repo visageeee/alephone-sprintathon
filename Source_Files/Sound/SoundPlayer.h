@@ -45,6 +45,8 @@ struct SoundParameters {
 	float pitch = 1.f;
 	bool is_2d = true; //if false it will use source_location3d to position sound (3D sounds)
 	bool in_world = false; // route game sounds, including local weapons, through cavern reverb
+	bool loop = false; // repeat external ambience until its SoundPlayer is stopped
+	bool spatialize_stereo = false; // downmix stereo assets for 3D OpenAL sources
 	bool soft_rewind = false; //if true the sound can only rewind after it's done playing
 	bool soft_start = false; //if true the sound will use transitions to fade in from silence to proper computed volume
 	uint16_t obstruction_flags = 0;
@@ -122,6 +124,10 @@ private:
 	uint32_t data_length;
 	uint32_t current_index_data;
 	uint64_t start_tick;
+
+	template<typename T>
+	static uint32_t ConvertStereoToMono(const uint8_t* inputBytes, uint8_t* outputBytes,
+	                                    uint32_t remainingInputBytes, uint32_t remainingOutputBytes);
 
 	template<typename T> 
 	static uint32_t ConvertMonoToStereo(const uint8_t* inputBytes, uint8_t* outputBytes, uint32_t remainingInputBytes, uint32_t remainingOutputBytes);

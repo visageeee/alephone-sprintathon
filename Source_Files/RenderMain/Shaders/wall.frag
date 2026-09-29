@@ -358,6 +358,8 @@ R"(
     if (sprintathonLightColor11.a > 0.0) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition11.xyz) / max(sprintathonLightPosition11.w, 1.0);
         float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
+)"
+R"(
         intensity = clamp(intensity + sprintathonLightColor11.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
     }
     if (sprintathonLightColor12.a > 0.0) {
@@ -394,21 +396,41 @@ R"(
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition18.xyz) / max(sprintathonLightPosition18.w, 1.0);
         float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
         intensity = clamp(intensity + sprintathonLightColor18.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
+        // A dropped flare has a small, hot core in addition to its broad light.
+        if (sprintathonLightColor18.a > 1.5) {
+            float core = 1.0 - smoothstep(0.02, 0.12, length(lightDelta));
+            intensity = clamp(intensity + sprintathonLightColor18.rgb * (2.0 * core * core), glow, 1.0);
+        }
     }
     if (sprintathonLightColor19.a > 0.0) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition19.xyz) / max(sprintathonLightPosition19.w, 1.0);
         float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
         intensity = clamp(intensity + sprintathonLightColor19.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
+        // A dropped flare has a small, hot core in addition to its broad light.
+        if (sprintathonLightColor19.a > 1.5) {
+            float core = 1.0 - smoothstep(0.02, 0.12, length(lightDelta));
+            intensity = clamp(intensity + sprintathonLightColor19.rgb * (2.0 * core * core), glow, 1.0);
+        }
     }
     if (sprintathonLightColor20.a > 0.0) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition20.xyz) / max(sprintathonLightPosition20.w, 1.0);
         float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
         intensity = clamp(intensity + sprintathonLightColor20.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
+        // A dropped flare has a small, hot core in addition to its broad light.
+        if (sprintathonLightColor20.a > 1.5) {
+            float core = 1.0 - smoothstep(0.02, 0.12, length(lightDelta));
+            intensity = clamp(intensity + sprintathonLightColor20.rgb * (2.0 * core * core), glow, 1.0);
+        }
     }
     if (sprintathonLightColor21.a > 0.0) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition21.xyz) / max(sprintathonLightPosition21.w, 1.0);
         float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
         intensity = clamp(intensity + sprintathonLightColor21.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
+        // A dropped flare has a small, hot core in addition to its broad light.
+        if (sprintathonLightColor21.a > 1.5) {
+            float core = 1.0 - smoothstep(0.02, 0.12, length(lightDelta));
+            intensity = clamp(intensity + sprintathonLightColor21.rgb * (2.0 * core * core), glow, 1.0);
+        }
     }
 	intensity = clamp(intensity * rippleHighlight, glow, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING

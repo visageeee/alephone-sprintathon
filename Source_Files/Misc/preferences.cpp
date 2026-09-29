@@ -6134,7 +6134,7 @@ static const char *binding_action_name[NUM_KEYS] = {
 };
 static const char *binding_shell_action_name[NUMBER_OF_SHELL_KEYS] = {
 	"inventory-left", "inventory-right", "switch-player-view", "volume-up", "volume-down",
-	"map-zoom-in", "map-zoom-out", "fps", "chat", "net-stats", "screenshot-mode"
+	"map-zoom-in", "map-zoom-out", "fps", "chat", "net-stats", "screenshot-mode", "drop-flare"
 };
 static const char *binding_hotkey_action_name[NUMBER_OF_HOTKEYS] = {
 	"hotkey-1", "hotkey-2", "hotkey-3", "hotkey-4", "hotkey-5", "hotkey-6", "hotkey-7", "hotkey-8", "hotkey-9", "hotkey-10", "hotkey-11", "hotkey-12"

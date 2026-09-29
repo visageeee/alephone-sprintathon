@@ -13,6 +13,8 @@ EXTRA_DIST = \
 	snd/footstep4.ogg                                                          \
 	snd/footstep5.ogg                                                          \
 	snd/heartbeat.ogg                                                          \
+	snd/lightflare.ogg                                                         \
+	snd/burningflare.ogg                                                       \
 	snd/slowdown.ogg                                                           \
 	snd/speedup.ogg                                                            \
 	snd/wallkick.ogg                                                           \

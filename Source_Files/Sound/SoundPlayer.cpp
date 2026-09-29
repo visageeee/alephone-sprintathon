@@ -400,6 +400,22 @@ SetupALResult SoundPlayer::SetUpALSource3D() {
 }
 
 template<typename T>
+uint32_t SoundPlayer::ConvertStereoToMono(const uint8_t* inputBytes, uint8_t* outputBytes,
+                                          uint32_t remainingInputBytes, uint32_t remainingOutputBytes)
+{
+    const uint32_t frames = std::min(remainingInputBytes / (2 * sizeof(T)),
+                                     remainingOutputBytes / sizeof(T));
+    for (uint32_t i = 0; i < frames; ++i) {
+        T left, right;
+        std::memcpy(&left, inputBytes + 2 * i * sizeof(T), sizeof(T));
+        std::memcpy(&right, inputBytes + (2 * i + 1) * sizeof(T), sizeof(T));
+        const T mixed = static_cast<T>((static_cast<float>(left) + right) * 0.5f);
+        std::memcpy(outputBytes + i * sizeof(T), &mixed, sizeof(T));
+    }
+    return frames * sizeof(T);
+}
+
+template<typename T>
 uint32_t SoundPlayer::ConvertMonoToStereo(const uint8_t* inputBytes, uint8_t* outputBytes, uint32_t remainingInputBytes, uint32_t remainingOutputBytes)
 {
     static_assert(std::is_trivially_copyable_v<T>);
@@ -426,6 +442,24 @@ uint32_t SoundPlayer::ProcessData(uint8_t* outputData, uint32_t remainingSoundDa
 
 	const auto& sound = this->sound.Get();
 
+	if (sound.header.stereo && parameters.Get().spatialize_stereo && !parameters.Get().is_2d) {
+        uint32_t written = 0;
+        const auto input = sound.data->data() + current_index_data;
+        switch (sound.header.audio_format) {
+            case AudioFormat::_8_bit:
+                written = ConvertStereoToMono<uint8_t>(input, outputData, remainingSoundDataLength, remainingBufferLength);
+                break;
+            case AudioFormat::_16_bit:
+                written = ConvertStereoToMono<int16_t>(input, outputData, remainingSoundDataLength, remainingBufferLength);
+                break;
+            case AudioFormat::_32_float:
+                written = ConvertStereoToMono<float>(input, outputData, remainingSoundDataLength, remainingBufferLength);
+                break;
+            default: return 0;
+        }
+        current_index_data += 2 * written;
+        return written;
+    }
 	if (sound.header.stereo || !MustDisableHrtf())
 	{
 		const auto length = std::min(remainingSoundDataLength, remainingBufferLength);
@@ -459,12 +493,16 @@ uint32_t SoundPlayer::ProcessData(uint8_t* outputData, uint32_t remainingSoundDa
 }
 
 uint32_t SoundPlayer::GetNextData(uint8* data, uint32_t length) {
+	if (parameters.Get().loop && data_length > 0 && current_index_data >= data_length)
+		current_index_data = 0;
 	const auto remainingDataLength = data_length - current_index_data;
 	return ProcessData(data, remainingDataLength, length);
 }
 
 std::tuple<AudioFormat, uint32_t, bool> SoundPlayer::GetAudioFormat() const {
 
+    if (sound.Get().header.stereo && parameters.Get().spatialize_stereo && !parameters.Get().is_2d)
+        return std::make_tuple(format, rate, false);
 	if (sound.Get().header.stereo || !MustDisableHrtf())
 		return AudioPlayer::GetAudioFormat();
 

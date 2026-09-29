@@ -738,6 +738,7 @@ static void sprintathon_play_flare_sound(SprintathonDroppedFlare& flare,
     params.is_2d = false;
     params.in_world = true;
     params.loop = loop;
+    params.spatialize_stereo = true;
     params.source_location3d.point.x = static_cast<world_distance>(flare.x);
     params.source_location3d.point.y = static_cast<world_distance>(flare.y);
     params.source_location3d.point.z = static_cast<world_distance>(flare.z);
@@ -1288,7 +1289,7 @@ static void sprintathon_set_view_emitters(Shader *shader)
             shader->setVector4(positions[slot], flare.x, flare.y, flare.z,
                                5.5f * WORLD_ONE);
             shader->setVector4(colors[slot], strength, strength * 0.12f,
-                               strength * 0.04f, 1.0f);
+                               strength * 0.04f, 2.0f); // alpha marks a dropped flare
         }
     }
 }

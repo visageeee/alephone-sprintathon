@@ -30,7 +30,9 @@ function GetCommonFiles() {
 		"snd/footstep5.ogg",
 		"snd/slowdown.ogg",
 		"snd/speedup.ogg",
-		"snd/heartbeat.ogg"
+		"snd/heartbeat.ogg",
+		"snd/lightflare.ogg",
+		"snd/burningflare.ogg"
 	)
 	foreach($asset in $sprintathon_assets) {
 		$asset_path = Join-Path -Path $root_directory -ChildPath $asset
