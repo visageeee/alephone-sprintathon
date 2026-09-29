@@ -54,7 +54,7 @@
 #include "Crosshairs.h"
 #include "OGL_Render.h"
 #ifdef HAVE_OPENGL
-void sprintathon_drop_flare();
+bool sprintathon_drop_flare();
 #endif
 #include "OGL_Blitter.h"
 #include "XML_ParseTreeRoot.h"
@@ -1410,11 +1410,13 @@ static void process_game_key(const SDL_Event &event)
 		}
 		if (!event.key.repeat && get_keyboard_controller_status() &&
 			!game_is_networked && !game_is_being_replayed() && current_player &&
-			(input_preferences->shell_key_bindings[_key_drop_flare].count(screenshot_key) ||
-			 (screenshot_key == SDL_SCANCODE_F &&
-			  input_preferences->shell_key_bindings[_key_drop_flare].empty()))) {
+			(screenshot_key == SDL_SCANCODE_F ||
+			 input_preferences->shell_key_bindings[_key_drop_flare].count(screenshot_key))) {
 #ifdef HAVE_OPENGL
-			sprintathon_drop_flare();
+			if (sprintathon_drop_flare())
+				screen_printf("Flare dropped");
+			else
+				screen_printf("Enable per-pixel projectile lights for flares");
 #endif
 			return;
 		}

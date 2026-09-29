@@ -30,6 +30,9 @@
 #include "preferences.h"
 #include "screen.h"
 #include "map.h"
+#include "SoundManager.h"
+#include "SoundPlayer.h"
+#include "FileHandler.h"
 
 #ifdef HAVE_OPENGL
 
@@ -709,24 +712,61 @@ static void sprintathon_draw_anamorphic_lens_flare(GLuint color_texture,
 struct SprintathonDroppedFlare {
     float x, y, z;
     int32 placed_tick;
+    short polygon_index;
+    std::shared_ptr<SoundPlayer> burning_sound;
 };
 static std::vector<SprintathonDroppedFlare> sprintathon_dropped_flares;
 static int16 sprintathon_flare_level = NONE;
 static constexpr int sprintathon_flare_capacity = 4;
 static constexpr int32 sprintathon_flare_lifetime = 30 * TICKS_PER_SECOND;
 
+static FileSpecifier sprintathon_flare_sound_file(const char *name)
+{
+    FileSpecifier file(std::string("snd/") + name);
+    if (!file.Exists()) file = FileSpecifier(std::string("../snd/") + name);
+    if (!file.Exists() && !file.SetNameWithPath(name))
+        file = FileSpecifier(get_data_path(kPathDefaultData) + "/Sprintathon/" + name);
+    return file;
+}
+
+static void sprintathon_play_flare_sound(SprintathonDroppedFlare& flare,
+                                         const char *name, bool loop)
+{
+    FileSpecifier file = sprintathon_flare_sound_file(name);
+    if (!file.Exists()) return;
+    SoundParameters params;
+    params.is_2d = false;
+    params.in_world = true;
+    params.loop = loop;
+    params.source_location3d.point.x = static_cast<world_distance>(flare.x);
+    params.source_location3d.point.y = static_cast<world_distance>(flare.y);
+    params.source_location3d.point.z = static_cast<world_distance>(flare.z);
+    params.source_location3d.polygon_index = flare.polygon_index;
+    auto player = SoundManager::instance()->PlayExternalSound(file, params);
+    if (loop) flare.burning_sound = player;
+}
+
+static void sprintathon_stop_flare(SprintathonDroppedFlare& flare)
+{
+    if (flare.burning_sound) flare.burning_sound->AskStop();
+    flare.burning_sound.reset();
+}
+
 static void sprintathon_update_flares()
 {
     if (sprintathon_flare_level != dynamic_world->current_level_number) {
+        for (auto& flare : sprintathon_dropped_flares) sprintathon_stop_flare(flare);
         sprintathon_dropped_flares.clear();
         sprintathon_flare_level = dynamic_world->current_level_number;
     }
     const int32 tick = dynamic_world->tick_count;
     sprintathon_dropped_flares.erase(
         std::remove_if(sprintathon_dropped_flares.begin(), sprintathon_dropped_flares.end(),
-            [tick](const SprintathonDroppedFlare& flare) {
-                return tick < flare.placed_tick ||
+            [tick](SprintathonDroppedFlare& flare) {
+                const bool expired = tick < flare.placed_tick ||
                     tick - flare.placed_tick >= sprintathon_flare_lifetime;
+                if (expired) sprintathon_stop_flare(flare);
+                return expired;
             }), sprintathon_dropped_flares.end());
 }
 
@@ -735,8 +775,10 @@ bool sprintathon_drop_flare()
     if (!dynamic_world || !current_player ||
         !graphics_preferences->projectile_lights_per_pixel) return false;
     sprintathon_update_flares();
-    if (sprintathon_dropped_flares.size() == sprintathon_flare_capacity)
+    if (sprintathon_dropped_flares.size() == sprintathon_flare_capacity) {
+        sprintathon_stop_flare(sprintathon_dropped_flares.front());
         sprintathon_dropped_flares.erase(sprintathon_dropped_flares.begin());
+    }
     const float direction = current_player->facing * (6.28318530718f / FULL_CIRCLE);
     const float forward = 0.75f * WORLD_ONE;
     const short polygon_index = current_player->supporting_polygon_index;
@@ -746,7 +788,10 @@ bool sprintathon_drop_flare()
     sprintathon_dropped_flares.push_back({
         float(current_player->location.x) + std::cos(direction) * forward,
         float(current_player->location.y) + std::sin(direction) * forward,
-        floor_z + WORLD_ONE / 8.0f, dynamic_world->tick_count});
+        floor_z + WORLD_ONE / 8.0f, dynamic_world->tick_count, polygon_index, {}});
+    auto& flare = sprintathon_dropped_flares.back();
+    sprintathon_play_flare_sound(flare, "lightflare.ogg", false);
+    sprintathon_play_flare_sound(flare, "burningflare.ogg", true);
     return true;
 }
 
