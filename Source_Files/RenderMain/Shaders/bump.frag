@@ -34,6 +34,16 @@ uniform vec4 sprintathonLightPosition5;
 uniform vec4 sprintathonLightColor5;
 uniform vec4 sprintathonLightPosition6;
 uniform vec4 sprintathonLightColor6;
+uniform vec4 sprintathonLightPosition7;
+uniform vec4 sprintathonLightColor7;
+uniform vec4 sprintathonLightPosition8;
+uniform vec4 sprintathonLightColor8;
+uniform vec4 sprintathonLightPosition9;
+uniform vec4 sprintathonLightColor9;
+uniform vec4 sprintathonLightPosition10;
+uniform vec4 sprintathonLightColor10;
+uniform vec4 sprintathonLightPosition11;
+uniform vec4 sprintathonLightColor11;
 uniform vec4 sprintathonSectorEdge0;
 uniform vec4 sprintathonSectorEdge1;
 uniform vec4 sprintathonSectorEdge2;
@@ -232,6 +242,31 @@ void main (void) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition6.xyz) / max(sprintathonLightPosition6.w, 1.0);
         float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
         intensity = clamp(intensity + sprintathonLightColor6.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
+    }
+    if (sprintathonLightColor7.a > 0.0) {
+        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition7.xyz) / max(sprintathonLightPosition7.w, 1.0);
+        float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
+        intensity = clamp(intensity + sprintathonLightColor7.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
+    }
+    if (sprintathonLightColor8.a > 0.0) {
+        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition8.xyz) / max(sprintathonLightPosition8.w, 1.0);
+        float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
+        intensity = clamp(intensity + sprintathonLightColor8.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
+    }
+    if (sprintathonLightColor9.a > 0.0) {
+        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition9.xyz) / max(sprintathonLightPosition9.w, 1.0);
+        float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
+        intensity = clamp(intensity + sprintathonLightColor9.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
+    }
+    if (sprintathonLightColor10.a > 0.0) {
+        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition10.xyz) / max(sprintathonLightPosition10.w, 1.0);
+        float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
+        intensity = clamp(intensity + sprintathonLightColor10.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
+    }
+    if (sprintathonLightColor11.a > 0.0) {
+        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition11.xyz) / max(sprintathonLightPosition11.w, 1.0);
+        float lightFalloff = max(0.0, 1.0 - dot(lightDelta, lightDelta));
+        intensity = clamp(intensity + sprintathonLightColor11.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * dot(lightDelta, lightDelta))), glow, 1.0);
     }
 	intensity = clamp(intensity * rippleHighlight, glow, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING

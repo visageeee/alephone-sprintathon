@@ -1171,6 +1171,8 @@ void handle_preferences(bool in_game)
 		graphics_preferences->light_render_distance);
 	w_percentage_slider *scenery_light_render_distance_w = new w_percentage_slider(101,
 		graphics_preferences->scenery_light_render_distance);
+	w_slider *texture_light_limit_w = new w_slider(11, graphics_preferences->texture_light_limit);
+	w_slider *scenery_light_limit_w = new w_slider(11, graphics_preferences->scenery_light_limit);
 	w_toggle *player_light_circle_w = new w_toggle(graphics_preferences->player_light_circle);
 	w_toggle *soft_sector_light_edges_w = new w_toggle(graphics_preferences->soft_sector_light_edges);
 	w_toggle *ogl_bump_w = new w_toggle(ogl_flag(OGL_Flag_BumpMap));
@@ -1257,6 +1259,8 @@ void handle_preferences(bool in_game)
     ADD_PER_PIXEL_ROW("Scenery Light Reach", scenery_light_reach_w);
     ADD_PER_PIXEL_ROW("Texture Render Distance", light_render_distance_w);
     ADD_PER_PIXEL_ROW("Scenery Render Distance", scenery_light_render_distance_w);
+    ADD_PER_PIXEL_ROW("Max Texture Lights (0-10)", texture_light_limit_w);
+    ADD_PER_PIXEL_ROW("Max Scenery Lights (0-10)", scenery_light_limit_w);
     ADD_PER_PIXEL_ROW("Player Light Circle", player_light_circle_w);
 #undef ADD_PER_PIXEL_ROW
     w_preset_description *per_pixel_description = new w_preset_description;
@@ -1430,6 +1434,7 @@ void handle_preferences(bool in_game)
 		 scenery_light_reach_w, light_render_distance_w,
 		 scenery_light_render_distance_w,
 		 colored_light_intensity_w, projectile_lights_per_pixel_w,
+		 texture_light_limit_w, scenery_light_limit_w,
 		 bright_texture_lights_w, bright_scenery_lights_w,
 		 player_light_circle_w, soft_sector_light_edges_w](w_select*) {
 			const int preset = graphics_preset_w->get_selection();
@@ -1450,6 +1455,8 @@ void handle_preferences(bool in_game)
 			scenery_light_reach_w->set_selection(high_or_better ? 20 : 25);
 			light_render_distance_w->set_selection(high_or_better ? 100 : 65);
 			scenery_light_render_distance_w->set_selection(high_or_better ? 100 : 65);
+			texture_light_limit_w->set_selection(3);
+			scenery_light_limit_w->set_selection(2);
 			player_light_circle_w->set_selection(!high_or_better);
 			soft_sector_light_edges_w->set_selection(medium_or_better);
 			ogl_bloom_w->set_selection(medium_or_better);
@@ -1539,6 +1546,7 @@ void handle_preferences(bool in_game)
 		scenery_light_reach_w, light_render_distance_w,
 		scenery_light_render_distance_w,
 		ogl_ambient_occlusion_strength_w,
+		texture_light_limit_w, scenery_light_limit_w,
 		ogl_landscape_light_shaft_strength_w,
 		ogl_landscape_light_shaft_length_w,
 		ogl_landscape_light_shaft_direction_w,
@@ -1674,6 +1682,8 @@ void handle_preferences(bool in_game)
 	graphics_preferences->scenery_light_reach = scenery_light_reach_w->get_selection();
 	graphics_preferences->light_render_distance = light_render_distance_w->get_selection();
 	graphics_preferences->scenery_light_render_distance = scenery_light_render_distance_w->get_selection();
+	graphics_preferences->texture_light_limit = texture_light_limit_w->get_selection();
+	graphics_preferences->scenery_light_limit = scenery_light_limit_w->get_selection();
 	graphics_preferences->player_light_circle = player_light_circle_w->get_selection();
 	graphics_preferences->soft_sector_light_edges = soft_sector_light_edges_w->get_selection();
 	store_ogl_flag(OGL_Flag_BumpMap, ogl_bump_w->get_selection());
@@ -5977,6 +5987,8 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("scenery_light_reach", graphics_preferences->scenery_light_reach);
 	root.put_attr("light_render_distance", graphics_preferences->light_render_distance);
 	root.put_attr("scenery_light_render_distance", graphics_preferences->scenery_light_render_distance);
+	root.put_attr("texture_light_limit", graphics_preferences->texture_light_limit);
+	root.put_attr("scenery_light_limit", graphics_preferences->scenery_light_limit);
 	root.put_attr("player_light_circle", graphics_preferences->player_light_circle);
 	root.put_attr("soft_sector_light_edges", graphics_preferences->soft_sector_light_edges);
 	root.put_attr("skip_intro", graphics_preferences->skip_intro);
@@ -6606,6 +6618,8 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->scenery_light_reach = 25;
 	preferences->light_render_distance = 65;
 	preferences->scenery_light_render_distance = 65;
+	preferences->texture_light_limit = 3;
+	preferences->scenery_light_limit = 2;
 	preferences->player_light_circle = true;
 	preferences->soft_sector_light_edges = true;
 
@@ -7133,6 +7147,8 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 		graphics_preferences->light_render_distance, 0, 100);
 	root.read_attr_bounded<int16>("scenery_light_render_distance",
 		graphics_preferences->scenery_light_render_distance, 0, 100);
+	root.read_attr_bounded<int16>("texture_light_limit", graphics_preferences->texture_light_limit, 0, 10);
+	root.read_attr_bounded<int16>("scenery_light_limit", graphics_preferences->scenery_light_limit, 0, 10);
 	root.read_attr("player_light_circle", graphics_preferences->player_light_circle);
 	root.read_attr("soft_sector_light_edges", graphics_preferences->soft_sector_light_edges);
 	root.read_attr("skip_intro", graphics_preferences->skip_intro);

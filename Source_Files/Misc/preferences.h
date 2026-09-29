@@ -110,6 +110,8 @@ struct graphics_preferences_data
 	int16 scenery_light_reach;
 	int16 light_render_distance;
 	int16 scenery_light_render_distance;
+	int16 texture_light_limit;
+	int16 scenery_light_limit;
 	bool player_light_circle;
 	bool soft_sector_light_edges;
 };

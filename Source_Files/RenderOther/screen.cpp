@@ -2441,19 +2441,6 @@ static void draw_sprintathon_bullet_time_effect()
 		glUseProgramObjectARB(0);
 	}
 
-	/* Restore a restrained warm time-state grade as a plain translucent wash.
-	 * It is deliberately separate from the captured texture, so it cannot
-	 * create the repeated-frame artifact the old contrast pass produced. */
-	glDisable(GL_TEXTURE_2D);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glColor4f(0.90f, 0.24f, 0.035f, 0.065f*amount);
-	glBegin(GL_QUADS);
-	glVertex2f(0.f, 0.f);
-	glVertex2f(right, 0.f);
-	glVertex2f(right, bottom);
-	glVertex2f(0.f, bottom);
-	glEnd();
-
 	/* Keep the reticle and metal rim sharp while the peripheral scene blurs. */
 	if (scope_amount>0.001f)
 	{

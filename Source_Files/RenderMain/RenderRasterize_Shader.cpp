@@ -16,6 +16,7 @@
 
 #include "lightsource.h"
 #include "projectiles.h"
+#include "monsters.h"
 #include "effects.h"
 #include "media.h"
 #include "player.h"
@@ -707,6 +708,7 @@ static void sprintathon_draw_anamorphic_lens_flare(GLuint color_texture,
 // Approximate short-range colored projectile light on nearby surfaces.
 // Evaluated once per rendered frame; idle maps pay no per-surface projectile scans.
 static bool sprintathon_has_active_lighting = false;
+static std::vector<const monster_data *> sprintathon_burning_monsters;
 
 // Visual projectile colors are learned from the same sprite image the renderer draws.
 struct SprintathonProjectileVisual {
@@ -806,6 +808,19 @@ static void sprintathon_projectile_light_rgb(float x, float y, float z, float rg
         rgb[0] += amount;
         rgb[1] += amount * 0.46f;
         rgb[2] += amount * 0.13f;
+    }
+
+    // Flaming death animations are short-lived, moving orange light sources.
+    for (const monster_data *monster : sprintathon_burning_monsters) {
+        const object_data *object = get_object_data(monster->object_index);
+        const float dx = (x-object->location.x)/WORLD_ONE;
+        const float dy = (y-object->location.y)/WORLD_ONE;
+        const float dz = (z-object->location.z-WORLD_ONE/2)/WORLD_ONE;
+        const float falloff = std::max(0.0f, 1.0f-(dx*dx+dy*dy+dz*dz)/(7.0f*7.0f));
+        const float amount = 1.3f*falloff*falloff;
+        rgb[0] += amount;
+        rgb[1] += amount*0.40f;
+        rgb[2] += amount*0.09f;
     }
 
     const float gain = graphics_preferences->colored_light_intensity / 100.0f;
@@ -958,126 +973,151 @@ static Shader *sprintathon_surface_shader(RenderStep step, short texture_type)
                             : (step == kGlow ? Shader::S_WallBloom : Shader::S_Wall));
 }
 
-// Keep selection stable across frames when many emitters compete for five slots.
-// Store values rather than pointers: the emitter vector is swapped every frame.
-static SprintathonTextureEmitter sprintathon_previous_emitters[5];
-static bool sprintathon_previous_valid[5] = {};
+// Keep ten shader slots stable. A previous emitter gets a modest priority
+// while it remains near the best candidate, and its brightness fades when lost.
+static constexpr int sprintathon_emitter_slots = 10;
+static SprintathonTextureEmitter sprintathon_previous_emitters[sprintathon_emitter_slots];
+static bool sprintathon_previous_valid[sprintathon_emitter_slots] = {};
+static float sprintathon_emitter_fade[sprintathon_emitter_slots] = {};
 static int16 sprintathon_previous_level = NONE;
-static const SprintathonTextureEmitter *sprintathon_view_emitters[5] = {};
+static SprintathonTextureEmitter sprintathon_view_emitters[sprintathon_emitter_slots];
+static bool sprintathon_view_valid[sprintathon_emitter_slots] = {};
+static uint32 sprintathon_emitter_tick = 0;
 
 static void sprintathon_select_view_emitters(const view_data *camera)
 {
-    for (auto& emitter : sprintathon_view_emitters) emitter = nullptr;
-    if (sprintathon_previous_level != dynamic_world->current_level_number) {
-        for (bool& valid : sprintathon_previous_valid) valid = false;
+    const uint32 now = machine_tick_count();
+    const float elapsed = sprintathon_emitter_tick ?
+        std::min<uint32>(now - sprintathon_emitter_tick, 250) : 16;
+    sprintathon_emitter_tick = now;
+    const float fade_step = 1.0f - std::exp(-elapsed / 160.0f);
+    const bool reset = sprintathon_previous_level != dynamic_world->current_level_number ||
+        !graphics_preferences->projectile_lights_per_pixel ||
+        graphics_preferences->colored_light_intensity == 0;
+    if (reset) {
+        for (int i = 0; i < sprintathon_emitter_slots; ++i) {
+            sprintathon_previous_valid[i] = false;
+            sprintathon_emitter_fade[i] = 0;
+        }
         sprintathon_previous_level = dynamic_world->current_level_number;
     }
+    for (int i = 0; i < sprintathon_emitter_slots; ++i)
+        sprintathon_view_valid[i] = false;
     if (!graphics_preferences->projectile_lights_per_pixel ||
-        graphics_preferences->colored_light_intensity == 0) {
-        for (bool& valid : sprintathon_previous_valid) valid = false;
-        return;
-    }
-    struct LightCandidate {
-        const SprintathonTextureEmitter *source;
-        float score;
-        float distance;
-        bool forward;
-    };
-    std::vector<LightCandidate> candidates;
-    const float angle = camera->yaw * (6.28318530718f / FULL_CIRCLE);
-    const float forward_x = std::cos(angle), forward_y = std::sin(angle);
+        graphics_preferences->colored_light_intensity == 0) return;
+
+    struct Candidate { const SprintathonTextureEmitter *source; float score; };
+    std::vector<Candidate> candidates;
     for (const auto& emitter : sprintathon_texture_lights) {
-        const float dx = emitter.x - camera->origin.x;
-        const float dy = emitter.y - camera->origin.y;
-        const float dz = emitter.z - camera->origin.z;
-        const float distance = dx*dx + dy*dy + dz*dz;
+        if ((emitter.scenery ? graphics_preferences->scenery_light_limit :
+                                graphics_preferences->texture_light_limit) == 0) continue;
+        const float dx = emitter.x-camera->origin.x;
+        const float dy = emitter.y-camera->origin.y;
+        const float dz = emitter.z-camera->origin.z;
+        const float distance = dx*dx+dy*dy+dz*dz;
         const float radius = sprintathon_light_render_radius(emitter.scenery);
-        if (distance > radius * radius) continue;
-        bool previous = false;
-        for (int i = 0; i < 5; ++i) {
-            if (!sprintathon_previous_valid[i] ||
-                sprintathon_previous_emitters[i].scenery != emitter.scenery) continue;
-            const float ox = emitter.x - sprintathon_previous_emitters[i].x;
-            const float oy = emitter.y - sprintathon_previous_emitters[i].y;
-            const float oz = emitter.z - sprintathon_previous_emitters[i].z;
-            if (ox*ox + oy*oy + oz*oz < WORLD_ONE * WORLD_ONE) {
-                previous = true; break;
-            }
-        }
-        candidates.push_back({&emitter, distance * (previous ? 0.55f : 1.0f),
-                              distance, dx*forward_x + dy*forward_y > 0.0f});
+        if (distance <= radius*radius) candidates.push_back({&emitter, distance});
     }
-    std::sort(candidates.begin(), candidates.end(),
-        [](const LightCandidate& a, const LightCandidate& b) {
-            if (a.score != b.score) return a.score < b.score;
-            if (a.source->x != b.source->x) return a.source->x < b.source->x;
-            if (a.source->y != b.source->y) return a.source->y < b.source->y;
-            return a.source->z < b.source->z;
-        });
-    auto distinct = [](const SprintathonTextureEmitter& source,
-                       const SprintathonTextureEmitter& selected, float separation) {
-        const float dx = source.x - selected.x;
-        const float dy = source.y - selected.y;
-        const float dz = source.z - selected.z;
-        return dx*dx + dy*dy + dz*dz >= separation * separation;
+    std::sort(candidates.begin(), candidates.end(), [](const Candidate& a, const Candidate& b) {
+        if (a.score != b.score) return a.score < b.score;
+        if (a.source->x != b.source->x) return a.source->x < b.source->x;
+        if (a.source->y != b.source->y) return a.source->y < b.source->y;
+        return a.source->z < b.source->z;
+    });
+    auto matches = [](const SprintathonTextureEmitter& a, const SprintathonTextureEmitter& b) {
+        const float dx=a.x-b.x, dy=a.y-b.y, dz=a.z-b.z;
+        return a.scenery==b.scenery && dx*dx+dy*dy+dz*dz < WORLD_ONE*WORLD_ONE;
     };
-    int near_count = 0;
-    for (const auto& candidate : candidates) {
-        bool duplicate = false;
-        for (int i = 0; i < near_count; ++i)
-            if (!distinct(*candidate.source, *sprintathon_view_emitters[i],
-                          2.0f * WORLD_ONE)) duplicate = true;
-        if (!duplicate) sprintathon_view_emitters[near_count++] = candidate.source;
-        if (near_count == 3) break;
-    }
-    // Two slots prefer scenery ahead of the camera. Textures fill any vacancy.
-    int slot = 3;
-    for (int pass = 0; pass < 2 && slot < 5; ++pass) {
+    auto eligible = [&](const SprintathonTextureEmitter& source, int scenery_count, int texture_count) {
+        if (source.scenery ? scenery_count >= graphics_preferences->scenery_light_limit :
+                             texture_count >= graphics_preferences->texture_light_limit) return false;
+        for (int j=0; j<sprintathon_emitter_slots; ++j) {
+            if (!sprintathon_view_valid[j]) continue;
+            const float dx=source.x-sprintathon_view_emitters[j].x;
+            const float dy=source.y-sprintathon_view_emitters[j].y;
+            const float dz=source.z-sprintathon_view_emitters[j].z;
+            if (dx*dx+dy*dy+dz*dz < 4.0f*WORLD_ONE*WORLD_ONE) return false;
+        }
+        return true;
+    };
+    int scenery_count=0, texture_count=0;
+    // Retain a slot only when its old source is still competitive. This
+    // prevents two almost-equidistant emitters swapping every frame.
+    for (int i=0; i<sprintathon_emitter_slots; ++i) {
+        if (!sprintathon_previous_valid[i]) continue;
         for (const auto& candidate : candidates) {
-            if (!candidate.forward || (pass == 0 && !candidate.source->scenery)) continue;
-            bool duplicate = false;
-            for (int i = 0; i < slot; ++i) {
-                if (sprintathon_view_emitters[i] &&
-                    !distinct(*candidate.source, *sprintathon_view_emitters[i],
-                              3.0f * WORLD_ONE)) duplicate = true;
+            if (!matches(*candidate.source,sprintathon_previous_emitters[i])) continue;
+            const float best = candidates.front().score;
+            if (candidate.score > (best+4.0f*WORLD_ONE*WORLD_ONE)*1.5f) break;
+            if (eligible(*candidate.source, scenery_count, texture_count)) {
+                sprintathon_view_emitters[i]=*candidate.source;
+                sprintathon_view_valid[i]=true;
+                if (candidate.source->scenery) ++scenery_count; else ++texture_count;
             }
-            if (!duplicate) sprintathon_view_emitters[slot++] = candidate.source;
-            if (slot == 5) break;
+            break;
         }
     }
-    for (int i = 0; i < 5; ++i) {
-        sprintathon_previous_valid[i] = sprintathon_view_emitters[i] != nullptr;
-        if (sprintathon_previous_valid[i])
-            sprintathon_previous_emitters[i] = *sprintathon_view_emitters[i];
+    for (const auto& candidate : candidates) {
+        if (!eligible(*candidate.source, scenery_count, texture_count)) continue;
+        int slot=0;
+        while (slot<sprintathon_emitter_slots && sprintathon_view_valid[slot]) ++slot;
+        if (slot==sprintathon_emitter_slots) break;
+        sprintathon_view_emitters[slot]=*candidate.source;
+        sprintathon_view_valid[slot]=true;
+        if (candidate.source->scenery) ++scenery_count; else ++texture_count;
+    }
+    for (int i=0; i<sprintathon_emitter_slots; ++i) {
+        if (sprintathon_view_valid[i]) {
+            if (!sprintathon_previous_valid[i] ||
+                !matches(sprintathon_previous_emitters[i], sprintathon_view_emitters[i]))
+                sprintathon_emitter_fade[i]=0;
+            sprintathon_emitter_fade[i] += (1.0f-sprintathon_emitter_fade[i])*fade_step;
+            sprintathon_previous_emitters[i]=sprintathon_view_emitters[i];
+            sprintathon_previous_valid[i]=true;
+        } else if (sprintathon_previous_valid[i]) {
+            sprintathon_emitter_fade[i] *= (1.0f-fade_step);
+            if (sprintathon_emitter_fade[i]<0.01f)
+                sprintathon_previous_valid[i]=false;
+        }
     }
 }
 
 static void sprintathon_set_view_emitters(Shader *shader)
 {
-    const Shader::UniformName positions[5] = {
+    const Shader::UniformName positions[sprintathon_emitter_slots] = {
         Shader::U_SprintathonLightPosition2,
         Shader::U_SprintathonLightPosition3,
         Shader::U_SprintathonLightPosition4,
         Shader::U_SprintathonLightPosition5,
-        Shader::U_SprintathonLightPosition6
+        Shader::U_SprintathonLightPosition6,
+        Shader::U_SprintathonLightPosition7,
+        Shader::U_SprintathonLightPosition8,
+        Shader::U_SprintathonLightPosition9,
+        Shader::U_SprintathonLightPosition10,
+        Shader::U_SprintathonLightPosition11
     };
-    const Shader::UniformName colors[5] = {
+    const Shader::UniformName colors[sprintathon_emitter_slots] = {
         Shader::U_SprintathonLightColor2,
         Shader::U_SprintathonLightColor3,
         Shader::U_SprintathonLightColor4,
         Shader::U_SprintathonLightColor5,
-        Shader::U_SprintathonLightColor6
+        Shader::U_SprintathonLightColor6,
+        Shader::U_SprintathonLightColor7,
+        Shader::U_SprintathonLightColor8,
+        Shader::U_SprintathonLightColor9,
+        Shader::U_SprintathonLightColor10,
+        Shader::U_SprintathonLightColor11
     };
     const float gain = graphics_preferences->colored_light_intensity / 100.0f;
-    for (int i = 0; i < 5; ++i) {
-        const auto *light = sprintathon_view_emitters[i];
-        if (light) {
-            shader->setVector4(positions[i], light->x, light->y, light->z, sprintathon_emitter_radius(light->scenery));
-            shader->setVector4(colors[i], light->r * gain, light->g * gain,
-                               light->b * gain, 1.0f);
-        } else {
-            shader->setVector4(colors[i], 0, 0, 0, 0);
-        }
+    for (int i=0; i<sprintathon_emitter_slots; ++i) {
+        if (sprintathon_previous_valid[i]) {
+            const auto& light=sprintathon_previous_emitters[i];
+            const float fade=sprintathon_emitter_fade[i]*gain;
+            shader->setVector4(positions[i], light.x, light.y, light.z,
+                               sprintathon_emitter_radius(light.scenery));
+            shader->setVector4(colors[i], light.r*fade, light.g*fade,
+                               light.b*fade, 1.0f);
+        } else shader->setVector4(colors[i], 0, 0, 0, 0);
     }
 }
 
@@ -1102,6 +1142,7 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
     float radius = 4.5f * WORLD_ONE;
     float nearest = radius * radius;
     const object_data *selected = nullptr;
+    float selected_z = 0;
     float color[3] = {0, 0, 0};
     for (const projectile_data& projectile : ProjectileList) {
         if (!SLOT_IS_USED(&projectile)) continue;
@@ -1137,7 +1178,29 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
         const float distance_squared = dx*dx + dy*dy + dz*dz;
         if (distance_squared < nearest) {
             nearest = distance_squared; selected = object;
+            selected_z = object->location.z;
             color[0] = r; color[1] = g; color[2] = b;
+        }
+    }
+
+    // A nearby flaming monster competes for the same per-pixel light slot.
+    const float flame_radius = 7.0f*WORLD_ONE;
+    for (const monster_data *monster : sprintathon_burning_monsters) {
+        const object_data *object = get_object_data(monster->object_index);
+        const float flame_z = object->location.z+WORLD_ONE/2;
+        const float dx = x-object->location.x;
+        const float dy = y-object->location.y;
+        const float dz = z-flame_z;
+        const float distance_squared = dx*dx+dy*dy+dz*dz;
+        const float relative = distance_squared/(flame_radius*flame_radius);
+        if (relative < 1.0f && relative < nearest/(radius*radius)) {
+            nearest = distance_squared;
+            radius = flame_radius;
+            selected = object;
+            selected_z = flame_z;
+            color[0] = 1.3f;
+            color[1] = 0.52f;
+            color[2] = 0.12f;
         }
     }
 
@@ -1164,6 +1227,7 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
             nearest_explosion = distance_squared;
             selected = object;
             radius = blast_radius;
+            selected_z = object->location.z;
             color[0] = strength;
             color[1] = strength * 0.46f;
             color[2] = strength * 0.13f;
@@ -1173,7 +1237,7 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
         shader->setVector4(Shader::U_SprintathonLightPosition,
                            selected->location.x,
                            selected->location.y,
-                           selected->location.z, radius);
+                           selected_z, radius);
         shader->setVector4(Shader::U_SprintathonLightColor, color[0] * graphics_preferences->colored_light_intensity / 100.0f,
                            color[1] * graphics_preferences->colored_light_intensity / 100.0f,
                            color[2] * graphics_preferences->colored_light_intensity / 100.0f, 1.0f);
@@ -1245,6 +1309,17 @@ void RenderRasterize_Shader::render_tree() {
                 break;
             }
         }
+    }
+    sprintathon_burning_monsters.clear();
+    if (graphics_preferences->projectile_lights_per_pixel) {
+        for (const monster_data& monster : MonsterList) {
+            if (SLOT_IS_USED(&monster) && monster.action == _monster_is_dying_flaming &&
+                monster.object_index != NONE) {
+                sprintathon_burning_monsters.push_back(&monster);
+            }
+        }
+        if (!sprintathon_burning_monsters.empty())
+            sprintathon_has_active_lighting = true;
     }
 
 	GLfloat scene_projection[16];
