@@ -297,10 +297,19 @@ struct monster_definition *get_monster_definition_external(const short type);
 // and used a growable list for the indices
 #define LOCAL_INTERSECTING_MONSTER_BUFFER_SIZE (get_dynamic_limit(_dynamic_limit_local_collision))
 #define GLOBAL_INTERSECTING_MONSTER_BUFFER_SIZE (get_dynamic_limit(_dynamic_limit_global_collision))
-bool possible_intersecting_monsters(vector<short> *IntersectedObjectsPtr, unsigned maximum_object_count, short polygon_index, bool include_scenery);
+bool possible_intersecting_monsters(vector<short> *IntersectedObjectsPtr, unsigned maximum_object_count, short polygon_index, bool include_scenery, bool include_corpses = false);
 #define monsters_nearby(polygon_index) possible_intersecting_monsters(0, 0, (polygon_index), false)
 
 void get_monster_dimensions(short monster_index, world_distance *radius, world_distance *height);
+
+// Corpse identity is stored in the garbage object's saved permutation.
+void sprintathon_register_corpse(short object_index, short monster_type);
+void sprintathon_forget_corpse(short object_index);
+bool sprintathon_is_physics_corpse(short object_index);
+void sprintathon_corpse_dimensions(short object_index, world_distance *radius, world_distance *height);
+short sprintathon_corpse_impact_effect(short object_index, bool melee);
+void sprintathon_hit_corpse(short object_index, const world_point3d& origin, world_distance impulse);
+void sprintathon_move_corpses();
 
 void activate_nearby_monsters(short target_index, short caller_index, short flags, int32 max_range = -1);
 

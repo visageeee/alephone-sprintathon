@@ -1019,56 +1019,74 @@ void handle_preferences(bool in_game)
 	plugins_page->dual_add(embedded_plugins_w, d);
 	pages->add(plugins_page, true);
 
-	/* Sprintathon settings share one compact panel. */
+	/* Keep Sprintathon options in short, focused pages. */
 	vertical_placer *sprintathon_page =
 		new vertical_placer(get_theme_space(ITEM_WIDGET));
 	sprintathon_page->center_vertically();
 	sprintathon_page->min_width(scale_dialog_value(430));
+	auto make_sprintathon_table = []() {
+		auto *table = new table_placer(2, get_theme_space(ITEM_WIDGET), false);
+		table->row_space(scale_dialog_value(4));
+		table->col_flags(0, placeable::kAlignRight);
+		return table;
+	};
+	table_placer *sprintathon_master = make_sprintathon_table();
+	w_toggle *enabled_w = new w_toggle(input_preferences->sprintathon_enabled);
+	sprintathon_master->dual_add(enabled_w->label("Enable Sprintathon Movement"), d);
+	sprintathon_master->dual_add(enabled_w, d);
+	sprintathon_page->add(sprintathon_master, true);
 	tab_placer *sprintathon_tabs = new tab_placer;
 	const vector<string> sprintathon_tab_labels = {
-		"MOVEMENT", "STAMINA"
+		"MOVEMENT", "PARKOUR", "COMBAT", "EFFECTS", "STAMINA"
 	};
 	sprintathon_page->dual_add(
 		new w_tab(sprintathon_tab_labels, sprintathon_tabs), d);
-	vertical_placer *sprintathon_movement_page = new vertical_placer;
-	sprintathon_movement_page->center_vertically();
-	table_placer *sprintathon_settings =
-		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
-	sprintathon_settings->row_space(scale_dialog_value(4));
-	sprintathon_settings->col_flags(0, placeable::kAlignRight);
-	w_toggle *enabled_w = new w_toggle(input_preferences->sprintathon_enabled);
-	sprintathon_settings->dual_add(enabled_w->label("Enable Sprintathon Movement"), d);
-	sprintathon_settings->dual_add(enabled_w, d);
-#define ADD_EMBEDDED_SPRINTATHON_TOGGLE(widget, field, label_text) \
+	auto add_sprintathon_page = [&](table_placer *table) {
+		auto *page = new vertical_placer;
+		page->center_vertically();
+		page->add(table, true);
+		sprintathon_tabs->add(page, true);
+	};
+#define ADD_EMBEDDED_SPRINTATHON_TOGGLE(table, widget, field, label_text) \
 	w_toggle *widget = new w_toggle(input_preferences->field); \
-	sprintathon_settings->dual_add(widget->label(label_text), d); \
-	sprintathon_settings->dual_add(widget, d)
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(jump_w, sprintathon_jump, "Jumping");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(crouch_w, sprintathon_crouch, "Crouch / Kick / Slide");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprint_w, sprintathon_sprint, "Sprinting");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(slide_w, sprintathon_slide, "Sprint Sliding");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(ricochet_w, sprintathon_bullet_ricochet, "Bullet Ricochets");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(dodge_w, sprintathon_dodge, "Dodging");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(long_jump_w, sprintathon_long_jump, "Crouch Long-Jump");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(wall_run_w, sprintathon_wall_run, "Wall-Running");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(wall_jump_w, sprintathon_wall_jump, "Wall-Jumping");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(swimming_w, sprintathon_swimming, "Modern Swimming");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(ledge_grab_w, sprintathon_ledge_grab, "Ledge-Grabbing");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(footsteps_w, sprintathon_footsteps, "Footstep Sounds");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(bullet_time_w, sprintathon_bullet_time, "Bullet Time");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(bullet_time_blur_w, sprintathon_bullet_time_blur, "Bullet Time Blur");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(bullet_time_heavy_blur_w, sprintathon_bullet_time_heavy_blur, "Heavy Bullet Time Blur");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(pistol_scope_w, sprintathon_pistol_scope, "Pistol Scope");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(pistol_scope_blur_w, sprintathon_pistol_scope_blur, "Pistol Scope Blur");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(level_timer_w, sprintathon_level_timer, "Level Timer");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(dodge_bullet_time_w, sprintathon_dodge_bullet_time, "Automatic Dodge Bullet Time");
-#undef ADD_EMBEDDED_SPRINTATHON_TOGGLE
+	table->dual_add(widget->label(label_text), d); \
+	table->dual_add(widget, d)
+	table_placer *sprintathon_movement = make_sprintathon_table();
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_movement, jump_w, sprintathon_jump, "Jumping");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_movement, crouch_w, sprintathon_crouch, "Crouch / Kick / Slide");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_movement, sprint_w, sprintathon_sprint, "Sprinting");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_movement, slide_w, sprintathon_slide, "Sprint Sliding");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_movement, dodge_w, sprintathon_dodge, "Dodging");
+	add_sprintathon_page(sprintathon_movement);
+
+	table_placer *sprintathon_parkour = make_sprintathon_table();
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_parkour, long_jump_w, sprintathon_long_jump, "Crouch Long-Jump");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_parkour, wall_run_w, sprintathon_wall_run, "Wall-Running");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_parkour, wall_jump_w, sprintathon_wall_jump, "Wall-Jumping");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_parkour, swimming_w, sprintathon_swimming, "Modern Swimming");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_parkour, ledge_grab_w, sprintathon_ledge_grab, "Ledge-Grabbing");
+	add_sprintathon_page(sprintathon_parkour);
+
+	table_placer *sprintathon_combat = make_sprintathon_table();
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, ricochet_w, sprintathon_bullet_ricochet, "Bullet Ricochets");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, corpses_w, sprintathon_physics_corpses, "Physics Corpses");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, bullet_time_w, sprintathon_bullet_time, "Bullet Time");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, dodge_bullet_time_w, sprintathon_dodge_bullet_time, "Automatic Dodge Bullet Time");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, pistol_scope_w, sprintathon_pistol_scope, "Pistol Scope");
+	add_sprintathon_page(sprintathon_combat);
+
+	table_placer *sprintathon_effects = make_sprintathon_table();
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, footsteps_w, sprintathon_footsteps, "Footstep Sounds");
 	w_percentage_slider *footstep_volume_w = new w_percentage_slider(
 		101, input_preferences->sprintathon_footstep_volume_percent);
-	sprintathon_settings->dual_add(footstep_volume_w->label("Footstep Volume"), d);
-	sprintathon_settings->dual_add(footstep_volume_w, d);
-	sprintathon_movement_page->add(sprintathon_settings, true);
-	sprintathon_tabs->add(sprintathon_movement_page, true);
+	sprintathon_effects->dual_add(footstep_volume_w->label("Footstep Volume"), d);
+	sprintathon_effects->dual_add(footstep_volume_w, d);
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, bullet_time_blur_w, sprintathon_bullet_time_blur, "Bullet Time Blur");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, bullet_time_heavy_blur_w, sprintathon_bullet_time_heavy_blur, "Heavy Bullet Time Blur");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, pistol_scope_blur_w, sprintathon_pistol_scope_blur, "Pistol Scope Blur");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, level_timer_w, sprintathon_level_timer, "Level Timer");
+#undef ADD_EMBEDDED_SPRINTATHON_TOGGLE
+	add_sprintathon_page(sprintathon_effects);
 
 	vertical_placer *sprintathon_stamina_page = new vertical_placer;
 	sprintathon_stamina_page->center_vertically();
@@ -1969,6 +1987,7 @@ void handle_preferences(bool in_game)
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_sprint, sprint_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_bullet_ricochet, ricochet_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_physics_corpses, corpses_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_dodge, dodge_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_long_jump, long_jump_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_wall_run, wall_run_w);
@@ -4299,6 +4318,7 @@ static void sprintathon_dialog(void *arg)
 	ADD_SPRINTATHON_TOGGLE(stamina_bullet_time_w, sprintathon_stamina_bullet_time, "Bullet Time Drains Stamina");
 	ADD_SPRINTATHON_TOGGLE(slide_w, sprintathon_slide, "Sprint Sliding");
 	ADD_SPRINTATHON_TOGGLE(ricochet_w, sprintathon_bullet_ricochet, "Bullet Ricochets");
+	ADD_SPRINTATHON_TOGGLE(corpses_w, sprintathon_physics_corpses, "Physics Corpses");
 	ADD_SPRINTATHON_TOGGLE(dodge_w, sprintathon_dodge, "Dodging");
 	ADD_SPRINTATHON_TOGGLE(long_jump_w, sprintathon_long_jump, "Crouch Long-Jump");
 	ADD_SPRINTATHON_TOGGLE(wall_run_w, sprintathon_wall_run, "Wall-Running");
@@ -4354,6 +4374,7 @@ static void sprintathon_dialog(void *arg)
 			oxygen_recovery_w->get_selection() + 10;
 		STORE_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_bullet_ricochet, ricochet_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_physics_corpses, corpses_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_dodge, dodge_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_long_jump, long_jump_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_wall_run, wall_run_w);
@@ -6337,6 +6358,7 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_stamina_bullet_time", input_preferences->sprintathon_stamina_bullet_time);
 	root.put_attr("sprintathon_slide", input_preferences->sprintathon_slide);
 	root.put_attr("sprintathon_bullet_ricochet", input_preferences->sprintathon_bullet_ricochet);
+	root.put_attr("sprintathon_physics_corpses", input_preferences->sprintathon_physics_corpses);
 	root.put_attr("sprintathon_dodge", input_preferences->sprintathon_dodge);
 	root.put_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
 	root.put_attr("sprintathon_wall_run", input_preferences->sprintathon_wall_run);
@@ -6732,6 +6754,7 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_stamina_bullet_time = true;
 	preferences->sprintathon_slide = true;
 	preferences->sprintathon_bullet_ricochet = false;
+	preferences->sprintathon_physics_corpses = false;
 	preferences->sprintathon_dodge = true;
 	preferences->sprintathon_long_jump = true;
 	preferences->sprintathon_wall_run = true;
@@ -7413,6 +7436,7 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_stamina_bullet_time", input_preferences->sprintathon_stamina_bullet_time);
 	root.read_attr("sprintathon_slide", input_preferences->sprintathon_slide);
 	root.read_attr("sprintathon_bullet_ricochet", input_preferences->sprintathon_bullet_ricochet);
+	root.read_attr("sprintathon_physics_corpses", input_preferences->sprintathon_physics_corpses);
 	root.read_attr("sprintathon_dodge", input_preferences->sprintathon_dodge);
 	root.read_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
 	root.read_attr("sprintathon_wall_run", input_preferences->sprintathon_wall_run);

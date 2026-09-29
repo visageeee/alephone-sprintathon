@@ -809,6 +809,7 @@ void remove_parasitic_object(
 void remove_map_object(
 	short object_index)
 {
+	sprintathon_forget_corpse(object_index);
 	short *next_object;
 	struct object_data *object= get_object_data(object_index);
 	struct polygon_data *polygon= get_polygon_data(object->polygon);

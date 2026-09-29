@@ -155,7 +155,8 @@ enum /* translate_projectile() flags */
 	_projectile_hit_floor= 0x0008, // polygon_index in *obstruction_index
 	_projectile_hit_media= 0x0010, // polygon_index in *obstruction_index
 	_projectile_hit_landscape= 0x0020,
-	_projectile_hit_scenery= 0x0040
+	_projectile_hit_scenery= 0x0040,
+	_projectile_hit_corpse= 0x0080
 };
 
 /* ---------- globals */

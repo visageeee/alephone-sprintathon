@@ -58,6 +58,7 @@
 #include "ViewControl.h"
 #include "screen_drawing.h"
 #include "mouse.h"
+#include "joystick.h"
 #include "network.h"
 #include "images.h"
 #include "motion_sensor.h"
@@ -1351,7 +1352,7 @@ bool screenshot_camera_enabled = false;
 world_point3d screenshot_origin = {};
 short screenshot_polygon = NONE;
 float screenshot_x = 0, screenshot_y = 0, screenshot_z = 0;
-float screenshot_yaw = 0, screenshot_pitch = 0;
+float screenshot_yaw = 0, screenshot_pitch = 0, screenshot_roll = 0;
 uint64_t screenshot_last_time = 0;
 }
 
@@ -1366,6 +1367,7 @@ void screenshot_mode_begin()
 	screenshot_y = screenshot_origin.y;
 	screenshot_z = screenshot_origin.z;
 	screenshot_yaw = world_view->yaw;
+	screenshot_roll = 0.0f;
 	screenshot_pitch = world_view->pitch > HALF_CIRCLE ?
 		world_view->pitch - FULL_CIRCLE : world_view->pitch;
 	screenshot_last_time = machine_tick_count();
@@ -1398,7 +1400,24 @@ static void update_screenshot_camera()
 	const Uint8* keys = SDL_GetKeyboardState(nullptr);
 	float forward = float(keys[SDL_SCANCODE_W]) - float(keys[SDL_SCANCODE_S]);
 	float strafe = float(keys[SDL_SCANCODE_D]) - float(keys[SDL_SCANCODE_A]);
-	float climb = float(keys[SDL_SCANCODE_E]) - float(keys[SDL_SCANCODE_Q]);
+	// Read Jump/Swim and Crouch/Kick/Slide from the user's gameplay bindings.
+	Uint8 bound_keys[SDL_NUM_SCANCODES];
+	std::copy(keys, keys + SDL_NUM_SCANCODES, bound_keys);
+	mouse_buttons_become_keypresses(bound_keys);
+	joystick_buttons_become_keypresses(bound_keys);
+	auto action_down = [&](int action) {
+		for (const SDL_Scancode code : input_preferences->key_bindings[action])
+			if (code > SDL_SCANCODE_UNKNOWN && code < SDL_NUM_SCANCODES && bound_keys[code])
+				return true;
+		return false;
+	};
+	constexpr int jump_binding = 10;
+	constexpr int crouch_binding = 20;
+	float climb = float(action_down(jump_binding)) - float(action_down(crouch_binding));
+	// Q/E roll independently of travel speed; preserve the angle when released.
+	const float roll_input = float(keys[SDL_SCANCODE_E]) - float(keys[SDL_SCANCODE_Q]);
+	screenshot_roll += roll_input * (FULL_CIRCLE / 8.0f) * dt;
+	screenshot_roll = std::fmod(screenshot_roll, float(FULL_CIRCLE));
 	const float magnitude = sqrtf(forward * forward + strafe * strafe + climb * climb);
 	if (magnitude > 1.0f) {
 		forward /= magnitude;
@@ -1430,7 +1449,7 @@ static void update_screenshot_camera()
 	world_view->origin_polygon_index = screenshot_polygon;
 	world_view->yaw = NORMALIZE_ANGLE(static_cast<angle>(lroundf(screenshot_yaw)));
 	world_view->pitch = NORMALIZE_ANGLE(static_cast<angle>(lroundf(screenshot_pitch)));
-	world_view->roll = 0;
+	world_view->roll = static_cast<angle>(lroundf(screenshot_roll));
 	world_view->virtual_yaw = static_cast<_fixed>(screenshot_yaw * FIXED_ONE);
 	world_view->virtual_pitch = static_cast<_fixed>(screenshot_pitch * FIXED_ONE);
 	world_view->show_weapons_in_hand = false;

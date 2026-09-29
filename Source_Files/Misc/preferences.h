@@ -264,6 +264,7 @@ struct input_preferences_data
 	bool sprintathon_stamina_bullet_time;
 	bool sprintathon_slide;
 	bool sprintathon_bullet_ricochet;
+	bool sprintathon_physics_corpses;
 	bool sprintathon_dodge;
 	bool sprintathon_dodge_bullet_time;
 	bool sprintathon_long_jump;

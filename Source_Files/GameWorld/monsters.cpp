@@ -94,6 +94,8 @@ Jan 12, 2003 (Loren Petrich)
 #include <string.h>
 #include <limits.h>
 #include <map>
+#include <cmath>
+#include <algorithm>
 #include <set>
 
 #include "cseries.h"
@@ -463,6 +465,7 @@ short new_monster(
 void move_monsters(
 	void)
 {
+	sprintathon_move_corpses();
 	struct monster_data *monster;
 	bool monster_got_time= false;
 	bool monster_built_path= (dynamic_world->tick_count&3) ? true : false;
@@ -745,6 +748,7 @@ void initialize_monsters(
 void initialize_monsters_for_new_level(
 	void)
 {
+	for (short i = 0; i < MAXIMUM_OBJECTS_PER_MAP; ++i) sprintathon_forget_corpse(i);
 	struct monster_data *monster;
 	short monster_index;
 
@@ -1143,11 +1147,106 @@ void deactivate_monster(
 /* returns a list of object indexes of all monsters in or adjacent to the given polygon,
 	up to maximum_object_count. */
 // LP change: called with growable list
+// Negative garbage permutations retain the original monster type across saves.
+// Ordinary garbage keeps its existing nonnegative permutation.
+struct SprintathonCorpseVelocity { int x = 0, y = 0, z = 0; };
+static std::map<short, SprintathonCorpseVelocity> sprintathon_corpse_velocity;
+
+void sprintathon_forget_corpse(short object_index)
+{
+    sprintathon_corpse_velocity.erase(object_index);
+}
+
+void sprintathon_register_corpse(short object_index, short monster_type)
+{
+    sprintathon_forget_corpse(object_index);
+    if (!game_is_networked && monster_type >= 0 && monster_type < NUMBER_OF_MONSTER_TYPES)
+        get_object_data(object_index)->permutation = -monster_type - 2;
+}
+
+bool sprintathon_is_physics_corpse(short object_index)
+{
+    if (game_is_networked || !input_preferences->sprintathon_enabled ||
+        !input_preferences->sprintathon_physics_corpses) return false;
+    object_data *object = get_object_data(object_index);
+    const int type = -int(object->permutation) - 2;
+    return SLOT_IS_USED(object) && GET_OBJECT_OWNER(object) == _object_is_garbage &&
+        type >= 0 && type < NUMBER_OF_MONSTER_TYPES && !OBJECT_IS_INVISIBLE(object);
+}
+
+void sprintathon_corpse_dimensions(short object_index, world_distance *radius, world_distance *height)
+{
+    monster_definition *definition = get_monster_definition(-get_object_data(object_index)->permutation - 2);
+    *radius = definition->radius;
+    *height = std::max<int>(WORLD_ONE / 8, std::min<int>(WORLD_ONE / 3, definition->height / 4));
+}
+
+short sprintathon_corpse_impact_effect(short object_index, bool melee)
+{
+    monster_definition *definition = get_monster_definition(-get_object_data(object_index)->permutation - 2);
+    return melee ? definition->melee_impact_effect : definition->impact_effect;
+}
+
+void sprintathon_hit_corpse(short object_index, const world_point3d& origin, world_distance impulse)
+{
+    if (!sprintathon_is_physics_corpse(object_index)) return;
+    object_data *object = get_object_data(object_index);
+    const double dx = double(object->location.x) - origin.x;
+    const double dy = double(object->location.y) - origin.y;
+    const double length = std::sqrt(dx * dx + dy * dy);
+    SprintathonCorpseVelocity& velocity = sprintathon_corpse_velocity[object_index];
+    if (length > 0.0) {
+        velocity.x += int(dx * impulse / length);
+        velocity.y += int(dy * impulse / length);
+    }
+    velocity.z += impulse / 2;
+    velocity.x = std::max(-WORLD_ONE / 3, std::min(WORLD_ONE / 3, velocity.x));
+    velocity.y = std::max(-WORLD_ONE / 3, std::min(WORLD_ONE / 3, velocity.y));
+    velocity.z = std::min(WORLD_ONE / 3, velocity.z);
+}
+
+void sprintathon_move_corpses()
+{
+    if (game_is_networked || !input_preferences->sprintathon_enabled ||
+        !input_preferences->sprintathon_physics_corpses) {
+        sprintathon_corpse_velocity.clear();
+        return;
+    }
+    for (short index = 0; index < MAXIMUM_OBJECTS_PER_MAP; ++index) {
+        if (SLOT_IS_FREE(objects + index) || !sprintathon_is_physics_corpse(index)) continue;
+        object_data *object = get_object_data(index);
+        const polygon_data *polygon = get_polygon_data(object->polygon);
+        auto found = sprintathon_corpse_velocity.find(index);
+        if (found == sprintathon_corpse_velocity.end() && object->location.z == polygon->floor_height) continue;
+        SprintathonCorpseVelocity& velocity = sprintathon_corpse_velocity[index];
+        velocity.z -= WORLD_ONE / 128;
+        world_point3d next = object->location;
+        next.x = std::max<int>(SHRT_MIN, std::min<int>(SHRT_MAX, int(next.x) + velocity.x));
+        next.y = std::max<int>(SHRT_MIN, std::min<int>(SHRT_MAX, int(next.y) + velocity.y));
+        world_distance radius, height, floor, ceiling;
+        short supporting_polygon;
+        sprintathon_corpse_dimensions(index, &radius, &height);
+        keep_line_segment_out_of_walls(object->polygon, &object->location, &next,
+            0, height, &floor, &ceiling, &supporting_polygon);
+        const int top = std::max<int>(floor, int(ceiling) - height);
+        const int proposed_z = int(object->location.z) + velocity.z;
+        next.z = std::max<int>(floor, std::min<int>(top, proposed_z));
+        if (proposed_z <= floor || proposed_z >= top) velocity.z = 0;
+        translate_map_object(index, &next, NONE);
+        const bool grounded = next.z <= floor;
+        velocity.x = velocity.x * (grounded ? 3 : 31) / (grounded ? 4 : 32);
+        velocity.y = velocity.y * (grounded ? 3 : 31) / (grounded ? 4 : 32);
+        if (grounded && !velocity.x && !velocity.y && !velocity.z)
+            sprintathon_corpse_velocity.erase(index);
+    }
+}
+
 bool possible_intersecting_monsters(
 	vector<short> *IntersectedObjectsPtr,
 	unsigned maximum_object_count,
 	short polygon_index,
-	bool include_scenery)
+	bool include_scenery,
+	bool include_corpses)
 {
 	struct polygon_data *polygon= get_polygon_data(polygon_index);
 	short *neighbor_indexes= get_map_indexes(polygon->first_neighbor_index, polygon->neighbor_count);
@@ -1185,6 +1284,9 @@ bool possible_intersecting_monsters(
 							break;
 						}
 						
+						case _object_is_garbage:
+							if (include_corpses && sprintathon_is_physics_corpse(object_index)) solid_object = true;
+							break;
 						case _object_is_scenery:
 							if (include_scenery && OBJECT_IS_SOLID(object)) solid_object= true;
 							break;
@@ -1426,6 +1528,19 @@ void damage_monsters_in_radius(
 	struct damage_definition *damage,
 	short projectile_index)
 {
+	if (input_preferences->sprintathon_physics_corpses && !game_is_networked && radius > 0) {
+        for (short i = 0; i < MAXIMUM_OBJECTS_PER_MAP; ++i) {
+            if (SLOT_IS_FREE(objects + i) || !sprintathon_is_physics_corpse(i)) continue;
+            object_data *corpse = get_object_data(i);
+            const double dx = double(corpse->location.x) - epicenter->x;
+            const double dy = double(corpse->location.y) - epicenter->y;
+            const double dz = double(corpse->location.z) - epicenter->z;
+            const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (distance < radius && !line_is_obstructed(epicenter_polygon_index, epicenter,
+                corpse->polygon, &corpse->location))
+                sprintathon_hit_corpse(i, *epicenter, world_distance((WORLD_ONE / 3) * (1.0 - distance / radius)));
+        }
+    }
 	size_t object_count;
 
 	bool aggressor_is_live_player = false;
@@ -2909,6 +3024,7 @@ static void kill_monster(
 	else
 	{
 		turn_object_to_shit(monster->object_index);
+		sprintathon_register_corpse(monster->object_index, monster->type);
 		randomize_object_sequence(monster->object_index, shape);
 	}
 

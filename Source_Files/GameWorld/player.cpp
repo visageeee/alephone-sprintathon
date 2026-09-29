@@ -2058,6 +2058,7 @@ void revive_player(
 		into garbage */
 	remove_parasitic_object(monster->object_index);
 	turn_object_to_shit(monster->object_index);
+	sprintathon_register_corpse(monster->object_index, monster->type);
 
 	/* create a new pair of legs, and (completely behind MONSTERS.C’s back) reattach it to
 		it’s monster (shape will be set by set_player_shapes, below) */

@@ -125,7 +125,8 @@ enum /* things the projectile can hit in detonate_projectile() */
 	_hit_ceiling,
 	_hit_wall,
 	_hit_monster,
-	_hit_scenery
+	_hit_scenery,
+	_hit_corpse
 };
 
 #define MAXIMUM_PROJECTILE_ELEVATION (QUARTER_CIRCLE/2)
@@ -329,7 +330,7 @@ static bool sprintathon_ricochet(projectile_data *projectile, object_data *objec
 	if (!input_preferences->sprintathon_enabled ||
 		!input_preferences->sprintathon_bullet_ricochet ||
 		PROJECTILE_HAS_RICOCHETED(projectile) ||
-		(flags&(_projectile_hit_monster|_projectile_hit_scenery|
+		(flags&(_projectile_hit_monster|_projectile_hit_scenery|_projectile_hit_corpse|
 			_projectile_hit_media|_projectile_hit_landscape))) return false;
 
 	switch (projectile->type)
@@ -488,6 +489,9 @@ void move_projectiles(
 							bool destroy_persistent_projectile= false;
 							
 							if (flags&_projectile_hit_scenery) damage_scenery(obstruction_index);
+                            if ((flags & _projectile_hit_corpse) && !PROJECTILE_HAS_CAUSED_DAMAGE(projectile) && !definition->area_of_effect)
+                                sprintathon_hit_corpse(obstruction_index, old_location,
+                                    (definition->flags & _melee_projectile) ? WORLD_ONE / 8 : WORLD_ONE / 24);
 							
 							/* cause damage, if we can */
 							if (!PROJECTILE_HAS_CAUSED_DAMAGE(projectile) &&
@@ -584,6 +588,14 @@ void move_projectiles(
 										if (new_detonation_effect!=NONE) detonation_effect= new_detonation_effect;
 									}
 								}
+                                if (flags & _projectile_hit_corpse) {
+                                    if (definition->flags & _bleeding_projectile)
+                                        detonation_effect = sprintathon_corpse_impact_effect(obstruction_index, false);
+                                    if (definition->flags & _melee_projectile) {
+                                        short effect = sprintathon_corpse_impact_effect(obstruction_index, true);
+                                        if (effect != NONE) detonation_effect = effect;
+                                    }
+                                }
 								if (flags&_projectile_hit_media)
 								{
 									get_media_detonation_effect(get_polygon_data(obstruction_index)->media_index, definition->media_detonation_effect, &detonation_effect);
@@ -918,7 +930,7 @@ uint16 translate_projectile(
 		/* add this polygon’s monsters to our non-redundant list of possible intersections */
 		if (!(definition->flags & _passes_through_objects))
 		{
-			possible_intersecting_monsters(&IntersectedObjects, GLOBAL_INTERSECTING_MONSTER_BUFFER_SIZE, old_polygon_index, true);
+			possible_intersecting_monsters(&IntersectedObjects, GLOBAL_INTERSECTING_MONSTER_BUFFER_SIZE, old_polygon_index, true, true);
 			intersected_object_count = IntersectedObjects.size();
 		}
 		
@@ -1082,7 +1094,7 @@ uint16 translate_projectile(
 			old_location, new_location);
 			world_distance radius, height;
 				
-			if (object->permutation!=owner_index) /* don’t hit ourselves */
+			if (GET_OBJECT_OWNER(object) != _object_is_monster || object->permutation!=owner_index) /* don’t hit ourselves */
 			{
 				int32 radius_squared;
 				
@@ -1090,6 +1102,7 @@ uint16 translate_projectile(
 				{
 					case _object_is_monster: get_monster_dimensions(object->permutation, &radius, &height); break;
 					case _object_is_scenery: get_scenery_dimensions(object->permutation, &radius, &height); break;
+					case _object_is_garbage: sprintathon_corpse_dimensions(IntersectedObjects[i], &radius, &height); break;
 					default:
 						assert(false);
 						break;
@@ -1117,6 +1130,7 @@ uint16 translate_projectile(
 							{
 								case _object_is_monster: contact= _hit_monster; break;
 								case _object_is_scenery: contact= _hit_scenery; break;
+								case _object_is_garbage: contact= _hit_corpse; break;
 								default:
 									assert(false);
 									break;
@@ -1171,6 +1185,7 @@ uint16 translate_projectile(
 		case _hit_floor: flags|= _projectile_hit|_projectile_hit_floor; break;
 		case _hit_media: flags|= _projectile_hit|_projectile_hit_media; break;
 		case _hit_scenery: flags|= _projectile_hit|_projectile_hit_scenery; break;
+		case _hit_corpse: flags|= _projectile_hit|_projectile_hit_corpse; break;
 		case _hit_nothing: break;
 		default: flags|= _projectile_hit; break;
 	}
