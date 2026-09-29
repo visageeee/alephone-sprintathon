@@ -1415,8 +1415,10 @@ static void process_game_key(const SDL_Event &event)
 #ifdef HAVE_OPENGL
 			if (sprintathon_drop_flare())
 				screen_printf("Flare dropped");
-			else
+			else if (!graphics_preferences->projectile_lights_per_pixel)
 				screen_printf("Enable per-pixel projectile lights for flares");
+			else
+				screen_printf("Wait for a flare to burn out");
 #endif
 			return;
 		}

@@ -776,10 +776,9 @@ bool sprintathon_drop_flare()
     if (!dynamic_world || !current_player ||
         !graphics_preferences->projectile_lights_per_pixel) return false;
     sprintathon_update_flares();
-    if (sprintathon_dropped_flares.size() == sprintathon_flare_capacity) {
-        sprintathon_stop_flare(sprintathon_dropped_flares.front());
-        sprintathon_dropped_flares.erase(sprintathon_dropped_flares.begin());
-    }
+    // Keep both burning flares; another can be dropped after one expires.
+    if (sprintathon_dropped_flares.size() >= sprintathon_flare_capacity)
+        return false;
     const float direction = current_player->facing * (6.28318530718f / FULL_CIRCLE);
     const float forward = 0.75f * WORLD_ONE;
     const short polygon_index = current_player->supporting_polygon_index;
