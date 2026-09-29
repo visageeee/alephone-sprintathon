@@ -730,16 +730,24 @@ static void sprintathon_update_flares()
             }), sprintathon_dropped_flares.end());
 }
 
-void sprintathon_drop_flare()
+bool sprintathon_drop_flare()
 {
     if (!dynamic_world || !current_player ||
-        !graphics_preferences->projectile_lights_per_pixel) return;
+        !graphics_preferences->projectile_lights_per_pixel) return false;
     sprintathon_update_flares();
     if (sprintathon_dropped_flares.size() == sprintathon_flare_capacity)
         sprintathon_dropped_flares.erase(sprintathon_dropped_flares.begin());
+    const float direction = current_player->facing * (6.28318530718f / FULL_CIRCLE);
+    const float forward = 0.75f * WORLD_ONE;
+    const short polygon_index = current_player->supporting_polygon_index;
+    const float floor_z = polygon_index != NONE ?
+        float(get_polygon_data(polygon_index)->floor_height) :
+        float(current_player->location.z);
     sprintathon_dropped_flares.push_back({
-        float(current_player->location.x), float(current_player->location.y),
-        float(current_player->floor_height + WORLD_ONE / 8), dynamic_world->tick_count});
+        float(current_player->location.x) + std::cos(direction) * forward,
+        float(current_player->location.y) + std::sin(direction) * forward,
+        floor_z + WORLD_ONE / 8.0f, dynamic_world->tick_count});
+    return true;
 }
 
 static float sprintathon_flare_strength(const SprintathonDroppedFlare& flare)
