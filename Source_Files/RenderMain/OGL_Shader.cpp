@@ -152,7 +152,8 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"sprintathonSectorSpan6",
 	"sprintathonSectorSpan7",
 	"sprintathonMuzzlePosition",
-	"sprintathonMuzzleColor"
+	"sprintathonMuzzleColor",
+	"sprintathonShaftSource"
 };
 
 const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] = 
@@ -185,7 +186,8 @@ const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] =
 	"gamma",
 	"landscape_sphere",
 	"landscape_sphere_bloom",
-	"landscape_sphere_infravision"
+	"landscape_sphere_infravision",
+	"landscape_light_shafts_composite"
 };
 
 
@@ -842,6 +844,10 @@ defaultFragmentPrograms["landscape_light_shafts"] = R"(
 uniform sampler2DRect texture0;
 uniform sampler2DRect texture1;
 uniform sampler2DRect texture3;
+uniform sampler2DRect texture2;
+uniform float pass;
+uniform float scalex;
+uniform float scaley;
 uniform float pixelWidth;
 uniform float pixelHeight;
 uniform float offsetx;
@@ -857,8 +863,7 @@ uniform float sunAzimuth;
 uniform float sunElevation;
 
 void main(void) {
-	vec2 p = gl_FragCoord.xy;
-	vec4 scene = texture2DRect(texture0, p);
+	vec2 p = gl_TexCoord[0].xy;
 	// The configured world-space sun remains stable while the camera turns.
 	float relativeAzimuth = sunAzimuth - yaw;
 	float horizontalLength = cos(sunElevation);
@@ -951,10 +956,69 @@ void main(void) {
 	}
 	shafts /= max(totalWeight, 0.0001);
 	// Keep the additive result restrained; strength remains user-controlled.
-	gl_FragColor = vec4(scene.rgb + shafts * bloomScale * 1.15 *
-		sunVisibility, scene.a);
+	vec3 light = shafts * bloomScale * 1.15 * sunVisibility;
+	if (pass > 0.5) {
+		// Store only scattering and logarithmic scene depth in the half-size
+		// floating-point target. Sky uses a separate sentinel to preserve edges.
+		float d = texture2DRect(texture2, p).r;
+		float encodedDepth = -1.0;
+		if (d < 0.9995)
+			encodedDepth = log2(1.0 + abs(scaley / (2.0 * d - 1.0 + scalex)));
+		gl_FragColor = vec4(light, encodedDepth);
+	} else {
+		vec4 scene = texture2DRect(texture0, p);
+		gl_FragColor = vec4(scene.rgb + light, scene.a);
+	}
 }
 )";
+	defaultVertexPrograms["landscape_light_shafts_composite"] =
+		defaultVertexPrograms["underwater_ripple"];
+	defaultFragmentPrograms["landscape_light_shafts_composite"] = R"(
+uniform sampler2DRect texture0;
+uniform sampler2DRect texture1;
+uniform sampler2DRect texture2;
+uniform float pixelWidth;
+uniform float pixelHeight;
+uniform float offsetx;
+uniform float offsety;
+uniform float scalex;
+uniform float scaley;
+
+float depthWeight(float a, float b) {
+	if (a < 0.0 || b < 0.0)
+		return a < 0.0 && b < 0.0 ? 1.0 : 0.0;
+	// Compare view-space depth rather than nonlinear depth-buffer values.
+	// Reject unrelated surfaces entirely instead of leaking sky onto silhouettes.
+	float difference = abs(a - b);
+	return 1.0 - smoothstep(0.015, 0.12, difference);
+}
+void main(void) {
+	vec2 p = gl_TexCoord[0].xy;
+	vec4 scene = texture2DRect(texture0, p);
+	float d = texture2DRect(texture2, p).r;
+	float encodedDepth = -1.0;
+	if (d < 0.9995)
+		encodedDepth = log2(1.0 + abs(scaley / (2.0 * d - 1.0 + scalex)));
+	vec2 size = vec2(offsetx, offsety);
+	vec2 q = p * size / vec2(pixelWidth, pixelHeight);
+	vec2 base = floor(q - vec2(0.5)) + vec2(0.5);
+	vec2 f = clamp(q - base, 0.0, 1.0);
+	vec4 a = texture2DRect(texture1, clamp(base, vec2(0.5), size - vec2(0.5)));
+	vec4 b = texture2DRect(texture1, clamp(base + vec2(1.0, 0.0), vec2(0.5), size - vec2(0.5)));
+	vec4 c = texture2DRect(texture1, clamp(base + vec2(0.0, 1.0), vec2(0.5), size - vec2(0.5)));
+	vec4 e = texture2DRect(texture1, clamp(base + vec2(1.0), vec2(0.5), size - vec2(0.5)));
+	vec4 weights = vec4((1.0-f.x)*(1.0-f.y), f.x*(1.0-f.y), (1.0-f.x)*f.y, f.x*f.y) *
+		vec4(depthWeight(encodedDepth, a.a), depthWeight(encodedDepth, b.a),
+			depthWeight(encodedDepth, c.a), depthWeight(encodedDepth, e.a));
+	float totalWeight = dot(weights, vec4(1.0));
+	vec3 light = (a.rgb*weights.x + b.rgb*weights.y + c.rgb*weights.z + e.rgb*weights.w) /
+		max(totalWeight, 0.00001);
+	// A thin foreground object can have no matching half-resolution sample.
+	// Keep its scene color rather than borrowing light from the background.
+	gl_FragColor = vec4(scene.rgb + light, scene.a);
+}
+)";
+
 
 	defaultVertexPrograms["anamorphic_lens_flare"] =
 		defaultVertexPrograms["underwater_ripple"];

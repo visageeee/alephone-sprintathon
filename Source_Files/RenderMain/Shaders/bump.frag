@@ -9,6 +9,7 @@ uniform float glow;
 uniform float flare;
 uniform float selfLuminosity;
 uniform float fogMode;
+uniform float sprintathonShaftSource;
 uniform float mediaFogEnabled;
 uniform float mediaFogTop;
 uniform float mediaFogSoftness;
@@ -151,6 +152,13 @@ void main (void) {
 		texCoords.x += h * viewv.x;
 		texCoords.y -= h * viewv.y;
 	}
+	// Opaque geometry only masks the sky in the shaft-source framebuffer.
+	// Keep texture alpha (including cutouts); skip lighting, blending and fog.
+	if (sprintathonShaftSource > 0.5) {
+		float alpha = vertexColor.a * texture2D(texture0, texCoords.xy).a;
+		gl_FragColor = vec4(0.0, 0.0, 0.0, alpha);
+		return;
+	}
 	vec3 norm = (texture2D(texture1, texCoords.xy).rgb - 0.5) * 2.0;
 	float diffuse = 0.5 + abs(dot(norm, viewv))*0.5;
 	if (glow > 0.001) {
@@ -217,7 +225,8 @@ void main (void) {
                     float neighborBase = sprintathonSectorEdge1.w > mlFactor ?
                         sprintathonSectorEdge1.w + mlFactor * 0.5 : sprintathonSectorEdge1.w * 0.5 + mlFactor;
                     sectorShadeSum += clamp(neighborBase * diffuse, glow, 1.0) * edgeBlend;
-                    sectorBlendWeight += edgeBlend;
+)"
+R"(                    sectorBlendWeight += edgeBlend;
                 }
             }
         }
@@ -225,8 +234,7 @@ void main (void) {
     if (sprintathonSectorEdge2.w >= 0.0) {
         float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge2.xy) + sprintathonSectorEdge2.z;
         vec2 edgeVector = sprintathonSectorSpan2.zw - sprintathonSectorSpan2.xy;
-)"
-R"(        float edgeLength2 = dot(edgeVector, edgeVector);
+        float edgeLength2 = dot(edgeVector, edgeVector);
         float alongEdge = dot(sprintathonWorldPosition.xy - sprintathonSectorSpan2.xy, edgeVector);
         if (edgeDistance >= 0.0 && edgeDistance < 0.22 * 1024.0 + 0.0625 && edgeLength2 > 1.0) {
             float t = clamp(alongEdge / edgeLength2, 0.0, 1.0);
@@ -374,13 +382,13 @@ R"(        float edgeLength2 = dot(edgeVector, edgeVector);
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor.rgb * (lightFalloff * lightFalloff), glow, 1.0);
+)"
+R"(            intensity = clamp(intensity + sprintathonLightColor.rgb * (lightFalloff * lightFalloff), glow, 1.0);
         }
     }
     if (sprintathonLightColor2.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition2.xyz) * sprintathonLightPosition2.w;
-)"
-R"(        float lightDistanceSquared = dot(lightDelta, lightDelta);
+        float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             intensity = clamp(intensity + sprintathonLightColor2.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
@@ -525,14 +533,14 @@ R"(        float lightDistanceSquared = dot(lightDelta, lightDelta);
     }
     if (sprintathonLightColor20.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition20.xyz) * sprintathonLightPosition20.w;
-        float lightDistanceSquared = dot(lightDelta, lightDelta);
+)"
+R"(        float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             intensity = clamp(intensity + sprintathonLightColor20.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
-)"
-R"(    if (sprintathonLightColor21.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
+    if (sprintathonLightColor21.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition21.xyz) * sprintathonLightPosition21.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {

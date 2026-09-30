@@ -265,6 +265,14 @@ bool SetScriptHUDIcon(int player, int idx, const char* icon, size_t length);
 /* sets the icon for that HUD to a colored square (same colors as SetScriptHUDColor) */
 void SetScriptHUDSquare(int player, int idx, int color);
 
+// GPU durations for the last averaged batch; excludes HUD and presentation.
+struct SprintathonGpuTimings {
+    bool supported = false;
+    bool ready = false;
+    double milliseconds[5] = {};
+};
+extern SprintathonGpuTimings sprintathon_gpu_timings;
+
 bool MainScreenVisible();
 int MainScreenLogicalWidth();
 int MainScreenLogicalHeight();

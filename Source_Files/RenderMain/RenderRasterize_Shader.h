@@ -36,6 +36,18 @@ class RenderRasterize_Shader : public RenderRasterizerClass {
 	
 	long_vector2d leftmost_clip, rightmost_clip;
 
+    enum class WorldSurfacePass { all, opaque, remaining };
+    WorldSurfacePass world_surface_pass = WorldSurfacePass::all;
+    void render_world_diffuse();
+    bool skip_world_surface(bool opaque);
+    void reset_skipped_world_surface();
+    bool world_frustum_active = false;
+    float world_frustum_planes[4][4] = {};
+    void prepare_world_frustum();
+    bool world_bounds_outside(float x0, float y0, float z0,
+                              float x1, float y1, float z1) const;
+
+
 protected:
 	virtual void render_node(sorted_node_data *node, bool SeeThruLiquids, RenderStep renderStep);	
 	virtual void store_endpoint(endpoint_data *endpoint, long_vector2d& p);

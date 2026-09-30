@@ -135,6 +135,7 @@ public:
 		U_SprintathonSectorSpan7,
 		U_SprintathonMuzzlePosition,
 		U_SprintathonMuzzleColor,
+		U_SprintathonShaftSource,
 		NUMBER_OF_UNIFORM_LOCATIONS
 	};
 
@@ -168,6 +169,7 @@ public:
 		S_LandscapeSphere,
 		S_LandscapeSphereBloom,
 		S_LandscapeSphereInfravision,
+		S_LandscapeLightShaftsComposite,
 		NUMBER_OF_SHADER_TYPES
 	};
 private:

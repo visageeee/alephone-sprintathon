@@ -534,12 +534,14 @@ uint16 DisplayTextWidth(const char *Text)
 
 static void update_fps_display(SDL_Surface *s)
 {
-	if (displaying_fps && !player_in_terminal_mode(current_player_index))
+	if ((displaying_fps || ShowPosition) && !player_in_terminal_mode(current_player_index))
 	{
 		char fps[sizeof("1000 fps (10000 ms)")];
 		char ms[sizeof("(10000 ms)")];
 
 		fps_counter.update();
+		// F10 uses the same counter without enabling the separate FPS overlay.
+		if (!displaying_fps) return;
 
 		if (!fps_counter.ready())
 		{
@@ -661,6 +663,12 @@ static void DisplayPosition(SDL_Surface *s)
 	short Y = Y0 + LineSpacing;
 	const float FLOAT_WORLD_ONE = float(WORLD_ONE);
 	const float AngleConvert = 360/float(FULL_CIRCLE);
+	if (fps_counter.ready())
+		sprintf(temporary, "FPS     = %8.1f", fps_counter.get());
+	else
+		sprintf(temporary, "FPS     =       --");
+	DisplayText(X,Y,temporary);
+	Y += LineSpacing;
 	sprintf(temporary, "X       = %8.3f",world_view->origin.x/FLOAT_WORLD_ONE);
 	DisplayText(X,Y,temporary);
 	Y += LineSpacing;
@@ -682,6 +690,23 @@ static void DisplayPosition(SDL_Surface *s)
 	if (Angle > HALF_CIRCLE) Angle -= FULL_CIRCLE;
 	sprintf(temporary, "Pitch   = %8.3f",AngleConvert*Angle);
 	DisplayText(X,Y,temporary);
+    Y += LineSpacing;
+    if (sprintathon_gpu_timings.ready && !world_view->overhead_map_active) {
+        const char *labels[5] = {"World+Lights", "Post FX", "View Layer", "Bloom", "Underwater"};
+        double total = 0;
+        for (int i = 0; i < 5; ++i) {
+            sprintf(temporary, "GPU %-12s %6.2f ms", labels[i], sprintathon_gpu_timings.milliseconds[i]);
+            DisplayText(X,Y,temporary);
+            Y += LineSpacing;
+            total += sprintathon_gpu_timings.milliseconds[i];
+        }
+        sprintf(temporary, "GPU measured     %6.2f ms", total);
+        DisplayText(X,Y,temporary);
+    } else {
+        DisplayText(X,Y, world_view->overhead_map_active ? "GPU timings: map view" :
+            (sprintathon_gpu_timings.supported ? "GPU timings: sampling..." : "GPU timings: unavailable"));
+    }
+
 	
 }
 
@@ -723,7 +748,10 @@ static void DisplayMessages(SDL_Surface *s)
 	short LineSpacing = Font.LineSpacing;
 	short X = X0 + LineSpacing/3;
 	short Y = Y0 + LineSpacing;
-	if (ShowPosition) Y += 6*LineSpacing;	// Make room for the position data
+	if (ShowPosition) {
+        const int timing_lines = sprintathon_gpu_timings.ready && !world_view->overhead_map_active ? 6 : 1;
+        Y += (7 + timing_lines) * LineSpacing;
+    }
 	/* SB */
 	short view = nonlocal_script_hud ? local_player_index : current_player_index;
 	for(int i = 0; i < MAXIMUM_NUMBER_OF_SCRIPT_HUD_ELEMENTS; ++i) {

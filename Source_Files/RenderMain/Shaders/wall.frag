@@ -8,6 +8,7 @@ uniform float glow;
 uniform float flare;
 uniform float selfLuminosity;
 uniform float fogMode;
+uniform float sprintathonShaftSource;
 uniform float mediaFogEnabled;
 uniform float mediaFogTop;
 uniform float mediaFogSoftness;
@@ -135,6 +136,13 @@ void main (void) {
 	vec3 normXY = normalize(viewXY);
 	texCoords += vec3(normXY.y * -pulsate, normXY.x * pulsate, 0.0);
 	texCoords += vec3(normXY.y * -wobble * texCoords.y, wobble * texCoords.y, 0.0);
+	// Opaque geometry only masks the sky in the shaft-source framebuffer.
+	// Keep texture alpha (including cutouts); skip lighting, blending and fog.
+	if (sprintathonShaftSource > 0.5) {
+		float alpha = vertexColor.a * texture2D(texture0, texCoords.xy).a;
+		gl_FragColor = vec4(0.0, 0.0, 0.0, alpha);
+		return;
+	}
 	float mlFactor = clamp(selfLuminosity + flare - classicDepth, 0.0, 1.0);
 	// more realistic: replace classicDepth with (length(viewDir)/8192.0)
 	vec3 intensity;
@@ -204,12 +212,12 @@ void main (void) {
             float segmentDistanceSquared = dot(segmentDelta, segmentDelta);
             if (segmentDistanceSquared < (0.22 * 1024.0) * (0.22 * 1024.0)) {
                 float segmentDistance = sqrt(segmentDistanceSquared);
-                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.22 * 1024.0, segmentDistance));
+)"
+R"(                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.22 * 1024.0, segmentDistance));
                 if (edgeBlend > 0.0) {
                     float neighborBase = sprintathonSectorEdge2.w > mlFactor ?
                         sprintathonSectorEdge2.w + mlFactor * 0.5 : sprintathonSectorEdge2.w * 0.5 + mlFactor;
-)"
-R"(                    sectorShadeSum += clamp(neighborBase, glow, 1.0) * edgeBlend;
+                    sectorShadeSum += clamp(neighborBase, glow, 1.0) * edgeBlend;
                     sectorBlendWeight += edgeBlend;
                 }
             }
@@ -360,13 +368,13 @@ R"(                    sectorShadeSum += clamp(neighborBase, glow, 1.0) * edgeBl
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor3.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+)"
+R"(            intensity = clamp(intensity + sprintathonLightColor3.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor4.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition4.xyz) * sprintathonLightPosition4.w;
-)"
-R"(        float lightDistanceSquared = dot(lightDelta, lightDelta);
+        float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             intensity = clamp(intensity + sprintathonLightColor4.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
@@ -511,7 +519,8 @@ R"(        float lightDistanceSquared = dot(lightDelta, lightDelta);
     }
 	intensity = clamp(intensity * rippleHighlight, glow, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING
-	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)
+)"
+R"(	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)
 #endif
 	vec4 color = texture2D(texture0, texCoords.xy);
 	if (mediaWetness > 0.001) {
@@ -522,8 +531,7 @@ R"(        float lightDistanceSquared = dot(lightDelta, lightDelta);
 				mediaDetailOffset.x) * 0.73);
 		vec4 shiftedC = texture2D(texture0,
 			texCoords.xy - mediaDetailOffset * 0.46);
-)"
-R"(		vec4 refracted = mix(mix(shiftedA, shiftedB, 0.5),
+		vec4 refracted = mix(mix(shiftedA, shiftedB, 0.5),
 			shiftedC, 0.28);
 		color = mix(color, refracted, mediaTextureMix);
 		float localLuma = dot(color.rgb, vec3(0.299, 0.587, 0.114));

@@ -79,6 +79,8 @@
 #define MUST_RELOAD_VIEW_CONTEXT
 #endif
 
+SprintathonGpuTimings sprintathon_gpu_timings;
+
 // Global variables
 static SDL_Surface *main_surface;	// Main (display) surface
 static SDL_Window *main_screen;
