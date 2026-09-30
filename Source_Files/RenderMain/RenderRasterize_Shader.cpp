@@ -42,13 +42,23 @@ extern bool ShowPosition;
 // Results are read only after availability is reported. A full queue skips
 // sampling rather than waiting for the GPU. No glFinish or result busy-wait.
 namespace {
+// GLEW may undefine APIENTRY after declaring its entry points on Windows.
+// Keep the OpenGL ABI explicit, especially for 32-bit Windows builds.
+#if defined(_WIN32) || defined(__WIN32__)
+#define SPRINTATHON_GL_CALL __stdcall
+#elif defined(APIENTRY)
+#define SPRINTATHON_GL_CALL APIENTRY
+#else
+#define SPRINTATHON_GL_CALL
+#endif
 class SprintathonGpuProfiler {
-    using Gen = void (APIENTRY *)(GLsizei, GLuint*);
-    using Delete = void (APIENTRY *)(GLsizei, const GLuint*);
-    using Begin = void (APIENTRY *)(GLenum, GLuint);
-    using End = void (APIENTRY *)(GLenum);
-    using Available = void (APIENTRY *)(GLuint, GLenum, GLuint*);
-    using Result = void (APIENTRY *)(GLuint, GLenum, uint64_t*);
+    using Gen = void (SPRINTATHON_GL_CALL *)(GLsizei, GLuint*);
+    using Delete = void (SPRINTATHON_GL_CALL *)(GLsizei, const GLuint*);
+    using Begin = void (SPRINTATHON_GL_CALL *)(GLenum, GLuint);
+    using End = void (SPRINTATHON_GL_CALL *)(GLenum);
+    using Available = void (SPRINTATHON_GL_CALL *)(GLuint, GLenum, GLuint*);
+    using Result = void (SPRINTATHON_GL_CALL *)(GLuint, GLenum, uint64_t*);
+#undef SPRINTATHON_GL_CALL
     Gen gen = nullptr;
     Delete remove = nullptr;
     Begin begin = nullptr;
@@ -949,6 +959,10 @@ static void sprintathon_play_flare_sound(SprintathonDroppedFlare& flare,
     params.in_world = true;
     params.loop = loop;
     params.spatialize_stereo = true;
+    // Keep the loop strong nearby, with a steeper fade beyond that radius.
+    params.source_gain = 4.0f;
+    params.behavior = loop ? _sound_is_normal : _sound_is_loud;
+    params.distance_rolloff = loop ? 4.0f : 1.0f;
     params.source_location3d.point.x = static_cast<world_distance>(flare.x);
     params.source_location3d.point.y = static_cast<world_distance>(flare.y);
     params.source_location3d.point.z = static_cast<world_distance>(flare.z);
@@ -1078,6 +1092,93 @@ static void sprintathon_draw_flare_stars(const view_data *camera)
         glColor4f(1.0f, 0.90f, 0.75f, flicker);
         vertex(0, 0);
         glEnd();
+    }
+    glActiveTextureARB(active_texture);
+    glPopAttrib();
+}
+
+// Small translucent smoke puffs, timed by game ticks so pause and bullet time
+// affect smoke just as they affect the burning flare. No particle assets needed.
+static void sprintathon_draw_flare_smoke(const view_data *camera)
+{
+    if (sprintathon_dropped_flares.empty()) return;
+    struct Puff { float x, y, z, radius, alpha, distance_squared; };
+    std::vector<Puff> puffs;
+    puffs.reserve(sprintathon_flare_capacity * 8);
+    const float interval = 0.65f;
+    const float lifetime = interval * 8;
+    for (const auto& flare : sprintathon_dropped_flares) {
+        const float age = float(dynamic_world->tick_count - flare.placed_tick) /
+                          TICKS_PER_SECOND;
+        if (age < 0.0f || age >= float(sprintathon_flare_lifetime) / TICKS_PER_SECOND)
+            continue;
+        const int latest = int(age / interval);
+        for (int i = 0; i < 8; ++i) {
+            const int emission = latest - i;
+            if (emission < 0) continue;
+            const float elapsed = age - emission * interval;
+            const float progress = elapsed / lifetime;
+            if (progress >= 1.0f) continue;
+            const float phase = emission * 2.39996323f + flare.x * 0.001f;
+            const float drift = WORLD_ONE * 0.12f * progress;
+            Puff puff;
+            puff.x = flare.x + std::sin(phase + elapsed * 0.55f) * drift;
+            puff.y = flare.y + std::cos(phase + elapsed * 0.45f) * drift;
+            puff.z = flare.z + WORLD_ONE * (0.07f + elapsed * 0.16f);
+            puff.radius = WORLD_ONE * (0.045f + progress * 0.16f);
+            puff.alpha = 0.16f * std::min(elapsed / 0.3f, 1.0f) *
+                         (1.0f - progress) * (1.0f - progress);
+            const float dx = puff.x - camera->origin.x;
+            const float dy = puff.y - camera->origin.y;
+            const float dz = puff.z - camera->origin.z;
+            puff.distance_squared = dx*dx + dy*dy + dz*dz;
+            puffs.push_back(puff);
+        }
+    }
+    if (puffs.empty()) return;
+    // Alpha blending needs the farther puffs first, including between flares.
+    std::sort(puffs.begin(), puffs.end(), [](const Puff& a, const Puff& b) {
+        return a.distance_squared > b.distance_squared;
+    });
+    Shader::disable();
+    GLint active_texture = GL_TEXTURE0_ARB;
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &active_texture);
+    GLfloat modelview[16];
+    glGetFloatv(GL_MODELVIEW_MATRIX, modelview);
+    glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT |
+                 GL_CURRENT_BIT | GL_TEXTURE_BIT);
+    glActiveTextureARB(GL_TEXTURE0_ARB);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_TEXTURE_RECTANGLE_ARB);
+    glDisable(GL_ALPHA_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_FOG);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    for (const auto& puff : puffs) {
+        // Concentric rings approximate a soft Gaussian profile without a texture.
+        const auto vertex = [&](float radius, float angle) {
+            const float u = std::cos(angle) * radius * puff.radius;
+            const float v = std::sin(angle) * radius * puff.radius;
+            const float opacity = radius == 1.0f ? 0.0f :
+                                  std::exp(-4.0f * radius * radius);
+            glColor4f(0.95f, 0.94f, 0.92f, puff.alpha * opacity);
+            glVertex3f(puff.x + modelview[0]*u + modelview[1]*v,
+                       puff.y + modelview[4]*u + modelview[5]*v,
+                       puff.z + modelview[8]*u + modelview[9]*v);
+        };
+        for (int ring = 0; ring < 4; ++ring) {
+            glBegin(GL_TRIANGLE_STRIP);
+            for (int segment = 0; segment <= 16; ++segment) {
+                const float angle = segment * (6.28318530718f / 16.0f);
+                vertex(ring * 0.25f, angle);
+                vertex((ring + 1) * 0.25f, angle);
+            }
+            glEnd();
+        }
     }
     glActiveTextureARB(active_texture);
     glPopAttrib();
@@ -1993,6 +2094,7 @@ void RenderRasterize_Shader::render_tree() {
 		render_world_diffuse();
 		sprintathon_end_shaft_source();
 	}
+    sprintathon_draw_flare_smoke(view);
     sprintathon_draw_flare_stars(view);
 	if (ogl_config.AmbientOcclusion || ogl_config.LandscapeLightShafts ||
 		ogl_config.AnamorphicLensFlares ||
