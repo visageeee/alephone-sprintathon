@@ -1499,7 +1499,27 @@ static void sprintathon_select_view_emitters(const view_data *camera)
 }
 
 // Light-position .w stores inverse radius, shared by both surface shaders.
-static void sprintathon_set_view_emitters(Shader *shader)
+struct SprintathonSurfaceLightBounds {
+    float x0 = 0, y0 = 0, z0 = 0, x1 = 0, y1 = 0, z1 = 0;
+    bool valid = false;
+};
+
+static bool sprintathon_light_reaches_surface(const SprintathonSurfaceLightBounds *bounds,
+                                             float x, float y, float z, float radius)
+{
+    if (!bounds || !bounds->valid) return true;
+    // Distance to the entire surface bounds, never its centroid. A large floor
+    // can be lit at its edge even when its center is far beyond the light range.
+    const double dx = std::max(0.0, std::max(double(bounds->x0) - x, double(x) - bounds->x1));
+    const double dy = std::max(0.0, std::max(double(bounds->y0) - y, double(y) - bounds->y1));
+    const double dz = std::max(0.0, std::max(double(bounds->z0) - z, double(z) - bounds->z1));
+    // Roundoff guard: retain touching lights, including float shader boundary cases.
+    const double conservative_radius = double(radius) + 1.0;
+    return !(dx*dx + dy*dy + dz*dz > conservative_radius*conservative_radius);
+}
+
+static void sprintathon_set_view_emitters(Shader *shader,
+                                          const SprintathonSurfaceLightBounds *bounds = nullptr)
 {
     const Shader::UniformName positions[sprintathon_emitter_slots] = {
         Shader::U_SprintathonLightPosition2,
@@ -1551,9 +1571,15 @@ static void sprintathon_set_view_emitters(Shader *shader)
             (sprintathon_dropped_flares.empty() ||
              i < sprintathon_emitter_slots - sprintathon_flare_capacity)) {
             const auto& light=sprintathon_previous_emitters[i];
+            const float radius = std::max(sprintathon_emitter_radius(light.scenery), 1.0f);
+            if (!sprintathon_light_reaches_surface(bounds, light.x, light.y, light.z, radius)) {
+                // Alpha is the existing shader's uniform branch flag. Keep slots
+                // stable; reject only lights with zero contribution everywhere.
+                shader->setVector4(colors[i], 0, 0, 0, 0);
+                continue;
+            }
             const float fade=sprintathon_emitter_fade[i]*gain;
-            shader->setVector4(positions[i], light.x, light.y, light.z,
-                               1.0f / std::max(sprintathon_emitter_radius(light.scenery), 1.0f));
+            shader->setVector4(positions[i], light.x, light.y, light.z, 1.0f / radius);
             shader->setVector4(colors[i], light.r*fade, light.g*fade,
                                light.b*fade, 1.0f);
         } else shader->setVector4(colors[i], 0, 0, 0, 0);
@@ -1562,6 +1588,10 @@ static void sprintathon_set_view_emitters(Shader *shader)
         for (size_t i = 0; i < sprintathon_dropped_flares.size(); ++i) {
             const int slot = sprintathon_emitter_slots - sprintathon_flare_capacity + int(i);
             const auto& flare = sprintathon_dropped_flares[i];
+            if (!sprintathon_light_reaches_surface(bounds, flare.x, flare.y, flare.z, 5.5f * WORLD_ONE)) {
+                shader->setVector4(colors[slot], 0, 0, 0, 0);
+                continue;
+            }
             const float strength = sprintathon_flare_strength(flare) * gain;
             shader->setVector4(positions[slot], flare.x, flare.y, flare.z,
                                1.0f / (5.5f * WORLD_ONE));
@@ -1571,20 +1601,22 @@ static void sprintathon_set_view_emitters(Shader *shader)
     }
 }
 
-static void sprintathon_clear_pixel_light(RenderStep step, short texture_type)
+static void sprintathon_clear_pixel_light(RenderStep step, short texture_type,
+                                          const SprintathonSurfaceLightBounds *bounds = nullptr)
 {
     Shader *shader = sprintathon_surface_shader(step, texture_type);
     if (shader) {
         shader->setVector4(Shader::U_SprintathonLightColor, 0, 0, 0, 0);
-        sprintathon_set_view_emitters(shader);
+        sprintathon_set_view_emitters(shader, bounds);
     }
 }
 
-static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep step, short texture_type)
+static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep step, short texture_type,
+                                        const SprintathonSurfaceLightBounds *bounds = nullptr)
 {
     Shader *shader = sprintathon_surface_shader(step, texture_type);
     if (!shader) return;
-    sprintathon_set_view_emitters(shader);
+    sprintathon_set_view_emitters(shader, bounds);
     if (!sprintathon_has_active_lighting) {
         shader->setVector4(Shader::U_SprintathonLightColor, 0, 0, 0, 0);
         return;
@@ -2116,6 +2148,8 @@ void RenderRasterize_Shader::reset_skipped_world_surface()
 
 void RenderRasterize_Shader::prepare_world_frustum()
 {
+    const char *override_lights = std::getenv("SPRINTATHON_SURFACE_LIGHT_BOUNDS");
+    surface_light_bounds_active = !override_lights || override_lights[0] != '0';
     const char *override_culling = std::getenv("SPRINTATHON_PORTAL_FRUSTUM_CULL");
     world_frustum_active = RSPtr && RSPtr->RVPtr &&
         RSPtr->RVPtr->conservative_full_circle &&
@@ -2816,7 +2850,9 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
          surface->transfer_mode == _xfer_big_landscape)) return;
 
     bool outside_frustum = false;
-    if (world_frustum_active && polygon && polygon->vertex_count > 0) {
+    SprintathonSurfaceLightBounds surface_bounds;
+    if ((world_frustum_active || (surface_light_bounds_active &&
+         graphics_preferences->projectile_lights_per_pixel)) && polygon && polygon->vertex_count > 0) {
         const auto& first = get_endpoint_data(polygon->endpoint_indexes[0])->vertex;
         float x0 = first.x, x1 = first.x, y0 = first.y, y1 = first.y;
         for (short i = 1; i < polygon->vertex_count; ++i) {
@@ -2826,6 +2862,8 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
         }
         outside_frustum = world_bounds_outside(x0, y0, surface->height,
                                                x1, y1, surface->height);
+        surface_bounds = {x0, y0, float(surface->height), x1, y1, float(surface->height),
+            surface_light_bounds_active && graphics_preferences->projectile_lights_per_pixel};
     }
     // Opaque preparation and bloom do not collect diffuse texture emitters.
     if (outside_frustum && (world_surface_pass == WorldSurfacePass::opaque ||
@@ -2900,9 +2938,9 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
     }
     if (graphics_preferences->projectile_lights_per_pixel) {
         glColor4f(intensity, intensity, intensity, 1.0f);
-        sprintathon_set_pixel_light(surface_light_x, surface_light_y, surface_light_z, renderStep, TMgr->TextureType);
+        sprintathon_set_pixel_light(surface_light_x, surface_light_y, surface_light_z, renderStep, TMgr->TextureType, &surface_bounds);
     } else {
-        sprintathon_clear_pixel_light(renderStep, TMgr->TextureType);
+        sprintathon_clear_pixel_light(renderStep, TMgr->TextureType, &surface_bounds);
     }
 
 
@@ -3039,6 +3077,18 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
             float(std::min(surface->p0.j, surface->p1.j)), bottom,
             float(std::max(surface->p0.i, surface->p1.i)),
             float(std::max(surface->p0.j, surface->p1.j)), top);
+    SprintathonSurfaceLightBounds surface_bounds;
+    if (surface_light_bounds_active && graphics_preferences->projectile_lights_per_pixel &&
+        bottom >= INT16_MIN && top <= INT16_MAX && top >= bottom &&
+        std::min(surface->p0.i, surface->p1.i) >= INT16_MIN &&
+        std::max(surface->p0.i, surface->p1.i) <= INT16_MAX &&
+        std::min(surface->p0.j, surface->p1.j) >= INT16_MIN &&
+        std::max(surface->p0.j, surface->p1.j) <= INT16_MAX) {
+        surface_bounds = {float(std::min(surface->p0.i, surface->p1.i)),
+            float(std::min(surface->p0.j, surface->p1.j)), bottom,
+            float(std::max(surface->p0.i, surface->p1.i)),
+            float(std::max(surface->p0.j, surface->p1.j)), top, true};
+    }
     if (outside_frustum && (world_surface_pass == WorldSurfacePass::opaque ||
                             renderStep == kGlow ||
                             !graphics_preferences->projectile_lights_per_pixel ||
@@ -3090,9 +3140,9 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
         sprintathon_surface_shader(renderStep, TMgr->TextureType), nullptr, nullptr, false, view);
     if (graphics_preferences->projectile_lights_per_pixel) {
         glColor4f(intensity, intensity, intensity, 1.0f);
-        sprintathon_set_pixel_light(surface_light_x, surface_light_y, surface_light_z, renderStep, TMgr->TextureType);
+        sprintathon_set_pixel_light(surface_light_x, surface_light_y, surface_light_z, renderStep, TMgr->TextureType, &surface_bounds);
     } else {
-        sprintathon_clear_pixel_light(renderStep, TMgr->TextureType);
+        sprintathon_clear_pixel_light(renderStep, TMgr->TextureType, &surface_bounds);
     }
 
 

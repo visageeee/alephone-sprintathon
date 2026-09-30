@@ -42,6 +42,7 @@ class RenderRasterize_Shader : public RenderRasterizerClass {
     bool skip_world_surface(bool opaque);
     void reset_skipped_world_surface();
     bool world_frustum_active = false;
+    bool surface_light_bounds_active = true;
     float world_frustum_planes[4][4] = {};
     void prepare_world_frustum();
     bool world_bounds_outside(float x0, float y0, float z0,

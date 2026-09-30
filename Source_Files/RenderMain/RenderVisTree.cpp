@@ -38,6 +38,8 @@ Oct 13, 2000
 #include "map.h"
 #include "RenderVisTree.h"
 
+#include <cstdlib>
+
 
 // LP: "recommended" sizes of stuff in growable lists
 #define POLYGON_QUEUE_SIZE 256
@@ -120,6 +122,9 @@ void RenderVisTreeClass::PUSH_POLYGON_INDEX(short polygon_index)
 // Main routine
 void RenderVisTreeClass::build_render_tree()
 {
+	const char *override_clips = std::getenv("SPRINTATHON_PORTAL_CLIP_FAST_PATH");
+	unclipped_portal_windows = conservative_full_circle &&
+		(!override_clips || override_clips[0] != '0');
 	assert(view);	// Idiot-proofing
 
 	/* initialize the queue where we remember polygons we need to fire at */
@@ -322,7 +327,7 @@ void RenderVisTreeClass::cast_render_ray(
 
 			/* update the line clipping information, if necessary, for this node (don’t add
 				duplicates */
-			if (clipping_line_index!=NONE)
+			if (clipping_line_index!=NONE && !unclipped_portal_windows)
 			{
 				short i;
 				
@@ -347,12 +352,11 @@ void RenderVisTreeClass::cast_render_ray(
 			/* update endpoint clipping information for this node if we have a valid endpoint with clip */
 			if (add_endpoint_clip_to_next_clippable_poly && (clip_flags&(_clip_left|_clip_right)))
 			{
-				clipping_endpoint_index = calculate_endpoint_clipping_information(endpoint_index, clip_flags);
-				
-				// Be sure it's valid
-				if (clipping_endpoint_index != NONE)
+				if (!unclipped_portal_windows)
 				{
-					if (node->clipping_endpoint_count<MAXIMUM_CLIPPING_ENDPOINTS_PER_NODE)
+					clipping_endpoint_index = calculate_endpoint_clipping_information(endpoint_index, clip_flags);
+					if (clipping_endpoint_index != NONE &&
+						node->clipping_endpoint_count<MAXIMUM_CLIPPING_ENDPOINTS_PER_NODE)
 						node->clipping_endpoints[node->clipping_endpoint_count++]= clipping_endpoint_index;
 				}
 				

@@ -39,6 +39,7 @@ Oct 13, 2000
 
 #include <string.h>
 #include <limits.h>
+#include <algorithm>
 
 
 // LP: "recommended" sizes of stuff in growable lists
@@ -76,6 +77,13 @@ void RenderSortPolyClass::initialize_sorted_render_tree()
 {
 	// LP change: sorted nodes a growable list
 	SortedNodes.clear();
+	if (RVPtr->unclipped_portal_windows)
+	{
+		// At most one sorted entry/window per discovered polygon. Reserve before
+		// any live window pointers are created, so the fast path cannot move them.
+		RVPtr->ClippingWindows.reserve(std::min(RVPtr->Nodes.size(),
+			polygon_index_to_sorted_node.size()));
+	}
 }
 
 /*
@@ -237,6 +245,26 @@ void RenderSortPolyClass::sort_render_tree()
 clipping_window_data *RenderSortPolyClass::build_clipping_windows(
 	node_data *ChainBegin)
 {
+	if (RVPtr->unclipped_portal_windows)
+	{
+		// Full-circle visibility has already discarded all per-portal clips.
+		// Reproduce the legacy result directly, without vertex projection scans,
+		// parent/alias walks or vertical clipping calculations.
+		auto& window = RVPtr->ClippingWindows.emplace_back();
+		const auto& left = RVPtr->EndpointClips[indexLEFT_SIDE_OF_SCREEN];
+		const auto& right = RVPtr->EndpointClips[indexRIGHT_SIDE_OF_SCREEN];
+		const auto& vertical = RVPtr->LineClips[indexTOP_AND_BOTTOM_OF_SCREEN];
+		window.x0 = left.x;
+		window.x1 = right.x;
+		window.left = left.vector;
+		window.right = right.vector;
+		window.y0 = vertical.top_y;
+		window.y1 = vertical.bottom_y;
+		window.top = vertical.top_vector;
+		window.bottom = vertical.bottom_vector;
+		window.next_window = nullptr;
+		return &window;
+	}
 	// LP change: growable lists
 	AccumulatedLineClips.clear();
 	AccumulatedEndpointClips.clear();

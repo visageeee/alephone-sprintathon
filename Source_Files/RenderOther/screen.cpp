@@ -80,6 +80,7 @@
 #endif
 
 SprintathonGpuTimings sprintathon_gpu_timings;
+SprintathonCpuSceneTimings sprintathon_cpu_scene_timings;
 
 // Global variables
 static SDL_Surface *main_surface;	// Main (display) surface

@@ -232,6 +232,7 @@ public:
 	// Cast portal rays around the entire horizon. The pitched shader camera
 	// needs this when screen corners point outside the legacy view cone.
 	bool conservative_full_circle;
+	bool unclipped_portal_windows = false;
 	
 	// Resizes all the objects defined inside;
 	// the resizing is lazy

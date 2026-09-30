@@ -273,6 +273,15 @@ struct SprintathonGpuTimings {
 };
 extern SprintathonGpuTimings sprintathon_gpu_timings;
 
+// CPU scene preparation, excluding rendering and presentation.
+struct SprintathonCpuSceneTimings {
+    bool ready = false;
+    double milliseconds[3] = {};
+    size_t portal_nodes = 0;
+    size_t polygons = 0;
+};
+extern SprintathonCpuSceneTimings sprintathon_cpu_scene_timings;
+
 bool MainScreenVisible();
 int MainScreenLogicalWidth();
 int MainScreenLogicalHeight();

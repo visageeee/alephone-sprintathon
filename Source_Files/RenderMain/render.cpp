@@ -244,6 +244,57 @@ extern WindowPtr screen_window;
 #include "preferences.h"
 #include "screen.h"
 
+#include <chrono>
+
+extern bool ShowPosition;
+namespace {
+using SprintathonSceneClock = std::chrono::steady_clock;
+struct SprintathonSceneCpuAccumulator {
+    double sums[3] = {};
+    unsigned frames = 0;
+    bool started = false;
+    SprintathonSceneClock::time_point publish_time;
+};
+static SprintathonSceneCpuAccumulator sprintathon_scene_cpu_accumulator;
+class SprintathonSceneCpuProfile {
+    bool active;
+    SprintathonSceneClock::time_point previous;
+public:
+    explicit SprintathonSceneCpuProfile(bool scene_visible) : active(ShowPosition && scene_visible) {
+        if (!active) {
+            sprintathon_scene_cpu_accumulator = SprintathonSceneCpuAccumulator{};
+            sprintathon_cpu_scene_timings = SprintathonCpuSceneTimings{};
+            return;
+        }
+        previous = SprintathonSceneClock::now();
+        if (!sprintathon_scene_cpu_accumulator.started) {
+            sprintathon_scene_cpu_accumulator.started = true;
+            sprintathon_scene_cpu_accumulator.publish_time = previous;
+        }
+    }
+    void mark(int stage, size_t nodes = 0, size_t polygons = 0) {
+        if (!active) return;
+        const auto now = SprintathonSceneClock::now();
+        auto& batch = sprintathon_scene_cpu_accumulator;
+        batch.sums[stage] += std::chrono::duration<double, std::milli>(now - previous).count();
+        previous = now;
+        if (stage != 2) return;
+        ++batch.frames;
+        if (now - batch.publish_time < std::chrono::milliseconds(250)) return;
+        for (int i = 0; i < 3; ++i) {
+            sprintathon_cpu_scene_timings.milliseconds[i] = batch.sums[i] / batch.frames;
+            batch.sums[i] = 0;
+        }
+        sprintathon_cpu_scene_timings.portal_nodes = nodes;
+        sprintathon_cpu_scene_timings.polygons = polygons;
+        sprintathon_cpu_scene_timings.ready = true;
+        batch.frames = 0;
+        batch.publish_time = now;
+    }
+};
+}
+
+
 /* use native alignment */
 #if defined (powerc) || defined (__powerc)
 #pragma options align=power
@@ -465,7 +516,9 @@ void render_view(
 			  sprintathon_near_vertical_view) ||
 			 (current_player && current_player->slide_roll_ticks_remaining > 0));
 #endif
+		SprintathonSceneCpuProfile cpu_profile(!view->overhead_map_active);
 		RenderVisTree.build_render_tree();
+		cpu_profile.mark(0);
 		
 		/* do something complicated and difficult to explain */
 		if (!view->overhead_map_active || map_is_translucent())
@@ -475,11 +528,13 @@ void render_view(
 				clipping information for each polygon */
 			RenderSortPoly.view = view;
 			RenderSortPoly.sort_render_tree();
+			cpu_profile.mark(1);
 			
 			// LP: now from the object-placement class
 			/* build the render object list by looking at the sorted render tree */
 			RenderPlaceObjs.view = view;
 			RenderPlaceObjs.build_render_object_list();
+			cpu_profile.mark(2, RenderVisTree.Nodes.size(), RenderSortPoly.SortedNodes.size());
 			
 			// LP addition: set the current rasterizer to whichever is appropriate here
 			RasterizerClass *RasPtr;

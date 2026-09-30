@@ -691,6 +691,21 @@ static void DisplayPosition(SDL_Surface *s)
 	sprintf(temporary, "Pitch   = %8.3f",AngleConvert*Angle);
 	DisplayText(X,Y,temporary);
     Y += LineSpacing;
+    if (sprintathon_cpu_scene_timings.ready && !world_view->overhead_map_active) {
+        const char *cpu_labels[3] = {"Visibility", "Sorting", "Objects"};
+        for (int i = 0; i < 3; ++i) {
+            sprintf(temporary, "CPU %-12s %6.2f ms", cpu_labels[i], sprintathon_cpu_scene_timings.milliseconds[i]);
+            DisplayText(X,Y,temporary);
+            Y += LineSpacing;
+        }
+        sprintf(temporary, "Portals %lu  Polygons %lu",
+            static_cast<unsigned long>(sprintathon_cpu_scene_timings.portal_nodes),
+            static_cast<unsigned long>(sprintathon_cpu_scene_timings.polygons));
+        DisplayText(X,Y,temporary);
+    } else {
+        DisplayText(X,Y, world_view->overhead_map_active ? "CPU timings: map view" : "CPU timings: sampling...");
+    }
+    Y += LineSpacing;
     if (sprintathon_gpu_timings.ready && !world_view->overhead_map_active) {
         const char *labels[5] = {"World+Lights", "Post FX", "View Layer", "Bloom", "Underwater"};
         double total = 0;
@@ -750,7 +765,8 @@ static void DisplayMessages(SDL_Surface *s)
 	short Y = Y0 + LineSpacing;
 	if (ShowPosition) {
         const int timing_lines = sprintathon_gpu_timings.ready && !world_view->overhead_map_active ? 6 : 1;
-        Y += (7 + timing_lines) * LineSpacing;
+        const int cpu_lines = sprintathon_cpu_scene_timings.ready && !world_view->overhead_map_active ? 4 : 1;
+        Y += (7 + timing_lines + cpu_lines) * LineSpacing;
     }
 	/* SB */
 	short view = nonlocal_script_hud ? local_player_index : current_player_index;
