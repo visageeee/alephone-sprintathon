@@ -1288,6 +1288,7 @@ static void sprintathon_select_view_emitters(const view_data *camera)
     }
 }
 
+// Light-position .w stores inverse radius, shared by both surface shaders.
 static void sprintathon_set_view_emitters(Shader *shader)
 {
     const Shader::UniformName positions[sprintathon_emitter_slots] = {
@@ -1342,7 +1343,7 @@ static void sprintathon_set_view_emitters(Shader *shader)
             const auto& light=sprintathon_previous_emitters[i];
             const float fade=sprintathon_emitter_fade[i]*gain;
             shader->setVector4(positions[i], light.x, light.y, light.z,
-                               sprintathon_emitter_radius(light.scenery));
+                               1.0f / std::max(sprintathon_emitter_radius(light.scenery), 1.0f));
             shader->setVector4(colors[i], light.r*fade, light.g*fade,
                                light.b*fade, 1.0f);
         } else shader->setVector4(colors[i], 0, 0, 0, 0);
@@ -1353,7 +1354,7 @@ static void sprintathon_set_view_emitters(Shader *shader)
             const auto& flare = sprintathon_dropped_flares[i];
             const float strength = sprintathon_flare_strength(flare) * gain;
             shader->setVector4(positions[slot], flare.x, flare.y, flare.z,
-                               5.5f * WORLD_ONE);
+                               1.0f / (5.5f * WORLD_ONE));
             shader->setVector4(colors[slot], strength, strength * 0.12f,
                                strength * 0.04f, 1.0f);
         }
@@ -1476,7 +1477,7 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
         shader->setVector4(Shader::U_SprintathonLightPosition,
                            selected->location.x,
                            selected->location.y,
-                           selected_z, radius);
+                           selected_z, 1.0f / std::max(radius, 1.0f));
         shader->setVector4(Shader::U_SprintathonLightColor, color[0] * graphics_preferences->colored_light_intensity / 100.0f,
                            color[1] * graphics_preferences->colored_light_intensity / 100.0f,
                            color[2] * graphics_preferences->colored_light_intensity / 100.0f, 1.0f);
@@ -2413,7 +2414,7 @@ static void sprintathon_set_sector_light_edges(Shader *shader,
             0, FIXED_ONE) / float(FIXED_ONE) : 0.0f;
     shader->setVector4(Shader::U_SprintathonMuzzlePosition,
         camera->origin.x, camera->origin.y, camera->origin.z,
-        4.5f * WORLD_ONE);
+        1.0f / (4.5f * WORLD_ONE));
     shader->setVector4(Shader::U_SprintathonMuzzleColor,
         flash * 0.95f, flash * 0.65f, flash * 0.32f,
         flash > 0.001f ? 1.0f : 0.0f);
