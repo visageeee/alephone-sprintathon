@@ -91,9 +91,10 @@ float SoundPlayer::Simulate(const SoundParameters& soundParameters) {
 
 	//This is the AL_INVERSE_DISTANCE_CLAMPED function we simulate
 	distance = std::max(distance, behaviorParameters.distance_reference);
-	const float volume = behaviorParameters.distance_reference / (behaviorParameters.distance_reference + behaviorParameters.rolloff_factor * (distance - behaviorParameters.distance_reference));
+	const float volume = behaviorParameters.distance_reference / (behaviorParameters.distance_reference + behaviorParameters.rolloff_factor * soundParameters.distance_rolloff *
+        (distance - behaviorParameters.distance_reference));
 
-	return volume;
+	return std::min(1.f, volume * soundParameters.source_gain);
 }
 
 bool SoundPlayer::CanRewind(uint64_t baseTick) const {
@@ -282,7 +283,9 @@ bool SoundPlayer::SetUpALSourceInit() {
 
 #ifdef AL_SOFT_direct_channels_remix
 	if (OpenALManager::Get()->IsExtensionSupported(OpenALManager::OptionalExtension::DirectChannelRemix))
-		alSourcei(audio_source->source_id, AL_DIRECT_CHANNELS_SOFT, MustDisableHrtf() ? AL_REMIX_UNMATCHED_SOFT : AL_FALSE);
+		alSourcei(audio_source->source_id, AL_DIRECT_CHANNELS_SOFT, (MustDisableHrtf() &&
+            !(parameters.Get().spatialize_stereo && !parameters.Get().is_2d)) ?
+            AL_REMIX_UNMATCHED_SOFT : AL_FALSE);
 #endif
 
 	return alGetError() == AL_NO_ERROR;
@@ -392,9 +395,13 @@ SetupALResult SoundPlayer::SetUpALSource3D() {
 
 	alSourcef(audio_source->source_id, AL_REFERENCE_DISTANCE, finalBehaviorParameters.distance_reference);
 	alSourcef(audio_source->source_id, AL_MAX_DISTANCE, finalBehaviorParameters.distance_max);
-	alSourcef(audio_source->source_id, AL_ROLLOFF_FACTOR, finalBehaviorParameters.rolloff_factor);
-	alSourcef(audio_source->source_id, AL_MAX_GAIN, finalBehaviorParameters.max_gain * volume);
-	alSourcef(audio_source->source_id, AL_GAIN, finalBehaviorParameters.max_gain * volume);
+	alSourcef(audio_source->source_id, AL_ROLLOFF_FACTOR, finalBehaviorParameters.rolloff_factor *
+	          soundParameters.distance_rolloff);
+	const float sourceGain = finalBehaviorParameters.max_gain * volume *
+	                         soundParameters.source_gain;
+	// OpenAL limits AL_MAX_GAIN to [0,1], while AL_GAIN may exceed one.
+	alSourcef(audio_source->source_id, AL_MAX_GAIN, std::min(1.f, sourceGain));
+	alSourcef(audio_source->source_id, AL_GAIN, sourceGain);
 	alSourcei(audio_source->source_id, AL_DIRECT_FILTER, OpenALManager::Get()->GetLowPassFilter(finalBehaviorParameters.high_frequency_gain));
 	return SetupALResult(alGetError() == AL_NO_ERROR, finalBehaviorParameters == behaviorParameters);
 }
@@ -460,7 +467,8 @@ uint32_t SoundPlayer::ProcessData(uint8_t* outputData, uint32_t remainingSoundDa
         current_index_data += 2 * written;
         return written;
     }
-	if (sound.header.stereo || !MustDisableHrtf())
+	if ((parameters.Get().spatialize_stereo && !parameters.Get().is_2d) ||
+        sound.header.stereo || !MustDisableHrtf())
 	{
 		const auto length = std::min(remainingSoundDataLength, remainingBufferLength);
 		std::copy(sound.data->data() + current_index_data, sound.data->data() + current_index_data + length, outputData);
@@ -501,7 +509,7 @@ uint32_t SoundPlayer::GetNextData(uint8* data, uint32_t length) {
 
 std::tuple<AudioFormat, uint32_t, bool> SoundPlayer::GetAudioFormat() const {
 
-    if (sound.Get().header.stereo && parameters.Get().spatialize_stereo && !parameters.Get().is_2d)
+    if (parameters.Get().spatialize_stereo && !parameters.Get().is_2d)
         return std::make_tuple(format, rate, false);
 	if (sound.Get().header.stereo || !MustDisableHrtf())
 		return AudioPlayer::GetAudioFormat();

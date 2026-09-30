@@ -43,6 +43,8 @@ struct SoundParameters {
 	short identifier = NONE; //Identifier of the sound
 	short source_identifier = NONE; //Identifier of the source emitting the sound
 	float pitch = 1.f;
+	float source_gain = 1.f; // extra gain for spatial sounds; master volume still applies
+	float distance_rolloff = 1.f; // spatial attenuation multiplier
 	bool is_2d = true; //if false it will use source_location3d to position sound (3D sounds)
 	bool in_world = false; // route game sounds, including local weapons, through cavern reverb
 	bool loop = false; // repeat external ambience until its SoundPlayer is stopped
