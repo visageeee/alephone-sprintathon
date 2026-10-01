@@ -266,63 +266,13 @@ void RenderVisTreeClass::cast_render_ray(
 			node= *node_reference;
 			if (!node)
 			{
-				// LP change: using growable list
-				// Contents get swapped when the length starts to exceed the capacity.
-				// When they are not NULL,
-				// "parent", "siblings" and "children" are pointers to members,
-				// "reference" is a pointer to a member with an offset.
-				// Cast the pointers to whatever size of integer the system uses.
-				size_t Length = Nodes.size();
-				
+                // Deque storage keeps all existing node pointers valid.
 				node = &Nodes.emplace_back();
 				
 				*node_reference= node;
 				INITIALIZE_NODE(node, polygon_index, 0, parent, node_reference);
 				
-				// Place new node in tree if it has gotten rooted
-				if (Length > 0)
-				{
-					node_data *CurrNode = &Nodes.front();
-				while(true)
-				{
-					int32 PolyDiff = int32(polygon_index) - int32(CurrNode->polygon_index);
-					if (PolyDiff > 0)
-					{
-						node_data *NextNode = CurrNode->PS_Greater;
-						if (NextNode)
-							// Advance
-							CurrNode = NextNode;
-						else
-						{
-							// Attach to end
-							CurrNode->PS_Greater = node;
-							break;
-						}
-					}
-					else if (PolyDiff < 0)
-					{
-						node_data *NextNode = CurrNode->PS_Less;
-						if (NextNode)
-							// Advance
-							CurrNode = NextNode;
-						else
-						{
-							// Attach to end
-							CurrNode->PS_Less = node;
-							break;
-						}
-					}
-					else // Equal
-					{
-						node_data *NextNode = CurrNode->PS_Shared;
-						if (NextNode)
-							// Splice node into shared-polygon chain
-							node->PS_Shared = NextNode;
-						CurrNode->PS_Shared = node;
-						break;
-					}
-				}
-				}
+                index_render_node(node);
 			}
 
 			/* update the line clipping information, if necessary, for this node (don’t add
@@ -629,11 +579,62 @@ uint16 RenderVisTreeClass::decide_where_vertex_leads(
 	return clip_flags;
 }
 
+// Direct polygon lookup avoids repeatedly walking a potentially skewed binary
+// tree when a polygon has many visibility paths. Preserve alias insertion order.
+void RenderVisTreeClass::index_render_node(node_data *node)
+{
+    if (fast_polygon_index) {
+        assert(node->polygon_index >= 0 &&
+               size_t(node->polygon_index) < polygon_node_heads.size());
+        node_data *&head = polygon_node_heads[node->polygon_index];
+        if (head) {
+            node->PS_Shared = head->PS_Shared;
+            head->PS_Shared = node;
+        } else {
+            head = node;
+        }
+        return;
+    }
+    // Original binary tree, retained for an in-game performance comparison.
+    node_data *current = &Nodes.front();
+    while (true) {
+        if (node->polygon_index == current->polygon_index) {
+            node->PS_Shared = current->PS_Shared;
+            current->PS_Shared = node;
+            return;
+        }
+        node_data *&branch = node->polygon_index > current->polygon_index ?
+            current->PS_Greater : current->PS_Less;
+        if (!branch) {
+            branch = node;
+            return;
+        }
+        current = branch;
+    }
+}
+
+node_data *RenderVisTreeClass::find_polygon_node(short polygon_index)
+{
+    if (fast_polygon_index) {
+        return polygon_index >= 0 && size_t(polygon_index) < polygon_node_heads.size() ?
+            polygon_node_heads[polygon_index] : nullptr;
+    }
+    node_data *node = Nodes.empty() ? nullptr : &Nodes.front();
+    while (node && node->polygon_index != polygon_index)
+        node = polygon_index > node->polygon_index ? node->PS_Greater : node->PS_Less;
+    return node;
+}
+
 void RenderVisTreeClass::initialize_render_tree()
 {
 	// LP change: using growable list
 	Nodes.clear();
+    const char *setting = std::getenv("SPRINTATHON_FAST_VISIBILITY_INDEX");
+    fast_polygon_index = !setting || setting[0] != '0';
+    polygon_node_heads.assign(fast_polygon_index ? PolygonList.size() : 0, nullptr);
 	INITIALIZE_NODE(&Nodes.emplace_back(), view->origin_polygon_index, 0, NULL, NULL);
+    if (fast_polygon_index)
+        polygon_node_heads[view->origin_polygon_index] = &Nodes.front();
 }
 
 /* ---------- initializing and calculating clip data */

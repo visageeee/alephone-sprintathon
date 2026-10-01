@@ -125,40 +125,9 @@ void RenderSortPolyClass::sort_render_tree()
 		// followed by building of node-alias list
 		short PolygonToFind = leaf->polygon_index;
 		
-		// Look for the first node with that polygon index;
-		// start search off with the hypothesis of failure
-		node_data *FoundNode = NULL;
-		node_data *CurrNode = &Nodes.front();
-		while(true)
-		{
-			int32 PolyDiff = int32(PolygonToFind) - int32(CurrNode->polygon_index);
-			if (PolyDiff > 0)
-			{
-				node_data *NextNode = CurrNode->PS_Greater;
-				if (NextNode)
-					// Advance
-					CurrNode = NextNode;
-				else
-					// Failed
-					break;
-			}
-			else if (PolyDiff < 0)
-			{
-				node_data *NextNode = CurrNode->PS_Less;
-				if (NextNode)
-					// Advance
-					CurrNode = NextNode;
-				else
-					// Failed
-					break;
-			}
-			else // Equal: the search was a success
-			{
-				FoundNode = CurrNode;
-				break;
-			}
-		}
-		
+        // Same first node and alias chain as before, without a binary-tree walk.
+        node_data *FoundNode = RVPtr->find_polygon_node(PolygonToFind);
+
 		// Now load up the node aliases and check for children
 		if (FoundNode)
 		{

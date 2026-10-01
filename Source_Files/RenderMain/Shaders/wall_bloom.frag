@@ -4,6 +4,7 @@ uniform sampler2D texture0;
 uniform float pulsate;
 uniform float wobble;
 uniform float glow;
+uniform float sprintathonDistantSurfaceDetail;
 uniform float flare;
 uniform float bloomScale;
 uniform float bloomShift;
@@ -31,8 +32,12 @@ float getFogFactor(float distance) {
 }
 
 void main (void) {
+    float viewDistance = length(viewDir);
+    // Fade small surface details consistently across polygon boundaries.
+    float surfaceDetail = sprintathonDistantSurfaceDetail > 0.5 ?
+        1.0 - smoothstep(16.0 * 1024.0, 32.0 * 1024.0, viewDistance) : 1.0;
 	vec3 texCoords = vec3(gl_TexCoord[0].xy, 0.0);
-	float rippleStrength = mediaRipple;
+	float rippleStrength = mediaRipple * surfaceDetail;
 	float rippleBloom = 1.0;
 	if (rippleStrength > 0.001) {
 		float phase = time;
@@ -58,7 +63,7 @@ void main (void) {
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)
 #endif
-	float fogFactor = getFogFactor(length(viewDir));
+	float fogFactor = getFogFactor(viewDistance);
 	if (mediaFogEnabled > 0.0) {
 		float heightFog = clamp((mediaFogTop - worldZ) / mediaFogSoftness, 0.0, 1.0);
 		float heightMask = mix(1.0, heightFog, mediaFogEnabled);

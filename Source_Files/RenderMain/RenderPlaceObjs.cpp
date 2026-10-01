@@ -380,6 +380,8 @@ render_object_data *RenderPlaceObjsClass::build_render_object(
 				render_object->rectangle.Position = object->location;
 				render_object->casts_character_shadow = (GET_OBJECT_OWNER(object) == _object_is_monster);
 				render_object->is_scenery = (GET_OBJECT_OWNER(object) == _object_is_scenery);
+                render_object->scenery_object_index = render_object->is_scenery ?
+                    static_cast<int16>(object - ObjectList.data()) : NONE;
                 render_object->projectile_index = NONE;
                 std::fill_n(render_object->projectile_trail_motion, 3, 0.0f);
                 if (GET_OBJECT_OWNER(object) == _object_is_effect)

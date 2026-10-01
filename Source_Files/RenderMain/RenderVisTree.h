@@ -162,6 +162,13 @@ class RenderVisTreeClass
 	
 	// Polygon queue now a growable list; its working size is maintained separately
 	vector<short> PolygonQueue;
+
+    // First node and alias-chain head for each map polygon. NodeList is a deque,
+    // so these pointers remain valid as visibility nodes are appended.
+    vector<node_data*> polygon_node_heads;
+    bool fast_polygon_index = false;
+    void index_render_node(node_data *node);
+
 	size_t polygon_queue_size;
 	
 	/* translates from map indexes to clip indexes, only valid if appropriate render flag is set */
@@ -191,6 +198,8 @@ class RenderVisTreeClass
 	short calculate_endpoint_clipping_information(short endpoint_index, uint16 clip_flags);
 	
 public:
+
+    node_data *find_polygon_node(short polygon_index);
 
 	/* gives screen x-coordinates for a map endpoint (only valid if _endpoint_is_visible) */
 	vector<short> endpoint_x_coordinates;

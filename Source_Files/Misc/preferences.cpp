@@ -1182,8 +1182,13 @@ void handle_preferences(bool in_game)
 	w_toggle *projectile_lights_per_pixel_w = new w_toggle(graphics_preferences->projectile_lights_per_pixel);
 	w_toggle *bright_texture_lights_w = new w_toggle(graphics_preferences->bright_texture_lights);
 	w_toggle *bright_scenery_lights_w = new w_toggle(graphics_preferences->bright_scenery_lights);
+	w_toggle *all_visible_scenery_lights_w = new w_toggle(graphics_preferences->all_visible_scenery_lights);
 	w_percentage_slider *colored_light_intensity_w = new w_percentage_slider(201,
 		graphics_preferences->colored_light_intensity);
+	w_percentage_slider *texture_light_intensity_w = new w_percentage_slider(201,
+		graphics_preferences->texture_light_intensity);
+	w_percentage_slider *scenery_light_intensity_w = new w_percentage_slider(201,
+		graphics_preferences->scenery_light_intensity);
 	w_percentage_slider *texture_light_reach_w = new w_percentage_slider(101,
 		graphics_preferences->texture_light_reach);
 	w_percentage_slider *scenery_light_reach_w = new w_percentage_slider(101,
@@ -1197,6 +1202,7 @@ void handle_preferences(bool in_game)
 	w_toggle *player_light_circle_w = new w_toggle(graphics_preferences->player_light_circle);
 	w_toggle *soft_sector_light_edges_w = new w_toggle(graphics_preferences->soft_sector_light_edges);
 	w_toggle *ogl_bump_w = new w_toggle(ogl_flag(OGL_Flag_BumpMap));
+	w_toggle *simplify_distant_surfaces_w = new w_toggle(graphics_preferences->simplify_distant_surfaces);
 	w_toggle *ogl_refractive_invisibility_w = new w_toggle(
 		graphics_preferences->OGL_Configure.RefractiveInvisibility);
 	w_toggle *ogl_sprite_shadows_w = new w_toggle(
@@ -1235,6 +1241,7 @@ void handle_preferences(bool in_game)
 	ADD_RENDERING_ROW("3D Perspective", ogl_perspective_w);
 	ADD_RENDERING_ROW("Tilt Sprites with Camera", ogl_billboard_w);
 	ADD_RENDERING_ROW("Bump Mapping", ogl_bump_w);
+	ADD_RENDERING_ROW("Simplify Distant Surfaces", simplify_distant_surfaces_w);
 	ADD_RENDERING_ROW("Refractive Invisibility", ogl_refractive_invisibility_w);
 	ADD_RENDERING_ROW("Scripted Effects Quality", ogl_effects_w);
 	ADD_RENDERING_ROW("VSync", ogl_vsync_w);
@@ -1275,7 +1282,10 @@ void handle_preferences(bool in_game)
     ADD_PER_PIXEL_ROW("Per-Pixel Projectile Lights", projectile_lights_per_pixel_w);
     ADD_PER_PIXEL_ROW("Texture Lights", bright_texture_lights_w);
     ADD_PER_PIXEL_ROW("Scenery Lights", bright_scenery_lights_w);
-    ADD_PER_PIXEL_ROW("Light Intensity", colored_light_intensity_w);
+    ADD_PER_PIXEL_ROW("All Visible Scenery Lights", all_visible_scenery_lights_w);
+    ADD_PER_PIXEL_ROW("Projectile / Flare Intensity", colored_light_intensity_w);
+    ADD_PER_PIXEL_ROW("Texture Light Intensity", texture_light_intensity_w);
+    ADD_PER_PIXEL_ROW("Scenery Light Intensity", scenery_light_intensity_w);
     ADD_PER_PIXEL_ROW("Texture Light Reach", texture_light_reach_w);
     ADD_PER_PIXEL_ROW("Scenery Light Reach", scenery_light_reach_w);
     ADD_PER_PIXEL_ROW("Texture Render Distance", light_render_distance_w);
@@ -1435,7 +1445,7 @@ void handle_preferences(bool in_game)
 		};
 
 	graphics_preset_w->set_selection_changed_callback(
-		[&, graphics_preset_w, ogl_bloom_w, ogl_bump_w,
+		[&, graphics_preset_w, ogl_bloom_w, ogl_bump_w, simplify_distant_surfaces_w,
 		 ogl_refractive_invisibility_w, ogl_sprite_shadows_w,
 		 ogl_ambient_occlusion_w, ogl_ambient_occlusion_strength_w,
 		 ogl_landscape_light_shafts_w,
@@ -1454,9 +1464,9 @@ void handle_preferences(bool in_game)
 		 fog_haze_w, fog_drift_intensity_w, texture_light_reach_w,
 		 scenery_light_reach_w, light_render_distance_w,
 		 scenery_light_render_distance_w,
-		 colored_light_intensity_w, projectile_lights_per_pixel_w, projectile_motion_blur_w,
+		 colored_light_intensity_w, texture_light_intensity_w, scenery_light_intensity_w, projectile_lights_per_pixel_w, projectile_motion_blur_w,
 		 texture_light_limit_w, scenery_light_limit_w,
-		 bright_texture_lights_w, bright_scenery_lights_w,
+		 bright_texture_lights_w, bright_scenery_lights_w, all_visible_scenery_lights_w,
 		 player_light_circle_w, soft_sector_light_edges_w](w_select*) {
 			const int preset = graphics_preset_w->get_selection();
 			set_graphics_preset_description(preset);
@@ -1472,17 +1482,21 @@ void handle_preferences(bool in_game)
 			projectile_motion_blur_w->set_selection(medium_or_better);
 			bright_texture_lights_w->set_selection(high_or_better);
 			bright_scenery_lights_w->set_selection(high_or_better);
-			colored_light_intensity_w->set_selection(high_or_better ? 50 : 100);
-			texture_light_reach_w->set_selection(high_or_better ? 40 : 100);
-			scenery_light_reach_w->set_selection(high_or_better ? 20 : 25);
+			all_visible_scenery_lights_w->set_selection(high_or_better);
+			colored_light_intensity_w->set_selection(high_or_better ? 150 : 100);
+			scenery_light_intensity_w->set_selection(high_or_better ? 40 : 100);
+			texture_light_intensity_w->set_selection(high_or_better ? 200 : 100);
+			texture_light_reach_w->set_selection(high_or_better ? 25 : 100);
+			scenery_light_reach_w->set_selection(high_or_better ? 10 : 25);
 			light_render_distance_w->set_selection(high_or_better ? 100 : 65);
 			scenery_light_render_distance_w->set_selection(high_or_better ? 100 : 65);
-			texture_light_limit_w->set_selection(3);
-			scenery_light_limit_w->set_selection(2);
+			texture_light_limit_w->set_selection(high_or_better ? 20 : 3);
+			scenery_light_limit_w->set_selection(high_or_better ? 20 : 2);
 			player_light_circle_w->set_selection(!high_or_better);
 			soft_sector_light_edges_w->set_selection(medium_or_better);
 			ogl_bloom_w->set_selection(medium_or_better);
 			ogl_bump_w->set_selection(medium_or_better);
+			simplify_distant_surfaces_w->set_selection(true);
 			ogl_refractive_invisibility_w->set_selection(medium_or_better);
 			ogl_sprite_shadows_w->set_selection(medium_or_better);
 			ogl_ambient_occlusion_w->set_selection(medium_or_better);
@@ -1543,9 +1557,9 @@ void handle_preferences(bool in_game)
 		graphics_windowed_w, graphics_gamma_w, graphics_fps_w,
 		graphics_skip_intro_w, graphics_limit_vertical_w,
 		graphics_bobbing_w, ogl_fader_w, ogl_models_w, ogl_perspective_w,
-		ogl_billboard_w, ogl_bloom_w, ogl_bump_w,
+		ogl_billboard_w, ogl_bloom_w, ogl_bump_w, simplify_distant_surfaces_w,
 		projectile_motion_blur_w,
-		projectile_lights_per_pixel_w, bright_texture_lights_w, bright_scenery_lights_w, player_light_circle_w, soft_sector_light_edges_w,
+		projectile_lights_per_pixel_w, bright_texture_lights_w, bright_scenery_lights_w, all_visible_scenery_lights_w, player_light_circle_w, soft_sector_light_edges_w,
 		ogl_refractive_invisibility_w, ogl_sprite_shadows_w,
 		ogl_ambient_occlusion_w, ogl_landscape_light_shafts_w,
 		ogl_anamorphic_lens_flares_w, ogl_vsync_w, ogl_npot_w,
@@ -1565,7 +1579,7 @@ void handle_preferences(bool in_game)
 			texture_far_w[i]->set_selection_changed_callback(custom_select_changed);
 	}
 	w_slider *graphics_slider_widgets[] = {
-		graphics_fov_w, colored_light_intensity_w, texture_light_reach_w,
+		graphics_fov_w, colored_light_intensity_w, texture_light_intensity_w, scenery_light_intensity_w, texture_light_reach_w,
 		scenery_light_reach_w, light_render_distance_w,
 		scenery_light_render_distance_w,
 		ogl_ambient_occlusion_strength_w,
@@ -1701,7 +1715,11 @@ void handle_preferences(bool in_game)
 	graphics_preferences->projectile_motion_blur = projectile_motion_blur_w->get_selection();
 	graphics_preferences->bright_texture_lights = bright_texture_lights_w->get_selection();
 	graphics_preferences->bright_scenery_lights = bright_scenery_lights_w->get_selection();
+	graphics_preferences->all_visible_scenery_lights = all_visible_scenery_lights_w->get_selection();
+	graphics_preferences->simplify_distant_surfaces = simplify_distant_surfaces_w->get_selection();
 	graphics_preferences->colored_light_intensity = colored_light_intensity_w->get_selection();
+	graphics_preferences->scenery_light_intensity = scenery_light_intensity_w->get_selection();
+	graphics_preferences->texture_light_intensity = texture_light_intensity_w->get_selection();
 	graphics_preferences->texture_light_reach = texture_light_reach_w->get_selection();
 	graphics_preferences->scenery_light_reach = scenery_light_reach_w->get_selection();
 	graphics_preferences->light_render_distance = light_render_distance_w->get_selection();
@@ -6012,7 +6030,11 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("projectile_motion_blur", graphics_preferences->projectile_motion_blur);
 	root.put_attr("bright_texture_lights", graphics_preferences->bright_texture_lights);
 	root.put_attr("bright_scenery_lights", graphics_preferences->bright_scenery_lights);
+	root.put_attr("all_visible_scenery_lights", graphics_preferences->all_visible_scenery_lights);
+	root.put_attr("simplify_distant_surfaces", graphics_preferences->simplify_distant_surfaces);
 	root.put_attr("colored_light_intensity", graphics_preferences->colored_light_intensity);
+	root.put_attr("scenery_light_intensity", graphics_preferences->scenery_light_intensity);
+	root.put_attr("texture_light_intensity", graphics_preferences->texture_light_intensity);
 	root.put_attr("texture_light_reach", graphics_preferences->texture_light_reach);
 	root.put_attr("scenery_light_reach", graphics_preferences->scenery_light_reach);
 	root.put_attr("light_render_distance", graphics_preferences->light_render_distance);
@@ -6645,7 +6667,11 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->projectile_motion_blur = false;
 	preferences->bright_texture_lights = false;
 	preferences->bright_scenery_lights = false;
+	preferences->all_visible_scenery_lights = false;
+	preferences->simplify_distant_surfaces = true;
 	preferences->colored_light_intensity = 100;
+	preferences->scenery_light_intensity = 100;
+	preferences->texture_light_intensity = 100;
 	preferences->texture_light_reach = 100;
 	preferences->scenery_light_reach = 25;
 	preferences->light_render_distance = 65;
@@ -7171,8 +7197,16 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("bright_texture_lights", graphics_preferences->bright_texture_lights);
 	graphics_preferences->bright_scenery_lights = graphics_preferences->bright_texture_lights;
 	root.read_attr("bright_scenery_lights", graphics_preferences->bright_scenery_lights);
+	root.read_attr("all_visible_scenery_lights", graphics_preferences->all_visible_scenery_lights);
+	root.read_attr("simplify_distant_surfaces", graphics_preferences->simplify_distant_surfaces);
 	root.read_attr_bounded<int16>("colored_light_intensity",
 		graphics_preferences->colored_light_intensity, 0, 200);
+	graphics_preferences->texture_light_intensity = graphics_preferences->colored_light_intensity;
+	root.read_attr_bounded<int16>("texture_light_intensity",
+		graphics_preferences->texture_light_intensity, 0, 200);
+	graphics_preferences->scenery_light_intensity = graphics_preferences->colored_light_intensity;
+	root.read_attr_bounded<int16>("scenery_light_intensity",
+		graphics_preferences->scenery_light_intensity, 0, 200);
 	root.read_attr_bounded<int16>("texture_light_reach",
 		graphics_preferences->texture_light_reach, 0, 100);
 	root.read_attr_bounded<int16>("scenery_light_reach",

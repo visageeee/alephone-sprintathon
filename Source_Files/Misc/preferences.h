@@ -106,7 +106,11 @@ struct graphics_preferences_data
 	bool projectile_motion_blur;
 	bool bright_texture_lights;
 	bool bright_scenery_lights;
+	bool all_visible_scenery_lights;
+	bool simplify_distant_surfaces;
 	int16 colored_light_intensity;
+	int16 texture_light_intensity;
+	int16 scenery_light_intensity;
 	int16 texture_light_reach;
 	int16 scenery_light_reach;
 	int16 light_render_distance;

@@ -5,6 +5,7 @@ uniform sampler2D texture1;
 uniform float pulsate;
 uniform float wobble;
 uniform float glow;
+uniform float sprintathonDistantSurfaceDetail;
 uniform float flare;
 uniform float bloomScale;
 uniform float bloomShift;
@@ -32,8 +33,12 @@ float getFogFactor(float distance) {
 }
 
 void main (void) {
+    float viewDistance = length(viewDir);
+    // Fade small surface details consistently across polygon boundaries.
+    float surfaceDetail = sprintathonDistantSurfaceDetail > 0.5 ?
+        1.0 - smoothstep(16.0 * 1024.0, 32.0 * 1024.0, viewDistance) : 1.0;
 	vec3 texCoords = vec3(gl_TexCoord[0].xy, 0.0);
-	float rippleStrength = mediaRipple;
+	float rippleStrength = mediaRipple * surfaceDetail;
 	float rippleBloom = 1.0;
 	if (rippleStrength > 0.001) {
 		float phase = time;
@@ -52,17 +57,24 @@ void main (void) {
 	texCoords += vec3(normXY.y * -pulsate, normXY.x * pulsate, 0.0);
 	texCoords += vec3(normXY.y * -wobble * texCoords.y, wobble * texCoords.y, 0.0);
 	vec3 viewv = normalize(viewDir);
-	// iterative parallax mapping
-	float scale = 0.010;
-	float bias = -0.005;
-	for(int i = 0; i < 4; ++i) {
-		vec4 normal = texture2D(texture1, texCoords.xy);
-		float h = normal.a * scale + bias;
-		texCoords.x += h * viewv.x;
-		texCoords.y -= h * viewv.y;
-	}
-	vec3 norm = (texture2D(texture1, texCoords.xy).rgb - 0.5) * 2.0;
-	float diffuse = 0.5 + abs(dot(norm, viewv))*0.5;
+    // Far surfaces skip the four height-map samples entirely. Scale the
+    // displacement to zero first, including bloom and shaft-source alpha.
+    if (surfaceDetail > 0.0) {
+        float scale = 0.010;
+        float bias = -0.005;
+        for (int i = 0; i < 4; ++i) {
+            vec4 normal = texture2D(texture1, texCoords.xy);
+            float h = (normal.a * scale + bias) * surfaceDetail;
+            texCoords.x += h * viewv.x;
+            texCoords.y -= h * viewv.y;
+        }
+    }
+    float diffuse = 0.5 + abs(viewv.z) * 0.5;
+    if (surfaceDetail > 0.0) {
+        vec3 norm = (texture2D(texture1, texCoords.xy).rgb - 0.5) * 2.0;
+        float detailedDiffuse = 0.5 + abs(dot(norm, viewv)) * 0.5;
+        diffuse = mix(diffuse, detailedDiffuse, surfaceDetail);
+    }
 	if (glow > 0.001) {
 		diffuse = 1.0;
 	}
@@ -73,7 +85,7 @@ void main (void) {
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)
 #endif
-	float fogFactor = getFogFactor(length(viewDir));
+	float fogFactor = getFogFactor(viewDistance);
 	if (mediaFogEnabled > 0.0) {
 		float heightFog = clamp((mediaFogTop - worldZ) / mediaFogSoftness, 0.0, 1.0);
 		float heightMask = mix(1.0, heightFog, mediaFogEnabled);
