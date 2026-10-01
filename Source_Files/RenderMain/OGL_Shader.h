@@ -136,6 +136,8 @@ public:
 		U_SprintathonMuzzlePosition,
 		U_SprintathonMuzzleColor,
 		U_SprintathonShaftSource,
+		U_ProjectileBlurVector,
+		U_ProjectileBlurBounds,
 		NUMBER_OF_UNIFORM_LOCATIONS
 	};
 

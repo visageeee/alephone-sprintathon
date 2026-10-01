@@ -58,6 +58,7 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 #include "ChaseCam.h"
 #include "player.h"
 #include "ephemera.h"
+#include "projectiles.h"
 #include "preferences.h"
 
 #include <string.h>
@@ -101,6 +102,10 @@ static void FindProjectedBoundingBox(GLfloat BoundingBox[2][3],
 );
 
 
+// A projectile map object does not store its projectile slot in permutation.
+// Build the reverse lookup once per object-placement pass, including saved games.
+static std::vector<short> sprintathon_projectile_by_object;
+
 // Inits everything
 RenderPlaceObjsClass::RenderPlaceObjsClass():
 	view(NULL),	// Idiot-proofing
@@ -115,6 +120,13 @@ void RenderPlaceObjsClass::initialize_render_object_list()
 {
 	// LP change: using growable list
 	RenderObjects.clear();
+    sprintathon_projectile_by_object.assign(ObjectList.size(), NONE);
+    for (size_t i = 0; i < ProjectileList.size(); ++i) {
+        const auto& projectile = ProjectileList[i];
+        if (SLOT_IS_USED(&projectile) && projectile.object_index >= 0 &&
+            static_cast<size_t>(projectile.object_index) < sprintathon_projectile_by_object.size())
+            sprintathon_projectile_by_object[projectile.object_index] = static_cast<short>(i);
+    }
 }
 
 /* walk our sorted polygon lists, adding every object in every polygon to the render_object list,
@@ -368,8 +380,16 @@ render_object_data *RenderPlaceObjsClass::build_render_object(
 				render_object->rectangle.Position = object->location;
 				render_object->casts_character_shadow = (GET_OBJECT_OWNER(object) == _object_is_monster);
 				render_object->is_scenery = (GET_OBJECT_OWNER(object) == _object_is_scenery);
-				render_object->projectile_index =
-					(GET_OBJECT_OWNER(object) == _object_is_projectile) ? object->permutation : NONE;
+                render_object->projectile_index = NONE;
+                std::fill_n(render_object->projectile_trail_motion, 3, 0.0f);
+                if (GET_OBJECT_OWNER(object) == _object_is_effect)
+                    sprintathon_contrail_render_motion(object->permutation, object,
+                        render_object->projectile_trail_motion);
+                if (GET_OBJECT_OWNER(object) == _object_is_projectile) {
+                    const size_t object_index = static_cast<size_t>(object - ObjectList.data());
+                    if (object_index < sprintathon_projectile_by_object.size())
+                        render_object->projectile_index = sprintathon_projectile_by_object[object_index];
+                }
 				if(rel_origin) {
 					render_object->rectangle.WorldLeft += rel_origin->x;
 					render_object->rectangle.WorldRight += rel_origin->x;

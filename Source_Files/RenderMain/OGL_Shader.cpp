@@ -153,7 +153,9 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"sprintathonSectorSpan7",
 	"sprintathonMuzzlePosition",
 	"sprintathonMuzzleColor",
-	"sprintathonShaftSource"
+	"sprintathonShaftSource",
+	"projectileBlurVector",
+	"projectileBlurBounds"
 };
 
 const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] = 

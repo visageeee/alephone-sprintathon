@@ -1,6 +1,8 @@
 #ifndef __PROJECTILES_H
 #define __PROJECTILES_H
 
+#include <cstdint>
+
 /*
 PROJECTILES.H
 
@@ -142,6 +144,13 @@ struct projectile_data /* 32 bytes */
 	
 	short unused[2];
 };
+// Nominal current motion for render effects before a history sample exists.
+bool sprintathon_projectile_render_motion(short index, float motion[3]);
+uint64_t sprintathon_projectile_render_tick();
+struct object_data;
+bool sprintathon_contrail_render_motion(short index, const object_data *object, float motion[3]);
+void sprintathon_forget_contrail_motion(short index);
+
 const int SIZEOF_projectile_data = 32;
 
 const int SIZEOF_projectile_definition = 48;

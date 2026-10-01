@@ -39,6 +39,7 @@ Aug 30, 2000 (Loren Petrich):
 #include "map.h"
 #include "interface.h"
 #include "effects.h"
+#include "projectiles.h"
 #include "SoundManager.h"
 #include "lua_script.h"
 
@@ -121,6 +122,7 @@ short new_effect(
 					{
 						struct object_data *object= get_object_data(object_index);
 						
+                        sprintathon_forget_contrail_motion(effect_index);
 						effect->type= type;
 						effect->flags= 0;
 						effect->object_index= object_index;
@@ -204,6 +206,7 @@ void remove_effect(
 	struct effect_data *effect;
 	
 	effect= get_effect_data(effect_index);
+    sprintathon_forget_contrail_motion(effect_index);
 	remove_map_object(effect->object_index);
 	L_Invalidate_Effect(effect_index);
 	MARK_SLOT_AS_FREE(effect);

@@ -2467,6 +2467,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 	}
 
 	TMgr->SetupTextureMatrix();
+	s->setVector4(Shader::U_ProjectileBlurVector, 0, 0, 0, 0);
 
 	if (renderStep == kGlow) {
 		s->setFloat(Shader::U_BloomScale, TMgr->BloomScale());
@@ -3588,6 +3589,65 @@ void RenderRasterize_Shader::render_node_object(render_object_data *object, bool
     glDisable(GL_CLIP_PLANE5);
 }
 
+// Render-only history: use actual movement rather than nominal weapon speed.
+// Tick-based sampling keeps trail length independent of rendering frame rate.
+struct SprintathonProjectileBlurSample {
+    short object_index = NONE, type = NONE;
+    uint64_t tick = 0;
+    int32 game_tick = -1;
+    float x = 0, y = 0, z = 0;
+    float vx = 0, vy = 0, vz = 0;
+};
+static bool sprintathon_projectile_blur_motion(short index, float motion[3])
+{
+    static std::vector<SprintathonProjectileBlurSample> history;
+    static int16 level = NONE;
+    if (index < 0 || static_cast<size_t>(index) >= ProjectileList.size()) return false;
+    if (level != dynamic_world->current_level_number) {
+        history.clear();
+        level = dynamic_world->current_level_number;
+    }
+    history.resize(ProjectileList.size());
+    const auto& projectile = ProjectileList[index];
+    if (!SLOT_IS_USED(&projectile) || projectile.object_index == NONE) return false;
+    const auto *source = get_object_data(projectile.object_index);
+    if (!source) return false;
+    auto& sample = history[index];
+    const uint64_t tick = sprintathon_projectile_render_tick();
+    const int32 game_tick = dynamic_world->tick_count;
+    const float x = source->location.x, y = source->location.y, z = source->location.z;
+    if (sample.object_index != projectile.object_index || sample.type != projectile.type ||
+        sample.game_tick < 0 || game_tick < sample.game_tick ||
+        tick < sample.tick || tick - sample.tick > 4) {
+        sample.object_index = projectile.object_index;
+        sample.type = projectile.type;
+        sample.tick = tick;
+        sample.x = x; sample.y = y; sample.z = z;
+        float initial[3] = {};
+        sprintathon_projectile_render_motion(index, initial);
+        sample.vx = initial[0]; sample.vy = initial[1]; sample.vz = initial[2];
+    }
+    if (tick > sample.tick) {
+        const float elapsed = float(tick - sample.tick);
+        sample.vx = (x - sample.x) / elapsed;
+        sample.vy = (y - sample.y) / elapsed;
+        sample.vz = (z - sample.z) / elapsed;
+        sample.x = x; sample.y = y; sample.z = z;
+        sample.tick = tick;
+    }
+    sample.game_tick = game_tick;
+    const float speed = std::sqrt(sample.vx*sample.vx + sample.vy*sample.vy + sample.vz*sample.vz);
+    if (speed < WORLD_ONE / 6.0f || speed > WORLD_ONE * 2.0f) return false;
+    // A visible short exposure, with a compact cap and less blur in bullet time.
+    const float exposure = sprintathon_bullet_time_active() ? 0.875f : 1.25f;
+    const float length = std::min(speed * exposure, WORLD_ONE *
+        (sprintathon_bullet_time_active() ? 0.90f : 0.45f));
+    motion[0] = sample.vx * length / speed;
+    motion[1] = sample.vy * length / speed;
+    motion[2] = sample.vz * length / speed;
+    return true;
+}
+
 void RenderRasterize_Shader::_render_node_object_helper(render_object_data *object, RenderStep renderStep) {
 
 	rectangle_definition& rect = object->rectangle;
@@ -3735,6 +3795,99 @@ if (!view->mimic_sw_perspective)
 
 	glVertexPointer(3, GL_FLOAT, 0, vertex_array);
 	glTexCoordPointer(2, GL_FLOAT, 0, texcoord_array);
+
+    if (renderStep == kDiffuse && !sprintathon_shaft_source.active &&
+        graphics_preferences->projectile_motion_blur &&
+        rect.transfer_mode == _textured_transfer)
+    {
+        float motion[3];
+        bool moving = sprintathon_projectile_blur_motion(object->projectile_index, motion);
+        if (!moving && object->projectile_index == NONE) {
+            const float *velocity = object->projectile_trail_motion;
+            const float speed = std::sqrt(velocity[0]*velocity[0] +
+                velocity[1]*velocity[1] + velocity[2]*velocity[2]);
+            if (speed >= WORLD_ONE / 16.0f && speed <= WORLD_ONE * 2.0f) {
+                const float exposure = sprintathon_bullet_time_active() ? 0.875f : 1.25f;
+                const float length = std::min(speed * exposure, WORLD_ONE *
+                    (sprintathon_bullet_time_active() ? 0.90f : 0.45f));
+                for (int i = 0; i < 3; ++i) motion[i] = velocity[i] * length / speed;
+                moving = true;
+            }
+        }
+        if (moving) {
+            // Convert the world trail to the current billboard's local axes.
+            const float angle = float(yaw * 0.017453292519943295);
+            const float along = std::cos(angle)*motion[0] + std::sin(angle)*motion[1];
+            const float sideways = -std::sin(angle)*motion[0] + std::cos(angle)*motion[1];
+            const bool tilted = !view->mimic_sw_perspective &&
+                (TMgr->ForceXYBillboard() || (view->billboard_xy && !TMgr->ForceYBillboard()));
+            const float pitch = tilted ? float(view->virtual_pitch * FixedAngleToDegrees *
+                0.017453292519943295) : 0.0f;
+
+            const float local_z = -std::sin(pitch)*along + std::cos(pitch)*motion[2];
+            const float left = vertex_array[1], right = vertex_array[4];
+            const float top = vertex_array[2], bottom = vertex_array[8];
+            if (right > left && top > bottom &&
+                std::abs(sideways) + std::abs(local_z) > 0.01f) {
+                const float blur_left = std::min(left, left - sideways);
+                const float blur_right = std::max(right, right - sideways);
+                const float blur_top = std::max(top, top - local_z);
+                const float blur_bottom = std::min(bottom, bottom - local_z);
+                GLfloat smear_vertices[12] = {0, blur_left, blur_top,
+                    0, blur_right, blur_top, 0, blur_right, blur_bottom,
+                    0, blur_left, blur_bottom};
+                GLfloat smear_uv[8];
+                for (int i = 0; i < 4; ++i) {
+                    smear_uv[2*i] = texCoords[0][0] +
+                        (top - smear_vertices[3*i+2]) / (top - bottom) *
+                        (texCoords[0][1] - texCoords[0][0]);
+                    smear_uv[2*i+1] = texCoords[1][0] +
+                        (smear_vertices[3*i+1] - left) / (right - left) *
+                        (texCoords[1][1] - texCoords[1][0]);
+                }
+                // Substituted textures can rotate/swap UV axes. Match that matrix
+                // for both the sampling direction and the sprite's valid bounds.
+                GLfloat matrix[16];
+                glGetFloatv(GL_TEXTURE_MATRIX, matrix);
+                const float du = -local_z / (top - bottom) *
+                    (texCoords[0][1] - texCoords[0][0]);
+                const float dv = sideways / (right - left) *
+                    (texCoords[1][1] - texCoords[1][0]);
+                float u_min = 1e30f, v_min = 1e30f, u_max = -1e30f, v_max = -1e30f;
+                for (int i = 0; i < 4; ++i) {
+                    const float u = matrix[0]*texcoord_array[2*i] +
+                        matrix[4]*texcoord_array[2*i+1] + matrix[12];
+                    const float v = matrix[1]*texcoord_array[2*i] +
+                        matrix[5]*texcoord_array[2*i+1] + matrix[13];
+                    u_min = std::min(u_min, u); u_max = std::max(u_max, u);
+                    v_min = std::min(v_min, v); v_max = std::max(v_max, v);
+                }
+                Shader *smear = Shader::get(current_player->infravision_duration ?
+                    Shader::S_SpriteInfravision : Shader::S_Sprite);
+                smear->setVector4(Shader::U_ProjectileBlurVector,
+                    matrix[0]*du + matrix[4]*dv, matrix[1]*du + matrix[5]*dv, 1,
+                    sprintathon_bullet_time_active() ? 48.0f : 16.0f);
+                smear->setVector4(Shader::U_ProjectileBlurBounds, u_min, v_min, u_max, v_max);
+                GLfloat color[4];
+                glGetFloatv(GL_CURRENT_COLOR, color);
+                glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_CURRENT_BIT);
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                glEnable(GL_ALPHA_TEST);
+                glAlphaFunc(GL_GREATER, 0.001f);
+                glEnable(GL_DEPTH_TEST);
+                glDepthMask(GL_FALSE);
+                glColor4f(color[0], color[1], color[2], color[3]);
+                glVertexPointer(3, GL_FLOAT, 0, smear_vertices);
+                glTexCoordPointer(2, GL_FLOAT, 0, smear_uv);
+                glDrawArrays(GL_QUADS, 0, 4);
+                smear->setVector4(Shader::U_ProjectileBlurVector, 0, 0, 0, 0);
+                glPopAttrib();
+                glVertexPointer(3, GL_FLOAT, 0, vertex_array);
+                glTexCoordPointer(2, GL_FLOAT, 0, texcoord_array);
+            }
+        }
+    }
 
 	glDrawArrays(GL_QUADS, 0, 4);
 

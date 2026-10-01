@@ -180,6 +180,72 @@ projectile_definition *get_projectile_definition(
 	return definition;
 }
 
+// Counts real projectile updates, excluding skipped bullet-time world steps.
+static uint64_t sprintathon_projectile_motion_tick = 0;
+uint64_t sprintathon_projectile_render_tick()
+{
+    return sprintathon_projectile_motion_tick;
+}
+
+// Visual-only motion belonging to each spawned contrail. Keep it independent
+// of the projectile slot, which can be recycled while the trail is still alive.
+struct SprintathonContrailMotion {
+    short object_index = NONE, type = NONE, level = NONE;
+    int32 tick = -1;
+    float velocity[3] = {};
+};
+static std::vector<SprintathonContrailMotion> sprintathon_contrail_motion;
+void sprintathon_forget_contrail_motion(short index)
+{
+    if (index >= 0 && static_cast<size_t>(index) < sprintathon_contrail_motion.size())
+        sprintathon_contrail_motion[index] = SprintathonContrailMotion();
+}
+static void sprintathon_record_contrail_motion(short index,
+    const world_point3d& old_location, const world_point3d& new_location)
+{
+    if (index < 0 || static_cast<size_t>(index) >= EffectList.size()) return;
+    sprintathon_contrail_motion.resize(EffectList.size());
+    const auto& effect = EffectList[index];
+    auto& sample = sprintathon_contrail_motion[index];
+    sample.object_index = effect.object_index;
+    sample.type = effect.type;
+    sample.level = dynamic_world->current_level_number;
+    sample.tick = dynamic_world->tick_count;
+    sample.velocity[0] = float(new_location.x) - old_location.x;
+    sample.velocity[1] = float(new_location.y) - old_location.y;
+    sample.velocity[2] = float(new_location.z) - old_location.z;
+}
+bool sprintathon_contrail_render_motion(short index, const object_data *object, float motion[3])
+{
+    if (index < 0 || static_cast<size_t>(index) >= EffectList.size() ||
+        static_cast<size_t>(index) >= sprintathon_contrail_motion.size()) return false;
+    const auto& effect = EffectList[index];
+    const auto& sample = sprintathon_contrail_motion[index];
+    if (!SLOT_IS_USED(&effect) || effect.object_index == NONE ||
+        sample.object_index != effect.object_index || sample.type != effect.type ||
+        sample.level != dynamic_world->current_level_number || sample.tick < 0 ||
+        sample.tick > dynamic_world->tick_count || get_object_data(effect.object_index) != object)
+        return false;
+    for (int i = 0; i < 3; ++i) motion[i] = sample.velocity[i];
+    return true;
+}
+
+bool sprintathon_projectile_render_motion(short index, float motion[3])
+{
+    if (index < 0 || static_cast<size_t>(index) >= ProjectileList.size()) return false;
+    const auto& projectile = ProjectileList[index];
+    if (!SLOT_IS_USED(&projectile) || projectile.object_index == NONE) return false;
+    const auto *object = get_object_data(projectile.object_index);
+    const auto *definition = get_projectile_definition(projectile.type);
+    if (!object || !definition) return false;
+    world_point3d displacement = {0, 0, 0};
+    translate_point3d(&displacement, definition->speed, object->facing, projectile.elevation);
+    motion[0] = displacement.x;
+    motion[1] = displacement.y;
+    motion[2] = float(displacement.z) + projectile.gravity;
+    return true;
+}
+
 /* false means don’t fire this (it’s in a floor or ceiling or outside of the map), otherwise
 	the monster that was intersected first (or NONE) is returned in target_index */
 bool preflight_projectile(
@@ -390,6 +456,7 @@ static bool sprintathon_ricochet(projectile_data *projectile, object_data *objec
 void move_projectiles(
 	void)
 {
+    ++sprintathon_projectile_motion_tick;
 	struct projectile_data *projectile;
 	short projectile_index;
 	
@@ -673,6 +740,7 @@ void move_projectiles(
 								if (definition->contrail_effect!=NONE)
 								{
 									auto effect_index = new_effect(&old_location, old_polygon_index, definition->contrail_effect, object->facing);
+                                    sprintathon_record_contrail_motion(effect_index, old_location, new_location);
 									if (effect_index != NONE && definition->ticks_between_contrails <= 1)
 									{
 										track_contrail_interpolation(projectile->object_index, get_effect_data(effect_index)->object_index);

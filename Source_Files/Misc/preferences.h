@@ -103,6 +103,7 @@ struct graphics_preferences_data
 	bool pickup_flash;
 	bool skip_intro;
 	bool projectile_lights_per_pixel;
+	bool projectile_motion_blur;
 	bool bright_texture_lights;
 	bool bright_scenery_lights;
 	int16 colored_light_intensity;

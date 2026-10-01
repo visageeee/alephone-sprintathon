@@ -1076,6 +1076,9 @@ void handle_preferences(bool in_game)
 	add_sprintathon_page(sprintathon_combat);
 
 	table_placer *sprintathon_effects = make_sprintathon_table();
+	w_toggle *projectile_motion_blur_w = new w_toggle(graphics_preferences->projectile_motion_blur);
+	sprintathon_effects->dual_add(projectile_motion_blur_w->label("Projectile Motion Blur"), d);
+	sprintathon_effects->dual_add(projectile_motion_blur_w, d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, footsteps_w, sprintathon_footsteps, "Footstep Sounds");
 	w_percentage_slider *footstep_volume_w = new w_percentage_slider(
 		101, input_preferences->sprintathon_footstep_volume_percent);
@@ -1451,7 +1454,7 @@ void handle_preferences(bool in_game)
 		 fog_haze_w, fog_drift_intensity_w, texture_light_reach_w,
 		 scenery_light_reach_w, light_render_distance_w,
 		 scenery_light_render_distance_w,
-		 colored_light_intensity_w, projectile_lights_per_pixel_w,
+		 colored_light_intensity_w, projectile_lights_per_pixel_w, projectile_motion_blur_w,
 		 texture_light_limit_w, scenery_light_limit_w,
 		 bright_texture_lights_w, bright_scenery_lights_w,
 		 player_light_circle_w, soft_sector_light_edges_w](w_select*) {
@@ -1466,6 +1469,7 @@ void handle_preferences(bool in_game)
 			const bool total = preset == 4;
 			// Screenshot lighting defaults for High and Total Sprintathon.
 			projectile_lights_per_pixel_w->set_selection(high_or_better);
+			projectile_motion_blur_w->set_selection(medium_or_better);
 			bright_texture_lights_w->set_selection(high_or_better);
 			bright_scenery_lights_w->set_selection(high_or_better);
 			colored_light_intensity_w->set_selection(high_or_better ? 50 : 100);
@@ -1540,6 +1544,7 @@ void handle_preferences(bool in_game)
 		graphics_skip_intro_w, graphics_limit_vertical_w,
 		graphics_bobbing_w, ogl_fader_w, ogl_models_w, ogl_perspective_w,
 		ogl_billboard_w, ogl_bloom_w, ogl_bump_w,
+		projectile_motion_blur_w,
 		projectile_lights_per_pixel_w, bright_texture_lights_w, bright_scenery_lights_w, player_light_circle_w, soft_sector_light_edges_w,
 		ogl_refractive_invisibility_w, ogl_sprite_shadows_w,
 		ogl_ambient_occlusion_w, ogl_landscape_light_shafts_w,
@@ -1693,6 +1698,7 @@ void handle_preferences(bool in_game)
 	store_ogl_flag(OGL_Flag_MimicSW, !ogl_perspective_w->get_selection());
 	store_ogl_flag(OGL_Flag_Blur, ogl_bloom_w->get_selection());
 	graphics_preferences->projectile_lights_per_pixel = projectile_lights_per_pixel_w->get_selection();
+	graphics_preferences->projectile_motion_blur = projectile_motion_blur_w->get_selection();
 	graphics_preferences->bright_texture_lights = bright_texture_lights_w->get_selection();
 	graphics_preferences->bright_scenery_lights = bright_scenery_lights_w->get_selection();
 	graphics_preferences->colored_light_intensity = colored_light_intensity_w->get_selection();
@@ -6003,6 +6009,7 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("fps_target", graphics_preferences->fps_target);
 	root.put_attr("pickup_flash", graphics_preferences->pickup_flash);
 	root.put_attr("projectile_lights_per_pixel", graphics_preferences->projectile_lights_per_pixel);
+	root.put_attr("projectile_motion_blur", graphics_preferences->projectile_motion_blur);
 	root.put_attr("bright_texture_lights", graphics_preferences->bright_texture_lights);
 	root.put_attr("bright_scenery_lights", graphics_preferences->bright_scenery_lights);
 	root.put_attr("colored_light_intensity", graphics_preferences->colored_light_intensity);
@@ -6635,6 +6642,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->pickup_flash = true;
 	preferences->skip_intro = false;
 	preferences->projectile_lights_per_pixel = false;
+	preferences->projectile_motion_blur = false;
 	preferences->bright_texture_lights = false;
 	preferences->bright_scenery_lights = false;
 	preferences->colored_light_intensity = 100;
@@ -7159,6 +7167,7 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("fps_target", graphics_preferences->fps_target);
 	root.read_attr("pickup_flash", graphics_preferences->pickup_flash);
 	root.read_attr("projectile_lights_per_pixel", graphics_preferences->projectile_lights_per_pixel);
+	root.read_attr("projectile_motion_blur", graphics_preferences->projectile_motion_blur);
 	root.read_attr("bright_texture_lights", graphics_preferences->bright_texture_lights);
 	graphics_preferences->bright_scenery_lights = graphics_preferences->bright_texture_lights;
 	root.read_attr("bright_scenery_lights", graphics_preferences->bright_scenery_lights);

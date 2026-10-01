@@ -22,8 +22,35 @@ float getFogFactor(float distance) {
 	}
 }
 
+uniform vec4 projectileBlurVector;
+uniform vec4 projectileBlurBounds;
+
+vec4 projectileSpriteColor(vec2 uv) {
+    if (projectileBlurVector.z <= 0.0) return texture2D(texture0, uv);
+    vec3 rgb = vec3(0.0);
+    float alpha = 0.0;
+    float weights = 0.0;
+    // Integrate the sprite along its motion instead of drawing distinct copies.
+    // Alpha-weighted color avoids dark rims around transparent sprite pixels.
+    float samples = clamp(projectileBlurVector.w, 16.0, 48.0);
+    for (int i = 0; i < 48; ++i) {
+        if (float(i) >= samples) break;
+        float t = (float(i) + 0.5) / samples;
+        float weight = 1.0 - t;
+        vec2 point = uv + projectileBlurVector.xy * t;
+        weights += weight;
+        if (point.x >= projectileBlurBounds.x && point.y >= projectileBlurBounds.y &&
+            point.x <= projectileBlurBounds.z && point.y <= projectileBlurBounds.w) {
+            vec4 sampleColor = texture2D(texture0, point);
+            rgb += sampleColor.rgb * sampleColor.a * weight;
+            alpha += sampleColor.a * weight;
+        }
+    }
+    return vec4(rgb / max(alpha, 0.00001), min(1.0, 1.4 * alpha / weights));
+}
+
 void main (void) {
-	vec4 color = texture2D(texture0, gl_TexCoord[0].xy);
+	vec4 color = projectileSpriteColor(gl_TexCoord[0].xy);
 	float avg = (color.r + color.g + color.b) / 3.0;
 	float fogFactor = getFogFactor(length(viewDir));
 	if (mediaFogEnabled > 0.0) {
