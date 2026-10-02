@@ -2,7 +2,9 @@
 
 **It's a Marathon, but also a sprint!**
 
-Sprintathon is a gameplay-focused fork of [Aleph One](https://github.com/Aleph-One-Marathon/alephone) that brings parkour movement, unrestricted mouselook, and expanded combat to the Marathon engine.
+Sprintathon is an experimental fork of [Aleph One](https://github.com/Aleph-One-Marathon/alephone) that brings parkour movement, unrestricted mouselook, expanded combat features, and extensive graphical upgrades to the Marathon engine.
+
+Slide through a firefight, light a dark corridor with a flare, or watch colored projectile light sweep across the walls. Sprintathon combines a faster, more physical moveset with new lighting, atmospheric effects, sound, and quality-of-life features—all configurable in the preferences.
 
 It remains compatible with Marathon scenarios - but playing them as intended is another matter.
 
@@ -10,7 +12,7 @@ Blasphemous features include **JUMPING, CROUCHING, SPRINTING, SLIDING, WALL-RUNN
 
 ![Sprintathon gameplay](mthon.webp)
 
-## Download and Install instructions
+## Download and installation
 
 Prebuilt releases are available from GitHub:
 
@@ -52,7 +54,7 @@ untrusted mirrors.
 
 ### macOS
 
-Download the macOS ZIP
+Download the macOS ZIP.
 
 Extract the ZIP and move `Sprintathon.app` to `Applications` or another writable
 folder. The application is currently **unsigned and not notarized**, so macOS
@@ -66,56 +68,76 @@ and the exact release filename.
 
 ## Features
 
-Gameplay additions can be configured from the **Sprintathon** preferences section. Most features can be enabled or disabled individually.
+Most additions can be enabled or disabled individually. Start with a graphics preset—**Low**, **Medium**, **High**, or **Total Sprintathon**—then adjust individual effects to suit your taste and hardware. Changing a graphics option selects **Custom**.
+
+### Graphics and atmosphere
+
+Sprintathon expands the engine's lighting and surface effects while retaining the original scenario artwork.
+
+**Dynamic colored lighting**
+
+Experimental feature adding “per-pixel” colored lighting emitted from projectiles, bright textures, and scenery like light fixtures.
+
+- Projectiles and explosions illuminate nearby surfaces with colored light.
+- Bright areas of wall textures and scenery sprites can act as light sources, as does lava.
+- Separate controls with adjustable intensity, reach, render distance, and light counts.
+- Dynamic lighting can be taxing for GPU's and is enabled by the **High** and **Total Sprintathon** presets.
+
+**Shadows and light effects**
+
+- Character sprite shadows and adjustable ambient occlusion.
+- Optional blending of sector shading to soften abrupt lighting boundaries.
+- Shafts of light from the landscape backgrounds and anamorphic lens flares from bright textures, sprites and projectiles..
+- Updated invisibility with a refractive look.
+
+**Fog and liquids**
+
+- Enhanced fog rendering, media-relative fog, animated density, drifting fog, and weather presets.
+- Enhanced liquid effects. Watch the surface ripple and the depths distort and refract.
+
+**Texture detail and motion**
+
+- Optional 2xSaI upscaling for sprites and wall textures, alongside filtering controls.
+- Blurred projectile motion trails.
+
+Effects can be combined freely. Dynamic lighting and large numbers of scenery lights can be demanding, especially in complex maps with long sightlines; their individual controls let you tune the appearance and performance.
 
 ### Parkour movement
 
-- Jumping with jump buffering and coyote time
-- Crouching and crouch long-jumps
-- Sprinting with recharging stamina
-- Sprint slides and slide attacks
-- Sideways dodge dives and backward dodge dives
-- Cartwheels from sideways dodges
-- Backflips from backward dodges
-- Jump kicks, flying kicks and roundhouse kicks
-- Wall kicks, wall-running and wall-jumping
-- Modernized surface swimming
-- Water and dry ledge-grabbing
-- Mantling
+- Jumping with jump buffering and coyote time.
+- Crouching, crouch long-jumps, and sprinting with recharging stamina.
+- Sprint slides and slide attacks.
+- Forward rolls from a double-tap during a slide, with chained rolls.
+- Sideways and backward dodge dives, cartwheels, and backflips.
+- Jump kicks, flying kicks, roundhouse kicks, and wall kicks.
+- Wall-running and wall-jumping.
+- Surface swimming, ledge-grabbing, and mantling on land and out of water.
 
-### Camera and presentation
+### Combat and flares
 
-- Full unrestricted vertical mouselook with smoothing
-- Weapon sway, movement lag and recoil feedback
-- First-person legs during slides and dodges
-- Footstep and movement sounds
-- Optional Sprintathon HUD with new weapon switcher.
-- Stronger movement, landing and impact feedback
-- Revamped Preferences and Level Select interfaces
-- Access to Preferences while a game is running
+- Magazine-based reloading that retains partially used magazines.
+- Sprint, slide, dodge, and airborne attacks.
+- Bullet time, with optional automatic activation during dodges.
+- Use the scope when carrying a single .44 Magnum pistol.
+- Optional corpse physics and blood effects when corpses are hit.
+- Droppable flares with flickering red light for those dark places.
 
-### Combat
+### Camera, sound, and presentation
 
-- Magazine-based reloading with persistent partial magazines
-- Sprint, slide, dodge and airborne attacks
-- Bullet time with audiovisual feedback
-- Optional automatic bullet time during dodge moves
-- Optional scope for a single .44 Magnum pistol
+- Unrestricted vertical mouselook, smoothing, and an invert vertical axis option.
+- Weapon sway, movement lag, recoil, and landing feedback.
+- First-person legs during slides, dodges, and rolls.
+- Footstep and movement sounds.
+- Optional cavern echo and reverberation for large enclosed spaces.
+- A new Sprintathon HUD with a self-hiding weapon list.
+- Screenshot mode that pauses the game and frees the camera for exploring a scene or composing a shot.
+- Revised Preferences and Level Select interfaces, with preferences accessible during play.
 
-### Graphics
+### Checkpoints and reloads
 
-- Optional global fog
-- Media-relative height fog
-- Animated fog density and weather presets
-- Fog depth, darkness and distance controls
-- Transparent-liquid opacity control
-- Animated media ripples with individual speeds for each media type
-- Adjustable ripple and wet-texture strength
-- Under-liquid screen distortion
-- Refraction, distortion and magnification through transparent liquid surfaces
-- Liquid animation that follows bullet time
+Optional Halo-style **Checkpoints** create automatic saves during quiet moments between fights.
 
-Movement and presentation features can be combined freely, allowing Sprintathon to range from mostly traditional Marathon movement to the complete modernized moveset.
+Reloading within the same level can retain unchanged sprite textures on the GPU, avoiding repeated sprite upscaling and uploads.
 
 ## Full unrestricted mouselook
 
@@ -123,24 +145,6 @@ Sprintathon's extended mouselook uses true 3D camera rotation at every angle, in
 
 Sprintathon expands visibility checks around the full horizon, bypasses incompatible legacy clipping planes and lets OpenGL's 3D frustum and depth buffer handle clipping and occlusion. Strict sprite depth testing also prevents enemies and effects from appearing through walls.
 
-## Bullet time
-
-Bullet time temporarily slows the action while leaving the player responsive. While active it applies graphic and audio distortions.
-Bullet time is bound to **B** by default. It can also be configured to activate automatically during dodge moves.
-
-## Realistic reloading
-
-Sprintathon adds a weapon-reload binding, set to **R** by default. Reloading does not discard unfinished magazines. The game remembers the rounds left in every magazine, uses full magazines first and later returns the fullest partial magazine available. Reloading is ignored when the loaded magazine is already the fullest available.
-
-## Pistol scope
-
-When enabled, the secondary trigger activates a scope while carrying only one .44 Magnum pistol.
-
-## Sprintathon HUD
-
-The optional Sprintathon HUD is installed with packaged and `make install` builds. It is an attempt to make a minimal and aesthetically appropriate HUD with special features such as a self-hiding weapons list and low health flicker distortions. 
-
-Select it from the HUD or plugin preferences after installation.
 
 ## Building
 
@@ -275,9 +279,13 @@ The exact keys are user-configurable.
 
 ## Configuration
 
-Open Preferences and select **Sprintathon** for movement, stamina, dodge, bullet-time and pistol-scope options.
+Open **Preferences → Sprintathon** for movement, combat, stamina, and effects settings. **Sound** contains the Cavern Echo option, and **Controls** contains the configurable bindings, including screenshot mode.
 
-The main **Graphics** section contains separate **Rendering**, **Textures**, **Liquids** and **Fog** tabs. These include the extended fog, transparency, ripple, wet-texture and refraction controls.
+**Graphics** contains **Presets**, **Display**, **Rendering**, **Light FX**, **Dynamic Lighting**, **Textures**, **Liquids**, and **Fog** tabs. High and Total Sprintathon enable dynamic lighting; individual controls let you customize the result.
+
+**Display** includes Player Light Circle, which defaults off, and Skip Intros and Fades, which defaults on. New defaults do not overwrite existing saved preferences.
+
+In screenshot mode, **Q / E** rotate the camera, while your bound **Jump** and **Crouch** controls move it up and down.
 
 Preferences can also be opened during a game. Saving or cancelling returns directly to the running game.
 
