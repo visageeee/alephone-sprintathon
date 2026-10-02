@@ -151,6 +151,9 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 #include "player.h"
 #include "OGL_Render.h"
 #include "OGL_Textures.h"
+#include <chrono>
+#include <cstdio>
+extern void OGL_ReportUpscaleCache(bool reset);
 #include "OGL_Blitter.h"
 #include "AnimatedTextures.h"
 #include "Crosshairs.h"
@@ -178,7 +181,9 @@ typedef std::pair<shape_descriptor,int16> TextureWithTransferMode;
 static void PreloadTextures();
 static void PreloadWallTexture(const TextureWithTransferMode& inTexture);
 static int CountSpriteTexturesToPreload();
+static double sprite_prepare_ms = 0, sprite_progress_ms = 0, sprite_render_ms = 0;
 static void PreloadSpriteTextures();
+extern bool OGL_SpriteCollectionRetained(short);
 static void PreloadSpriteTexture(short collection, short clut, short frame, short texture_type);
 
 
@@ -523,11 +528,19 @@ bool OGL_ClearScreen()
 void OGL_Rasterizer_Init();
 
 // Start an OpenGL run (creates a rendering context)
-bool OGL_StartRun()
+bool OGL_StartRun(bool retain_sprites)
 {
 	logContext("starting up OpenGL rendering");
 
 	if (!OGL_IsPresent()) return false;
+
+    extern void OGL_BeginRetainedSpriteReload(bool);
+    extern void OGL_EndRetainedSpriteReload(bool);
+    OGL_BeginRetainedSpriteReload(retain_sprites && OGL_IsActive());
+    struct RetainScope {
+        bool success = false;
+        ~RetainScope() { OGL_EndRetainedSpriteReload(success); }
+    } retain_scope;
 
 	// Will stop previous run if it had been active
 	if (OGL_IsActive()) OGL_StopRun();
@@ -650,6 +663,7 @@ bool OGL_StartRun()
 
 	// Success!
 	JustInited = true;
+    retain_scope.success = true;
 	return (_OGL_IsActive = true);
 }
 
@@ -718,7 +732,15 @@ void PreloadTextures()
 	// or palette is encountered. Warm every frame in the loaded sprite
 	// collections while the level loading screen is still active.
 	OGL_SetProgressMessage("upscaling sprites");
+    OGL_ReportUpscaleCache(true);
+    sprite_prepare_ms = sprite_progress_ms = sprite_render_ms = 0;
+    const auto sprite_start = std::chrono::steady_clock::now();
 	PreloadSpriteTextures();
+    std::fprintf(stderr, "Sprite preload total: %.1f ms\n",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-sprite_start).count());
+    OGL_ReportUpscaleCache(false);
+    std::fprintf(stderr, "Sprite stages: preparation %.1f ms; render calls %.1f ms; progress updates %.1f ms\n",
+        sprite_prepare_ms, sprite_render_ms, sprite_progress_ms);
 }
 
 static bool IsSpriteCollection(short collection)
@@ -735,7 +757,8 @@ static int CountSpriteTexturesToPreload()
 	int count = 0;
 	for (short collection = 0; collection < MAXIMUM_COLLECTIONS; ++collection)
 	{
-		if (!is_collection_present(collection) || !IsSpriteCollection(collection))
+		if (OGL_SpriteCollectionRetained(collection) ||
+            !is_collection_present(collection) || !IsSpriteCollection(collection))
 			continue;
 
 		int num_colors = 0;
@@ -756,7 +779,8 @@ static void PreloadSpriteTextures()
 
 	for (short collection = 0; collection < MAXIMUM_COLLECTIONS; ++collection)
 	{
-		if (!is_collection_present(collection) || !IsSpriteCollection(collection))
+		if (OGL_SpriteCollectionRetained(collection) ||
+            !is_collection_present(collection) || !IsSpriteCollection(collection))
 			continue;
 
 		const short texture_type = collection == _collection_weapons_in_hand ?
@@ -770,7 +794,10 @@ static void PreloadSpriteTextures()
 			for (short frame = 0; frame < frame_count; ++frame)
 			{
 				PreloadSpriteTexture(collection, clut, frame, texture_type);
+                const auto progress_start = std::chrono::steady_clock::now();
 				OGL_ProgressCallback(1);
+                sprite_progress_ms += std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now()-progress_start).count();
 			}
 		}
 	}
@@ -778,26 +805,34 @@ static void PreloadSpriteTextures()
 
 static void PreloadSpriteTexture(short collection, short clut, short frame, short texture_type)
 {
+    const auto prepare_start = std::chrono::steady_clock::now();
 	TextureManager TMgr;
 	TMgr.ShapeDesc = BUILD_DESCRIPTOR(BUILD_COLLECTION(collection, clut), frame);
 	TMgr.LowLevelShape = frame;
 	extended_get_shape_bitmap_and_shading_table(
 		BUILD_COLLECTION(collection, clut), frame,
 		&TMgr.Texture, &TMgr.ShadingTables, _shading_normal);
-	if (!TMgr.Texture || !TMgr.ShadingTables)
-		return;
+	if (!TMgr.Texture || !TMgr.ShadingTables) {
+        sprite_prepare_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-prepare_start).count();
+        return;
+    }
 
 	TMgr.TransferMode = _textured_transfer;
 	TMgr.TransferData = 0;
 	TMgr.IsShadeless = false;
 	TMgr.TextureType = texture_type;
 
-	if (TMgr.Setup())
+    const bool ready = TMgr.Setup();
+    const auto render_start = std::chrono::steady_clock::now();
+    sprite_prepare_ms += std::chrono::duration<double, std::milli>(render_start-prepare_start).count();
+	if (ready)
 	{
 		TMgr.RenderNormal();
 		if (TMgr.IsGlowMapped())
 			TMgr.RenderGlowing();
 	}
+    sprite_render_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-render_start).count();
+
 }
 
 void PreloadWallTexture(const TextureWithTransferMode& inTexture)
@@ -3211,7 +3246,7 @@ bool OGL_TextWidth(const char* Text, int count, int& width)
 }
 
 // Rendering text
-bool OGL_RenderText(short BaseX, short BaseY, const char *Text, unsigned char r, unsigned char g, unsigned char b)
+bool OGL_RenderText(short BaseX, short BaseY, const char *Text, unsigned char r, unsigned char g, unsigned char b, float alpha)
 {
 	if (!OGL_IsActive()) return false;
 	
@@ -3232,7 +3267,7 @@ bool OGL_RenderText(short BaseX, short BaseY, const char *Text, unsigned char r,
 	glPushMatrix();
 	
 	// Background
-	glColor3f(0,0,0);
+	glColor4f(0,0,0,alpha);
 	
 	// Changed to drop shadow only for performance reasons
 	/*
@@ -3270,7 +3305,7 @@ bool OGL_RenderText(short BaseX, short BaseY, const char *Text, unsigned char r,
 	glCallList(TextDisplayList);
 	
 	// Foreground
-	SglColor3f(r/255.0f,g/255.0f,b/255.0f);
+	SglColor4f(r/255.0f,g/255.0f,b/255.0f,alpha);
 
 	glLoadIdentity();
 	glTranslatef(BaseX,BaseY,Depth);

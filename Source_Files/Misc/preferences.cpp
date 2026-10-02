@@ -380,10 +380,13 @@ public:
 		saved_min_width = scale_dialog_value(430);
 		saved_min_height = font->get_line_height() * 2 + scale_dialog_value(5);
 	}
-	void set_description(const char *first, const char *second)
+	void set_description(const char *first, const char *second, const char *third = "")
 	{
 		m_first = first;
 		m_second = second;
+		m_third = third;
+		saved_min_height = font->get_line_height() * (m_third.empty() ? 2 : 3) +
+			scale_dialog_value(m_third.empty() ? 5 : 10);
 		dirty = true;
 	}
 	void draw(SDL_Surface *s) const override
@@ -397,9 +400,14 @@ public:
 			rect.x + (rect.w - text_width(m_second.c_str(), font, style)) / 2,
 			rect.y + font->get_line_height() + scale_dialog_value(5) + ascent,
 			color, font, style);
+		if (!m_third.empty())
+			draw_text(s, m_third.c_str(),
+				rect.x + (rect.w - text_width(m_third.c_str(), font, style)) / 2,
+				rect.y + 2 * (font->get_line_height() + scale_dialog_value(5)) + ascent,
+				color, font, style);
 	}
 private:
-	std::string m_first, m_second;
+	std::string m_first, m_second, m_third;
 };
 
 class w_sprintathon_rate_slider : public w_slider
@@ -641,6 +649,9 @@ void handle_preferences(bool in_game)
 	graphics_display->dual_add(
 		graphics_skip_intro_w->label("Skip Intros and Fades"), d);
 	graphics_display->dual_add(graphics_skip_intro_w, d);
+	w_toggle *player_light_circle_w = new w_toggle(graphics_preferences->player_light_circle);
+	graphics_display->dual_add(player_light_circle_w->label("Player Light Circle"), d);
+	graphics_display->dual_add(player_light_circle_w, d);
 
 	table_placer *graphics_view =
 		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
@@ -692,7 +703,7 @@ void handle_preferences(bool in_game)
 	graphics_tab_action graphics_tab_actions[8];
 	const char *graphics_tab_labels[] = {
 		"PRESETS", "DISPLAY", "RENDERING", "LIGHT FX",
-		"PER-PIXEL", "TEXTURES", "LIQUIDS", "FOG"
+		"DYNAMIC LIGHTING", "TEXTURES", "LIQUIDS", "FOG"
 	};
 	auto add_graphics_tab_button = [&](horizontal_placer *row, int index) {
 		graphics_tab_actions[index] = { graphics_tabs, &d, &graphics_active_tab, index };
@@ -1070,6 +1081,7 @@ void handle_preferences(bool in_game)
 	table_placer *sprintathon_combat = make_sprintathon_table();
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, ricochet_w, sprintathon_bullet_ricochet, "Bullet Ricochets");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, corpses_w, sprintathon_physics_corpses, "Physics Corpses");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, checkpoints_w, sprintathon_safe_checkpoints, "Safe Checkpoints");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, bullet_time_w, sprintathon_bullet_time, "Bullet Time");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, dodge_bullet_time_w, sprintathon_dodge_bullet_time, "Automatic Dodge Bullet Time");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, pistol_scope_w, sprintathon_pistol_scope, "Pistol Scope");
@@ -1199,7 +1211,6 @@ void handle_preferences(bool in_game)
 		graphics_preferences->scenery_light_render_distance);
 	w_slider *texture_light_limit_w = new w_slider(21, graphics_preferences->texture_light_limit);
 	w_slider *scenery_light_limit_w = new w_slider(21, graphics_preferences->scenery_light_limit);
-	w_toggle *player_light_circle_w = new w_toggle(graphics_preferences->player_light_circle);
 	w_toggle *soft_sector_light_edges_w = new w_toggle(graphics_preferences->soft_sector_light_edges);
 	w_toggle *ogl_bump_w = new w_toggle(ogl_flag(OGL_Flag_BumpMap));
 	w_toggle *simplify_distant_surfaces_w = new w_toggle(graphics_preferences->simplify_distant_surfaces);
@@ -1279,8 +1290,8 @@ void handle_preferences(bool in_game)
     table_placer *per_pixel = make_preferences_table();
 #define ADD_PER_PIXEL_ROW(caption, widget) \
     per_pixel->dual_add((widget)->label(caption), d); per_pixel->dual_add(widget, d)
-    ADD_PER_PIXEL_ROW("Per-Pixel Projectile Lights", projectile_lights_per_pixel_w);
-    ADD_PER_PIXEL_ROW("Texture Lights", bright_texture_lights_w);
+    ADD_PER_PIXEL_ROW("Projectile Lights", projectile_lights_per_pixel_w);
+    ADD_PER_PIXEL_ROW("Bright Texture Lights", bright_texture_lights_w);
     ADD_PER_PIXEL_ROW("Scenery Lights", bright_scenery_lights_w);
     ADD_PER_PIXEL_ROW("All Visible Scenery Lights", all_visible_scenery_lights_w);
     ADD_PER_PIXEL_ROW("Projectile / Flare Intensity", colored_light_intensity_w);
@@ -1292,12 +1303,12 @@ void handle_preferences(bool in_game)
     ADD_PER_PIXEL_ROW("Scenery Render Distance", scenery_light_render_distance_w);
     ADD_PER_PIXEL_ROW("Max Texture Lights (0-20)", texture_light_limit_w);
     ADD_PER_PIXEL_ROW("Max Scenery Lights (0-20)", scenery_light_limit_w);
-    ADD_PER_PIXEL_ROW("Player Light Circle", player_light_circle_w);
 #undef ADD_PER_PIXEL_ROW
     w_preset_description *per_pixel_description = new w_preset_description;
     per_pixel_description->set_description(
-        "Experimental per-pixel lighting creates colored light",
-        "sources from bright textures and scenery sprites.");
+        "Experimental feature adding \"per-pixel\" colored lighting",
+        "emitted from projectiles, bright textures,",
+        "and scenery like light fixtures.");
     per_pixel_page->dual_add(per_pixel_description, d);
     per_pixel_page->add(per_pixel, true);
     graphics_tabs->add(per_pixel_page, true);
@@ -1427,7 +1438,7 @@ void handle_preferences(bool in_game)
 	bool applying_graphics_preset = false;
 	auto set_graphics_preset_description =
 		[graphics_preset_description_w](int preset) {
-			static const char *descriptions[][2] = {
+			static const char *descriptions[][3] = {
 				{ "Uses individually chosen graphics settings.",
 				  "Change any option to return to Custom." },
 				{ "Prioritizes speed with basic lighting.",
@@ -1435,13 +1446,16 @@ void handle_preferences(bool in_game)
 				{ "Adds shadows and gentle water ripples.",
 				  "Keeps sprite upscaling and flares off." },
 				{ "Adds sprite upscaling and animated fog.",
-				  "Enables light shafts and lens flares." },
+				  "Enables light shafts and lens flares.",
+				  "Adds dynamic lighting from bright surfaces." },
 				{ "Enables all Sprintathon visual effects.",
-				  "Includes drifting fog, lens flares, and ripples." }
+				  "Includes drifting fog, lens flares, and ripples.",
+				  "Adds dynamic lighting from bright surfaces." }
 			};
 			const int index = A1_PIN(preset, 0, 4);
 			graphics_preset_description_w->set_description(
-				descriptions[index][0], descriptions[index][1]);
+				descriptions[index][0], descriptions[index][1],
+				descriptions[index][2] ? descriptions[index][2] : "");
 		};
 
 	graphics_preset_w->set_selection_changed_callback(
@@ -1492,7 +1506,7 @@ void handle_preferences(bool in_game)
 			scenery_light_render_distance_w->set_selection(high_or_better ? 100 : 65);
 			texture_light_limit_w->set_selection(high_or_better ? 20 : 3);
 			scenery_light_limit_w->set_selection(high_or_better ? 20 : 2);
-			player_light_circle_w->set_selection(!high_or_better);
+			player_light_circle_w->set_selection(false);
 			soft_sector_light_edges_w->set_selection(medium_or_better);
 			ogl_bloom_w->set_selection(medium_or_better);
 			ogl_bump_w->set_selection(medium_or_better);
@@ -1521,7 +1535,7 @@ void handle_preferences(bool in_game)
 			liquid_wetness_w->set_selection(total ? 8 : 0);
 			liquid_transparency_w->set_selection(total);
 			underwater_distortion_w->set_selection(total);
-			liquid_opacity_w->set_selection(total ? 12 : 15);
+			liquid_opacity_w->set_selection(10); // 75% opacity
 			if (total)
 			{
 				const int liquid_speeds[] = {6, 22, 6, 2, 3};
@@ -2012,6 +2026,7 @@ void handle_preferences(bool in_game)
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_bullet_ricochet, ricochet_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_physics_corpses, corpses_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_safe_checkpoints, checkpoints_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_dodge, dodge_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_long_jump, long_jump_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_wall_run, wall_run_w);
@@ -4343,6 +4358,7 @@ static void sprintathon_dialog(void *arg)
 	ADD_SPRINTATHON_TOGGLE(slide_w, sprintathon_slide, "Sprint Sliding");
 	ADD_SPRINTATHON_TOGGLE(ricochet_w, sprintathon_bullet_ricochet, "Bullet Ricochets");
 	ADD_SPRINTATHON_TOGGLE(corpses_w, sprintathon_physics_corpses, "Physics Corpses");
+	ADD_SPRINTATHON_TOGGLE(checkpoints_w, sprintathon_safe_checkpoints, "Safe Checkpoints");
 	ADD_SPRINTATHON_TOGGLE(dodge_w, sprintathon_dodge, "Dodging");
 	ADD_SPRINTATHON_TOGGLE(long_jump_w, sprintathon_long_jump, "Crouch Long-Jump");
 	ADD_SPRINTATHON_TOGGLE(wall_run_w, sprintathon_wall_run, "Wall-Running");
@@ -4399,6 +4415,7 @@ static void sprintathon_dialog(void *arg)
 		STORE_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_bullet_ricochet, ricochet_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_physics_corpses, corpses_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_safe_checkpoints, checkpoints_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_dodge, dodge_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_long_jump, long_jump_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_wall_run, wall_run_w);
@@ -6388,6 +6405,7 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_slide", input_preferences->sprintathon_slide);
 	root.put_attr("sprintathon_bullet_ricochet", input_preferences->sprintathon_bullet_ricochet);
 	root.put_attr("sprintathon_physics_corpses", input_preferences->sprintathon_physics_corpses);
+	root.put_attr("sprintathon_safe_checkpoints", input_preferences->sprintathon_safe_checkpoints);
 	root.put_attr("sprintathon_dodge", input_preferences->sprintathon_dodge);
 	root.put_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
 	root.put_attr("sprintathon_wall_run", input_preferences->sprintathon_wall_run);
@@ -6662,7 +6680,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->software_sdl_driver = _sw_driver_default;
 	preferences->fps_target = 60;
 	preferences->pickup_flash = true;
-	preferences->skip_intro = false;
+	preferences->skip_intro = true;
 	preferences->projectile_lights_per_pixel = false;
 	preferences->projectile_motion_blur = false;
 	preferences->bright_texture_lights = false;
@@ -6678,7 +6696,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->scenery_light_render_distance = 65;
 	preferences->texture_light_limit = 3;
 	preferences->scenery_light_limit = 2;
-	preferences->player_light_circle = true;
+	preferences->player_light_circle = false;
 	preferences->soft_sector_light_edges = true;
 
 	preferences->movie_export_video_quality = 50;
@@ -6789,6 +6807,7 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_slide = true;
 	preferences->sprintathon_bullet_ricochet = false;
 	preferences->sprintathon_physics_corpses = false;
+	preferences->sprintathon_safe_checkpoints = false;
 	preferences->sprintathon_dodge = true;
 	preferences->sprintathon_long_jump = true;
 	preferences->sprintathon_wall_run = true;
@@ -7480,6 +7499,7 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_slide", input_preferences->sprintathon_slide);
 	root.read_attr("sprintathon_bullet_ricochet", input_preferences->sprintathon_bullet_ricochet);
 	root.read_attr("sprintathon_physics_corpses", input_preferences->sprintathon_physics_corpses);
+	root.read_attr("sprintathon_safe_checkpoints", input_preferences->sprintathon_safe_checkpoints);
 	root.read_attr("sprintathon_dodge", input_preferences->sprintathon_dodge);
 	root.read_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
 	root.read_attr("sprintathon_wall_run", input_preferences->sprintathon_wall_run);

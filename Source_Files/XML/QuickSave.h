@@ -63,7 +63,8 @@ private:
     std::vector<QuickSave> m_saves;
 };
 
-bool create_quick_save(void);
+bool create_quick_save(bool checkpoint = false);
+bool find_last_checkpoint(FileSpecifier& file);
 bool delete_quick_save(QuickSave& save);
 bool load_quick_save_dialog(FileSpecifier& saved_game);
 size_t saved_game_was_networked(FileSpecifier& saved_game);

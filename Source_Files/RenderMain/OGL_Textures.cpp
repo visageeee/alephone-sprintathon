@@ -104,6 +104,13 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <cstring>
+#include <chrono>
+#include <cstdio>
+#include <vector>
+#include <cstdint>
+#include <cstdlib>
+#include <algorithm>
 
 #ifdef _WIN32
 #define NOMINMAX
@@ -176,8 +183,18 @@ static bool sprite_pixels_similar(uint32 first, uint32 second)
 
 // Edge-directed 2xSaI-style interpolation. It retains strong sprite contours,
 // while alpha-aware blends keep transparent edge pixels from growing dark halos.
+static double upscale_algorithm_ms = 0, texture_place_ms = 0;
+struct PreloadStageTimer {
+    double& total;
+    std::chrono::steady_clock::time_point start;
+    explicit PreloadStageTimer(double& value) : total(value), start(std::chrono::steady_clock::now()) {}
+    ~PreloadStageTimer() { total += std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now()-start).count(); }
+};
+
 static ImageDescriptor *upscale_texture_2xsai(const ImageDescriptor& source, bool wrap_edges)
 {
+    PreloadStageTimer timer(upscale_algorithm_ms);
 	const int width = source.GetWidth();
 	const int height = source.GetHeight();
 	const int output_width = width * 2;
@@ -239,6 +256,92 @@ static ImageDescriptor *upscale_texture_2xsai(const ImageDescriptor& source, boo
 	result->PremultipliedAlpha = premultiplied;
 	return result;
 }
+
+static unsigned long long upscale_hits = 0, upscale_misses = 0, upscale_evictions = 0;
+static double upscale_ms = 0;
+// CPU-only LRU survives level/GL texture teardown. Match actual input bytes,
+// not collection IDs: replacements, palettes and scenario changes are safe.
+static ImageDescriptor *cached_upscale_texture_2xsai(const ImageDescriptor& source, bool wrap_edges)
+{
+    struct Timer {
+        std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+        ~Timer() { upscale_ms += std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - start).count(); }
+    } timer;
+    struct Entry {
+        uint64_t hash;
+        int width, height;
+        bool wrap, premultiplied;
+        std::vector<uint32> pixels;
+        std::unique_ptr<ImageDescriptor> result;
+        size_t bytes;
+    };
+    auto copy_result = [](const ImageDescriptor& image) {
+        const size_t count = size_t(image.GetWidth()) * image.GetHeight();
+        uint32 *buffer = new uint32[count];
+        std::copy(image.GetBuffer(), image.GetBuffer() + count, buffer);
+        ImageDescriptor *copy = new ImageDescriptor(image.GetWidth(), image.GetHeight(), buffer);
+        copy->PremultipliedAlpha = image.IsPremultiplied();
+        return copy;
+    };
+    static std::list<Entry> cache;
+    static size_t cached_bytes = 0;
+    const size_t budget = size_t(256)*1024*1024;
+    const char *setting = std::getenv("SPRINTATHON_UPSCALE_CACHE");
+    if (setting && setting[0] == '0') {
+        cache.clear(); cached_bytes = 0;
+        return upscale_texture_2xsai(source, wrap_edges);
+    }
+    const size_t count = size_t(source.GetWidth()) * source.GetHeight();
+    const uint32 *pixels = source.GetBuffer();
+    uint64_t hash = 14695981039346656037ULL;
+    for (size_t i = 0; i < count; ++i) {
+        hash ^= pixels[i]; hash *= 1099511628211ULL;
+    }
+    for (auto it = cache.begin(); it != cache.end(); ++it) {
+        if (it->hash == hash && it->width == source.GetWidth() &&
+            it->height == source.GetHeight() && it->wrap == wrap_edges &&
+            it->premultiplied == source.IsPremultiplied() &&
+            std::equal(it->pixels.begin(), it->pixels.end(), pixels)) {
+            ++upscale_hits;
+            cache.splice(cache.begin(), cache, it);
+            // Caller owns the upload image; cached pixels remain immutable.
+            return copy_result(*cache.front().result);
+        }
+    }
+    ++upscale_misses;
+    std::unique_ptr<ImageDescriptor> result(upscale_texture_2xsai(source, wrap_edges));
+    const size_t bytes = count*sizeof(uint32) + size_t(result->GetBufferSize());
+    if (bytes <= budget) {
+        while (!cache.empty() && (cached_bytes + bytes > budget || cache.size() >= 4096)) {
+            ++upscale_evictions;
+            cached_bytes -= cache.back().bytes;
+            cache.pop_back();
+        }
+        Entry entry;
+        entry.hash = hash; entry.width = source.GetWidth(); entry.height = source.GetHeight();
+        entry.wrap = wrap_edges; entry.premultiplied = source.IsPremultiplied();
+        entry.pixels.assign(pixels, pixels + count);
+        entry.result.reset(copy_result(*result)); entry.bytes = bytes;
+        cache.push_front(std::move(entry)); cached_bytes += bytes;
+    }
+    return result.release();
+}
+
+}
+
+void OGL_ReportUpscaleCache(bool reset)
+{
+    if (!reset) std::fprintf(stderr,
+        "Upscale cache: %llu hits, %llu misses, %llu evictions; CPU cache/upscale %.1f ms\n",
+        upscale_hits, upscale_misses, upscale_evictions, upscale_ms);
+    if (!reset) std::fprintf(stderr,
+        "Sprite detail: 2xSaI %.1f ms; cache lookup/copies/eviction %.1f ms; GL upload/setup %.1f ms\n",
+        upscale_algorithm_ms, std::max(0.0, upscale_ms-upscale_algorithm_ms),
+        std::max(0.0, texture_place_ms-upscale_ms));
+    upscale_algorithm_ms = texture_place_ms = 0;
+    upscale_hits = upscale_misses = upscale_evictions = 0;
+    upscale_ms = 0;
 }
 
 OGL_TexturesStats gGLTxStats = {0,0,0,500000,0,0, 0};
@@ -382,6 +485,55 @@ void TextureState::FrameTick() {
 // this is because different rendering modes deserve different treatment.
 static CollBitmapTextureState* TextureStateSets[OGL_NUMBER_OF_TEXTURE_TYPES][MAXIMUM_COLLECTIONS];
 
+extern std::string OGL_NativeSpriteSignature(short index);
+static std::string retained_sprite_signatures[MAXIMUM_COLLECTIONS];
+static bool retain_sprite_collection[MAXIMUM_COLLECTIONS] = {};
+static SDL_GLContext retained_sprite_context = nullptr;
+static OGL_ConfigureData retained_sprite_config;
+static short retained_sprite_level = NONE;
+static bool retained_sprite_snapshot = false;
+
+bool OGL_SpriteCollectionRetained(short index) { return retain_sprite_collection[index]; }
+
+void OGL_BeginRetainedSpriteReload(bool requested)
+{
+    std::fill(retain_sprite_collection, retain_sprite_collection+MAXIMUM_COLLECTIONS, false);
+    const char *disable = std::getenv("SPRINTATHON_RETAIN_SPRITES");
+    if (!requested || (disable && disable[0] == '0') || !retained_sprite_snapshot ||
+        retained_sprite_context != SDL_GL_GetCurrentContext() ||
+        retained_sprite_level != dynamic_world->current_level_number ||
+        std::memcmp(&retained_sprite_config, &Get_OGL_ConfigureData(), sizeof(OGL_ConfigureData))) return;
+    unsigned count = 0;
+    for (short i = 0; i < MAXIMUM_COLLECTIONS; ++i) {
+        if (retained_sprite_signatures[i].empty()) continue;
+        retain_sprite_collection[i] = retained_sprite_signatures[i] == OGL_NativeSpriteSignature(i);
+        if (retain_sprite_collection[i]) ++count;
+    }
+    std::fprintf(stderr, "Retained sprite reload: %u unchanged native collections\n", count);
+}
+
+void OGL_EndRetainedSpriteReload(bool success)
+{
+    if (!success) {
+        for (short i = 0; i < MAXIMUM_COLLECTIONS; ++i) if (retain_sprite_collection[i]) {
+            delete[] TextureStateSets[OGL_Txtr_Inhabitant][i];
+            delete[] TextureStateSets[OGL_Txtr_WeaponsInHand][i];
+            TextureStateSets[OGL_Txtr_Inhabitant][i] = nullptr;
+            TextureStateSets[OGL_Txtr_WeaponsInHand][i] = nullptr;
+        }
+    }
+    retained_sprite_snapshot = success;
+    for (short i = 0; i < MAXIMUM_COLLECTIONS; ++i)
+        retained_sprite_signatures[i] = success ? OGL_NativeSpriteSignature(i) : std::string();
+    if (success) {
+        retained_sprite_context = SDL_GL_GetCurrentContext();
+        std::memcpy(&retained_sprite_config, &Get_OGL_ConfigureData(), sizeof(OGL_ConfigureData));
+        retained_sprite_level = dynamic_world->current_level_number;
+    }
+    std::fill(retain_sprite_collection, retain_sprite_collection+MAXIMUM_COLLECTIONS, false);
+}
+
+
 static GLuint flatBumpTextureID = 0;
 void FlatBumpTexture() {
 	
@@ -411,6 +563,8 @@ void OGL_StartTextures()
 	for (int it=0; it<OGL_NUMBER_OF_TEXTURE_TYPES; it++)
 		for (int ic=0; ic<MAXIMUM_COLLECTIONS; ic++)
 		{
+            if (retain_sprite_collection[ic] &&
+                (it == OGL_Txtr_Inhabitant || it == OGL_Txtr_WeaponsInHand)) continue;
 			bool CollectionPresent = is_collection_present(ic);
 			short NumberOfBitmaps =
 				CollectionPresent ? get_number_of_collection_bitmaps(ic) : 0;
@@ -510,7 +664,12 @@ void OGL_StopTextures()
 	// Clear the texture accounting
 	for (int it=0; it<OGL_NUMBER_OF_TEXTURE_TYPES; it++)
 		for (int ic=0; ic<MAXIMUM_COLLECTIONS; ic++)
-			if (TextureStateSets[it][ic]) delete []TextureStateSets[it][ic];
+            {
+                if (retain_sprite_collection[ic] &&
+                    (it == OGL_Txtr_Inhabitant || it == OGL_Txtr_WeaponsInHand)) continue;
+                delete[] TextureStateSets[it][ic];
+                TextureStateSets[it][ic] = nullptr;
+            }
 
 	// clear blitters and fonts
 	OGL_Blitter::StopTextures();
@@ -1418,6 +1577,7 @@ uint32 *TextureManager::Shrink(uint32 *Buffer)
 // mapping attributes
 void TextureManager::PlaceTexture(const ImageDescriptor *Image, bool normal_map)
 {
+    PreloadStageTimer timer(texture_place_ms);
 
 	bool mipmapsLoaded = false;
 	bool texture_upscaled = false;
@@ -1444,7 +1604,7 @@ void TextureManager::PlaceTexture(const ImageDescriptor *Image, bool normal_map)
 		Image->GetWidth() > 0 && Image->GetHeight() > 0 &&
 		Image->GetWidth() <= texture_size_limit && Image->GetHeight() <= texture_size_limit)
 	{
-		upscaled_image.reset(upscale_texture_2xsai(*Image, is_wall_texture));
+		upscaled_image.reset(cached_upscale_texture_2xsai(*Image, is_wall_texture));
 		Image = upscaled_image.get();
 		texture_upscaled = true;
 		TxtrStatePtr->IsUpscaled = true;
@@ -1810,6 +1970,8 @@ void OGL_ResetTextures()
 	for (int it=0; it<OGL_NUMBER_OF_TEXTURE_TYPES; it++)
 		for (int ic=0; ic<MAXIMUM_COLLECTIONS; ic++)
 		{
+            if (retain_sprite_collection[ic] &&
+                (it == OGL_Txtr_Inhabitant || it == OGL_Txtr_WeaponsInHand)) continue;
 			bool CollectionPresent = is_collection_present(ic);
 			short NumberOfBitmaps =
 				CollectionPresent ? get_number_of_collection_bitmaps(ic) : 0;

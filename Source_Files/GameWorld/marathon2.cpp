@@ -78,6 +78,9 @@ Feb 8, 2003 (Woody Zenfell):
 #include "map.h"
 #include "render.h"
 #include "interface.h"
+#include "preferences.h"
+#include "QuickSave.h"
+#include "computer_interface.h"
 #include "FilmProfile.h"
 #include "flood_map.h"
 #include "effects.h"
@@ -123,6 +126,7 @@ Feb 8, 2003 (Woody Zenfell):
 #include "motion_sensor.h"
 
 #include <limits.h>
+#include <cstdlib>
 #include <thread>
 
 #include "ephemera.h"
@@ -770,6 +774,7 @@ extern bool is_network_pregame;
 // LP: added whether a savegame is being restored (skip Pfhortran init if that's the case)
 bool entering_map(bool restoring_saved)
 {
+	sprintathon_checkpoint_reset();
 	bool success= true;
 
 	/* if any active monsters think they have paths, we'll make them reconsider */
@@ -1106,3 +1111,103 @@ static void load_all_game_sounds(
 	}
 }
 */
+
+namespace {
+struct SprintathonCheckpointState {
+    bool initialized = false;
+    bool progress = false;
+    int32 last_tick = 0, last_combat = 0, last_save = 0, retry_at = 0;
+    int32 next_debug = 0;
+    world_point3d anchor = {};
+} checkpoint_state;
+}
+
+void sprintathon_checkpoint_reset()
+{
+    checkpoint_state = SprintathonCheckpointState();
+}
+
+void sprintathon_checkpoint_combat()
+{
+    if (dynamic_world && !game_is_networked && dynamic_world->player_count == 1)
+        checkpoint_state.last_combat = dynamic_world->tick_count;
+}
+
+void sprintathon_checkpoint_update()
+{
+    if (!input_preferences->sprintathon_safe_checkpoints || game_is_networked ||
+        dynamic_world->player_count != 1 || get_game_controller() != _single_player ||
+        !current_player) {
+        sprintathon_checkpoint_reset();
+        return;
+    }
+    auto& state = checkpoint_state;
+    const int32 now = dynamic_world->tick_count;
+    if (!state.initialized || now < state.last_tick) {
+        state.initialized = true;
+        state.progress = true; // The first safe checkpoint needs no movement.
+        state.last_save = now - 20*TICKS_PER_SECOND;
+        state.last_combat = now;
+        state.retry_at = now;
+        state.anchor = current_player->location;
+    }
+    state.last_tick = now;
+    const double dx = double(current_player->location.x) - state.anchor.x;
+    const double dy = double(current_player->location.y) - state.anchor.y;
+    if (dx*dx + dy*dy >= double(WORLD_ONE) * WORLD_ONE) state.progress = true;
+    auto waiting = [&](const char *reason) {
+        const char *debug = std::getenv("SPRINTATHON_CHECKPOINT_DEBUG");
+        if (debug && debug[0] == '1' && now >= state.next_debug) {
+            screen_printf("Checkpoint waiting: %s (quiet %ds, interval %ds)", reason,
+                int((now-state.last_combat)/TICKS_PER_SECOND),
+                int((now-state.last_save)/TICKS_PER_SECOND));
+            state.next_debug = now + 5*TICKS_PER_SECOND;
+        }
+    };
+    if (!state.progress) { waiting("move farther from last checkpoint"); return; }
+    if (now-state.last_save < 20*TICKS_PER_SECOND) { waiting("20-second interval"); return; }
+    if (now-state.last_combat < 10*TICKS_PER_SECOND) { waiting("10 seconds without combat"); return; }
+    if (now < state.retry_at) { waiting("retry after save failure"); return; }
+    const auto& player = *current_player;
+    if (PLAYER_IS_DEAD(&player) || player.suit_energy <= 0 ||
+        PLAYER_IS_TELEPORTING(&player) || PLAYER_IS_INTERLEVEL_TELEPORTING(&player) ||
+        player_in_terminal_mode(current_player_index) || sprintathon_bullet_time_active() ||
+        player.slide_ticks_remaining || player.slide_roll_ticks_remaining || player.cartwheel_active) {
+        waiting("player state: death, teleport, terminal, bullet time or slide/roll"); return;
+    }
+    // Feet must be resting on their supporting floor, not falling or jumping.
+    const auto& physics = player.variables;
+    if (physics.action == _player_airborne ||
+        std::abs(double(physics.position.z) - physics.floor_height) > WORLD_TO_FIXED(WORLD_ONE/64) ||
+        std::abs(double(physics.external_velocity.k)) > WORLD_TO_FIXED(WORLD_ONE/256)) {
+        waiting("airborne or moving vertically"); return;
+    }
+    const auto *object = get_object_data(player.object_index);
+    const auto *polygon = get_polygon_data(object->polygon);
+    // Exclude every liquid, even shallow water: test feet, not camera height.
+    if (polygon->media_index != NONE &&
+        FIXED_TO_WORLD(physics.position.z) <= get_media_data(polygon->media_index)->height) {
+        waiting("in liquid"); return;
+    }
+    for (short i = 0; i < MAXIMUM_PROJECTILES_PER_MAP; ++i) {
+        const auto& projectile = projectiles[i];
+        if (SLOT_IS_FREE(&projectile) || projectile.type == _projectile_ball) continue;
+        const auto *shot = get_object_data(projectile.object_index);
+        const double px = double(shot->location.x) - player.location.x;
+        const double py = double(shot->location.y) - player.location.y;
+        const double pz = double(shot->location.z) - player.location.z;
+        if (px*px + py*py + pz*pz < double(2*WORLD_ONE) * (2*WORLD_ONE)) {
+            waiting("projectile within two world units"); return;
+        }
+    }
+    // Back off on failure; never retry every frame or discard a good checkpoint.
+    state.retry_at = now + 30*TICKS_PER_SECOND;
+    if (create_quick_save(true)) {
+        state.last_save = now;
+        state.anchor = player.location;
+        state.progress = false;
+        screen_checkpoint_notice("Checkpoint saved");
+    } else {
+        screen_printf("Checkpoint save failed");
+    }
+}

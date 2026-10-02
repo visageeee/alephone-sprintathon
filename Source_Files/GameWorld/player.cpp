@@ -1215,6 +1215,7 @@ void damage_player(
 	short aggressor_player_index= NONE; /* will be valid if the aggressor is a player */
 	struct player_data *player= get_player_data(player_index);
 	short damage_amount= calculate_damage(damage);
+	if (player_index == local_player_index && damage_amount > 0) sprintathon_checkpoint_combat();
 	short damage_type= damage->type;
 	struct damage_response_definition *definition;
 

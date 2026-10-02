@@ -1249,6 +1249,8 @@ bool idle_game_state(uint64_t time)
 		// This way we won't fill up queues and stall netgames if one player switches out for a bit.
 		std::pair<bool, int16> theUpdateResult= update_world();
 		short ticks_elapsed= theUpdateResult.second;
+		if (ticks_elapsed > 0 && game_state.state == _game_in_progress && get_keyboard_controller_status())
+			sprintathon_checkpoint_update();
 		bool redraw = false;
 
 		if (get_keyboard_controller_status())
@@ -1457,8 +1459,7 @@ void do_menu_item_command(
 						switch(game_state.user)
 						{
 							case _single_player:
-								if(PLAYER_IS_DEAD(local_player) || 
-								   dynamic_world->tick_count-local_player->ticks_at_last_successful_save<CLOSE_WITHOUT_WARNING_DELAY || shell_options.output.size())
+								if(shell_options.output.size())
 								{
 									really_wants_to_quit= true;
 								} else {
@@ -1466,7 +1467,14 @@ void do_menu_item_command(
 									show_cursor();
 									const quit_game_dialog_action action =
 										quit_without_saving();
-									if (action == _quit_game_preferences)
+									if (action == _quit_game_load_checkpoint)
+                                    {
+                                        const bool ready = select_last_checkpoint_for_revert();
+                                        resume_game();
+                                        if (ready) set_game_state(_revert_game);
+                                        else screen_printf("No checkpoint available for this scenario");
+                                    }
+                                    else if (action == _quit_game_preferences)
 									{
 										FileSpecifier temporary_save;
 										temporary_save.SetToLocalDataDir();

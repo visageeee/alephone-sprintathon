@@ -93,6 +93,7 @@ Jan 17, 2001 (Loren Petrich):
 #include "render.h"
 #include "interface.h"
 #include "collection_definition.h"
+#include <string>
 #include "screen.h"
 #include "game_errors.h"
 #include "FileHandler.h"
@@ -1470,6 +1471,49 @@ void load_collections(
 }
 
 #ifdef HAVE_OPENGL
+
+
+// Exact native resource signature, with transient bitmap row pointers omitted.
+// Collections with replacement textures/models deliberately use normal reloads.
+std::string OGL_NativeSpriteSignature(short index)
+{
+    const auto& header = collection_headers[index];
+    if (!header.collection || OGL_CountModelsImages(index))
+        return std::string();
+    const auto& collection = *header.collection;
+    if (collection.type != _object_collection && collection.type != _scenery_collection)
+        return std::string();
+    std::string result;
+    auto append = [&](const void *data, size_t bytes) {
+        result.append(reinterpret_cast<const char*>(&bytes), sizeof(bytes));
+        if (bytes) result.append(static_cast<const char*>(data), bytes);
+    };
+    append(&collection.type, sizeof(collection.type));
+    append(&collection.color_count, sizeof(collection.color_count));
+    append(&collection.clut_count, sizeof(collection.clut_count));
+    append(&collection.bitmap_count, sizeof(collection.bitmap_count));
+    append(&collection.low_level_shape_count, sizeof(collection.low_level_shape_count));
+    append(&collection.high_level_shape_count, sizeof(collection.high_level_shape_count));
+    append(&collection.pixels_to_world, sizeof(collection.pixels_to_world));
+    append(collection.color_tables.data(), collection.color_tables.size()*sizeof(rgb_color_value));
+    append(collection.low_level_shapes.data(), collection.low_level_shapes.size()*sizeof(low_level_shape_definition));
+    for (const auto& shape : collection.high_level_shapes) append(shape.data(), shape.size());
+    for (const auto& bytes : collection.bitmaps) {
+        if (bytes.size() < sizeof(bitmap_definition)) return std::string();
+        const auto *bitmap = reinterpret_cast<const bitmap_definition*>(bytes.data());
+        append(&bitmap->width, sizeof(bitmap->width));
+        append(&bitmap->height, sizeof(bitmap->height));
+        append(&bitmap->bytes_per_row, sizeof(bitmap->bytes_per_row));
+        append(&bitmap->flags, sizeof(bitmap->flags));
+        append(&bitmap->bit_depth, sizeof(bitmap->bit_depth));
+        const int rows = (bitmap->flags & _COLUMN_ORDER_BIT) ? bitmap->width : bitmap->height;
+        const size_t offset = sizeof(bitmap_definition) + size_t(rows)*sizeof(pixel8*);
+        if (offset > bytes.size()) return std::string();
+        append(bytes.data()+offset, bytes.size()-offset);
+    }
+    append(header.shading_tables.data(), header.shading_tables.size());
+    return result;
+}
 
 int count_replacement_collections()
 {

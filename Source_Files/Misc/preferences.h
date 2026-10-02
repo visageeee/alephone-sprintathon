@@ -270,6 +270,7 @@ struct input_preferences_data
 	bool sprintathon_slide;
 	bool sprintathon_bullet_ricochet;
 	bool sprintathon_physics_corpses;
+	bool sprintathon_safe_checkpoints;
 	bool sprintathon_dodge;
 	bool sprintathon_dodge_bullet_time;
 	bool sprintathon_long_jump;

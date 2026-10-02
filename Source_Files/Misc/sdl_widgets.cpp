@@ -1893,6 +1893,17 @@ void w_slider::click(int x, int /*y*/)
 
 void w_slider::event(SDL_Event &e)
 {
+	if (e.type == SDL_MOUSEWHEEL) {
+		if (!enabled || thumb_dragging || e.wheel.y == 0)
+			return;
+		const int direction = e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1 : 1;
+		const int previous = selection;
+		set_selection(selection + direction * e.wheel.y);
+		if (selection != previous)
+			item_selected();
+		e.type = SDL_LASTEVENT;
+		return;
+	}
 	if (e.type == SDL_KEYDOWN) {
 		if (e.key.keysym.sym == SDLK_LEFT) {
 			set_selection(selection - 1);

@@ -74,3 +74,7 @@ void add_finishing_touches_to_save_file(FileSpecifier& File);
 const int SAVE_GAME_METADATA_INDEX = 1000;
 
 #endif
+
+bool save_checkpoint_file(FileSpecifier& file, const std::string& metadata, const std::string& image);
+
+bool select_last_checkpoint_for_revert();

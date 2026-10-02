@@ -249,6 +249,7 @@ short SizeWithoutHUD(short _size);
 
 // Displays a message on the screen for a second or so; may be good for debugging
 void ShowMessage(char *Text);
+void screen_checkpoint_notice(const char *text);
 
 /* SB: Custom Blizzard-style overlays */
 #define MAXIMUM_NUMBER_OF_SCRIPT_HUD_ELEMENTS 6

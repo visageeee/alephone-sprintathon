@@ -106,6 +106,8 @@ Feb 15, 2002 (Br'fin (Jeremy Parsons)):
 #include "tags.h"
 #include "wad.h"
 #include "game_wad.h"
+#include "QuickSave.h"
+#include "screen.h"
 #include "interface.h"
 #include "game_window.h"
 #include "game_errors.h"
@@ -1289,6 +1291,9 @@ bool load_game_from_file(FileSpecifier& File, bool run_scripts)
 			set_game_error(SavedType,SavedError);
 		}
 	}
+
+    screen_checkpoint_notice(success && File.GetName().find("sprintathon-checkpoint-") == 0 ?
+                             "Checkpoint loaded" : nullptr);
 
 	return success;
 }
@@ -2826,3 +2831,22 @@ static uint8 *pack_directory_data(uint8 *Stream, directory_data *Objects, int Co
 	return S;
 }
 */
+
+// A failed autosave must never replace the player's working restart target.
+bool save_checkpoint_file(FileSpecifier& file, const std::string& metadata, const std::string& image)
+{
+    const revert_game_info previous = revert_game_data;
+    const bool success = save_game_file(file, metadata, image);
+    if (!success) revert_game_data = previous;
+    return success;
+}
+
+bool select_last_checkpoint_for_revert()
+{
+    if (game_is_networked || dynamic_world->player_count != 1) return false;
+    FileSpecifier file;
+    if (!find_last_checkpoint(file)) return false;
+    revert_game_data.game_is_from_disk = true;
+    revert_game_data.SavedGame = file;
+    return true;
+}

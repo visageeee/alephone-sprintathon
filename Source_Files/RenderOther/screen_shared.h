@@ -748,6 +748,58 @@ static void DisplayInputLine(SDL_Surface *s)
   }
 }
 
+
+static std::string checkpoint_notice_text;
+static uint64_t checkpoint_notice_start = 0;
+static bool checkpoint_notice_pending = false;
+
+void screen_checkpoint_notice(const char *text)
+{
+    checkpoint_notice_text = text ? text : "";
+    checkpoint_notice_pending = !checkpoint_notice_text.empty();
+    checkpoint_notice_start = 0;
+}
+
+static void DisplayCheckpointNotice(SDL_Surface *surface)
+{
+    if (checkpoint_notice_text.empty() || world_view->terminal_mode_active) return;
+    const uint64_t now = machine_tick_count();
+    if (checkpoint_notice_pending) {
+        checkpoint_notice_start = now;
+        checkpoint_notice_pending = false;
+    }
+    const double elapsed = double(now-checkpoint_notice_start)/MACHINE_TICKS_PER_SECOND;
+    if (elapsed >= 2.5) { checkpoint_notice_text.clear(); return; }
+    double alpha = elapsed < 0.3 ? elapsed/0.3 : elapsed > 1.8 ? (2.5-elapsed)/0.7 : 1.0;
+    alpha = alpha*alpha*(3.0-2.0*alpha);
+    if (alpha <= 0) return;
+    auto& font = GetOnScreenFont();
+    const auto margins = alephone::Screen::instance()->lua_text_margins;
+    const int width = font.TextWidth(checkpoint_notice_text.c_str());
+    const short x = margins.left + (surface->w-margins.left-margins.right-width)/2;
+    const short y = margins.top + 2*font.LineSpacing;
+#ifdef HAVE_OPENGL
+    if ((OGL_MapActive || !world_view->overhead_map_active) &&
+        OGL_RenderText(x, y, checkpoint_notice_text.c_str(), 255, 255, 255, float(alpha))) return;
+#endif
+    // Software fallback: fade text and shadow together over the existing frame.
+    SDL_Surface *label = SDL_CreateRGBSurface(0, width+3, 2*font.LineSpacing+3, 32,
+                                              0x00ff0000, 0x0000ff00, 0x000000ff, 0);
+    if (!label) return;
+    const Uint32 key = SDL_MapRGB(label->format, 255, 0, 255);
+    SDL_FillRect(label, nullptr, key);
+    SDL_SetColorKey(label, SDL_TRUE, key);
+    draw_text(label, checkpoint_notice_text.c_str(), 1, font.Ascent+1,
+              SDL_MapRGB(label->format, 0, 0, 0), font.Info, font.Style);
+    draw_text(label, checkpoint_notice_text.c_str(), 0, font.Ascent,
+              SDL_MapRGB(label->format, 255, 255, 255), font.Info, font.Style);
+    SDL_SetSurfaceBlendMode(label, SDL_BLENDMODE_BLEND);
+    SDL_SetSurfaceAlphaMod(label, Uint8(alpha*255));
+    SDL_Rect destination = { x, y-font.Ascent, 0, 0 };
+    SDL_BlitSurface(label, nullptr, surface, &destination);
+    SDL_FreeSurface(label);
+}
+
 static void DisplayMessages(SDL_Surface *s)
 {	
 	FontSpecifier& Font = GetOnScreenFont();

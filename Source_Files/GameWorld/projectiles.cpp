@@ -328,6 +328,11 @@ short new_projectile(
 	struct projectile_data *projectile;
 	short projectile_index;
 
+    // Combat involving this player, not unrelated fights elsewhere in the map.
+    if (current_player && owner_index != NONE && type != _projectile_ball &&
+        (owner_index == current_player->monster_index ||
+         intended_target_index == current_player->monster_index))
+        sprintathon_checkpoint_combat();
 	type= adjust_projectile_type(origin, polygon_index, type, owner_index, owner_type, intended_target_index, damage_scale);
 	definition= get_projectile_definition(type);
 

@@ -143,6 +143,7 @@ static void update_screen(SDL_Rect &source, SDL_Rect &destination, bool hi_rez, 
 static void update_fps_display(SDL_Surface *s);
 static void DisplayPosition(SDL_Surface *s);
 static void DisplayMessages(SDL_Surface *s);
+static void DisplayCheckpointNotice(SDL_Surface *s);
 static void DrawSurface(SDL_Surface *s, SDL_Rect &dest_rect, SDL_Rect &src_rect);
 static void clear_screen_margin();
 #ifdef HAVE_OPENGL
@@ -653,7 +654,7 @@ void ReloadViewContext(void)
 {
 #ifdef HAVE_OPENGL
 	if (in_game && screen_mode.acceleration != _no_acceleration)
-		OGL_StartRun();
+		OGL_StartRun(true);
 #endif
 }
 
@@ -733,6 +734,7 @@ void enter_screen(void)
 
 void exit_screen(void)
 {
+    screen_checkpoint_notice(nullptr);
 	in_game = false;
 #ifdef HAVE_OPENGL
 	OGL_StopRun();
@@ -1689,6 +1691,7 @@ void render_screen(short ticks_elapsed)
 	  DisplayScores(disp_pixels);
 	}
 	DisplayMessages(disp_pixels);
+    DisplayCheckpointNotice(disp_pixels);
 	DisplayInputLine(disp_pixels);
 	
 #ifdef HAVE_OPENGL

@@ -651,7 +651,32 @@ void create_updated_save(QuickSave& save)
 	}
 }
 
-bool create_quick_save(void)
+// enumerate() sorts newest first. Restrict to this scenario and generated
+// checkpoint filenames so a manual save can never be selected accidentally.
+bool find_last_checkpoint(FileSpecifier& file)
+{
+    FileSpecifier map = get_map_file();
+    const uint32 checksum = read_wad_file_checksum(map);
+    if (error_pending()) { clear_game_error(); return false; }
+    QuickSaves *saves = QuickSaves::instance();
+    saves->clear();
+    saves->enumerate();
+    bool found = false;
+    for (auto& save : *saves) {
+        if (save.players != 1 || save.save_file.GetName().find("sprintathon-checkpoint-") != 0 ||
+            !save.save_file.Exists()) continue;
+        const uint32 parent = read_wad_file_parent_checksum(save.save_file);
+        if (error_pending()) { clear_game_error(); continue; }
+        if (parent != checksum) continue;
+        file = save.save_file;
+        found = true;
+        break;
+    }
+    saves->clear();
+    return found;
+}
+
+bool create_quick_save(bool checkpoint)
 {
     QuickSave save;
 
@@ -681,17 +706,42 @@ bool create_quick_save(void)
     std::ostringstream oss;
     oss << save.save_time;
     std::string base = oss.str();
+    if (checkpoint) {
+        base = "sprintathon-checkpoint-" + base;
+        save.name = "Checkpoint";
+    }
 
     save.save_file.FromDirectory(quicksave_dir);
     save.save_file.AddPart(base + ".sgaA");
+    // Never overwrite an existing save, even after loading and replaying quickly.
+    if (checkpoint) {
+        int suffix = 0;
+        while (save.save_file.Exists()) {
+            save.save_file.FromDirectory(quicksave_dir);
+            save.save_file.AddPart(base + "-" + std::to_string(++suffix) + ".sgaA");
+        }
+    }
 	
     std::string metadata = build_save_metadata(save);
     std::ostringstream image_stream;
     bool success = build_map_preview(image_stream);
-    success = save_game_file(save.save_file, metadata, image_stream.str());
-    
-    if (success)
+    success = checkpoint ? save_checkpoint_file(save.save_file, metadata, image_stream.str()) :
+                           save_game_file(save.save_file, metadata, image_stream.str());
+
+    if (success && checkpoint) {
+        QuickSaves *saves = QuickSaves::instance();
+        saves->clear();
+        saves->enumerate();
+        size_t older = 0;
+        for (auto& entry : *saves) {
+            if (entry.save_file.GetName().find("sprintathon-checkpoint-") != 0 ||
+                std::string(entry.save_file.GetPath()) == save.save_file.GetPath()) continue;
+            if (++older > 2) delete_quick_save(entry);
+        }
+        saves->clear();
+    } else if (success) {
         QuickSaves::instance()->delete_surplus_saves(environment_preferences->maximum_quick_saves);
+    }
     return success;
 }
 

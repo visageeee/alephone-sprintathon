@@ -43,6 +43,7 @@
 #include "joystick.h"
 #include "screen_drawing.h"
 #include "computer_interface.h"
+#include "QuickSave.h"
 #include "game_wad.h" /* yuck... */
 #include "game_window.h" /* for draw_interface() */
 #include "extensions.h"
@@ -622,8 +623,7 @@ quit_game_dialog_action quit_without_saving(void)
 {
 	dialog d;
 	vertical_placer *placer = new vertical_placer;
-	placer->dual_add (new w_static_text("Are you sure you wish to"), d);
-	placer->dual_add (new w_static_text("cancel the game in progress?"), d);
+	placer->dual_add(new w_title("PAUSED"), d);
 	placer->add(new w_spacer(scale_dialog_value(12)), true);
 
 	horizontal_placer *primary_buttons = new horizontal_placer(
@@ -634,6 +634,14 @@ quit_game_dialog_action quit_without_saving(void)
 	primary_buttons->dual_add(new w_button(
 		"QUIT TO MENU", dialog_ok, &d), d);
 	placer->add(primary_buttons, true);
+    placer->add(new w_spacer(scale_dialog_value(10)), true);
+    FileSpecifier checkpoint;
+    w_button *load_checkpoint = new w_button("LOAD LAST CHECKPOINT", [](void *arg) {
+        static_cast<dialog *>(arg)->quit(_quit_game_load_checkpoint);
+    }, &d);
+    load_checkpoint->set_enabled(!game_is_networked && find_last_checkpoint(checkpoint));
+    placer->dual_add(load_checkpoint, d);
+
 
 	placer->add(new w_spacer(scale_dialog_value(10)), true);
 	horizontal_placer *preferences_row = new horizontal_placer;

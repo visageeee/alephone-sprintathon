@@ -396,7 +396,8 @@ enum quit_game_dialog_action
 {
 	_quit_game_cancelled = -1,
 	_quit_game_confirmed = 0,
-	_quit_game_preferences = 1
+	_quit_game_preferences = 1,
+	_quit_game_load_checkpoint = 2
 };
 quit_game_dialog_action quit_without_saving(void);
 
@@ -474,3 +475,8 @@ void sprintathon_level_timer_start();
 void sprintathon_level_timer_finish();
 
 #endif
+
+// Optional single-player safe checkpoints (simulation time).
+void sprintathon_checkpoint_combat();
+void sprintathon_checkpoint_reset();
+void sprintathon_checkpoint_update();

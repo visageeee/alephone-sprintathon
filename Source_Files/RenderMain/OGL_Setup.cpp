@@ -305,7 +305,7 @@ void OGL_SetDefaults(OGL_ConfigureData& Data)
 	Data.AnamorphicLensFlares = true;
 	Data.AnamorphicLensFlareStrength = 40;
 	Data.AnimatedMediaRipples = true;
-	Data.AnimatedMediaOpacity = 85;
+	Data.AnimatedMediaOpacity = 75;
 	Data.AnimatedMediaRippleStrength = 3; // 0.75x
 	Data.AnimatedMediaWetTextureStrength = 8; // 2.0x
 	Data.AnimatedMediaRippleSpeed = 7; // water: 1.75x
