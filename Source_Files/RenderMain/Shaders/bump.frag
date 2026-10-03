@@ -18,6 +18,14 @@ uniform float mediaFogEnabled;
 uniform float mediaFogTop;
 uniform float mediaFogSoftness;
 uniform float mediaRipple;
+uniform vec4 liquidEdge0;
+uniform vec4 liquidEdge1;
+uniform vec4 liquidEdge2;
+uniform vec4 liquidEdge3;
+uniform vec4 liquidEdge4;
+uniform vec4 liquidEdge5;
+uniform vec4 liquidEdge6;
+uniform vec4 liquidEdge7;
 uniform float mediaWetness;
 uniform float time;
 uniform float pixelWidth;
@@ -302,7 +310,7 @@ R"(        1.0 - smoothstep(16.0 * 1024.0, 32.0 * 1024.0, viewDistance) : 1.0;
 	vec2 sceneRefractionOffset = vec2(0.0);
 	if (rippleStrength > 0.001) {
 		float phase = time;
-		vec2 base = texCoords.xy;
+		vec2 base = sprintathonWorldPosition.xy / 1024.0;
 		vec2 fineWaves = vec2(
 			sin(base.y * 18.849556 + phase * 3.0) + 0.55 * sin((base.x + base.y) * 12.566371 - phase * 2.0),
 			cos(base.x * 18.849556 - phase * 2.0) + 0.50 * sin((base.x - base.y) * 12.566371 + phase));
@@ -606,10 +614,45 @@ R"(                float segmentDistance = sqrt(segmentDistanceSquared);
 	}
 	vec3 finalColor = mix(gl_Fog.color.rgb, shadedColor, fogFactor);
 	if (rippleStrength > 0.001) {
-		vec2 screenCenter = vec2(pixelWidth, pixelHeight) * 0.5;
-		vec2 refractedCoord = screenCenter +
-			(gl_FragCoord.xy - screenCenter) * 0.975 +
-			sceneRefractionOffset;
+)"
+R"(        // Screen-space distance keeps the guard narrow at every viewing angle.
+        float edgePixels = 100000.0;
+        if (liquidEdge0.w > 0.0) {
+            float d = dot(sprintathonWorldPosition.xy, liquidEdge0.xy) + liquidEdge0.z;
+            edgePixels = min(edgePixels, abs(d)/max(fwidth(d),0.0001));
+        }
+        if (liquidEdge1.w > 0.0) {
+            float d = dot(sprintathonWorldPosition.xy, liquidEdge1.xy) + liquidEdge1.z;
+            edgePixels = min(edgePixels, abs(d)/max(fwidth(d),0.0001));
+        }
+        if (liquidEdge2.w > 0.0) {
+            float d = dot(sprintathonWorldPosition.xy, liquidEdge2.xy) + liquidEdge2.z;
+            edgePixels = min(edgePixels, abs(d)/max(fwidth(d),0.0001));
+        }
+        if (liquidEdge3.w > 0.0) {
+            float d = dot(sprintathonWorldPosition.xy, liquidEdge3.xy) + liquidEdge3.z;
+            edgePixels = min(edgePixels, abs(d)/max(fwidth(d),0.0001));
+        }
+        if (liquidEdge4.w > 0.0) {
+            float d = dot(sprintathonWorldPosition.xy, liquidEdge4.xy) + liquidEdge4.z;
+            edgePixels = min(edgePixels, abs(d)/max(fwidth(d),0.0001));
+        }
+        if (liquidEdge5.w > 0.0) {
+            float d = dot(sprintathonWorldPosition.xy, liquidEdge5.xy) + liquidEdge5.z;
+            edgePixels = min(edgePixels, abs(d)/max(fwidth(d),0.0001));
+        }
+        if (liquidEdge6.w > 0.0) {
+            float d = dot(sprintathonWorldPosition.xy, liquidEdge6.xy) + liquidEdge6.z;
+            edgePixels = min(edgePixels, abs(d)/max(fwidth(d),0.0001));
+        }
+        if (liquidEdge7.w > 0.0) {
+            float d = dot(sprintathonWorldPosition.xy, liquidEdge7.xy) + liquidEdge7.z;
+            edgePixels = min(edgePixels, abs(d)/max(fwidth(d),0.0001));
+        }
+        float offsetLength = length(sceneRefractionOffset);
+        sceneRefractionOffset *= smoothstep(0.0, offsetLength*4.0+2.0, edgePixels);
+        vec2 refractedCoord = clamp(gl_FragCoord.xy + sceneRefractionOffset,
+            vec2(0.5), vec2(pixelWidth, pixelHeight) - vec2(0.5));
 		vec3 refractedScene = texture2DRect(texture2,
 			refractedCoord).rgb;
 		float liquidAlpha = clamp(vertexColor.a, 0.0, 1.0);

@@ -156,9 +156,19 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"sprintathonShaftSource",
 	"projectileBlurVector",
 	"projectileBlurBounds",
+	"flameRipple",
+	"flameBounds",
 	"sprintathonSurfaceLightCount",
 	"sprintathonAllSceneryCount",
-	"sprintathonDistantSurfaceDetail"
+	"sprintathonDistantSurfaceDetail",
+	"liquidEdge0",
+	"liquidEdge1",
+	"liquidEdge2",
+	"liquidEdge3",
+	"liquidEdge4",
+	"liquidEdge5",
+	"liquidEdge6",
+	"liquidEdge7"
 };
 
 const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] = 

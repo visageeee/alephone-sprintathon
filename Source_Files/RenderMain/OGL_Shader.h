@@ -138,9 +138,19 @@ public:
 		U_SprintathonShaftSource,
 		U_ProjectileBlurVector,
 		U_ProjectileBlurBounds,
+		U_FlameRipple,
+		U_FlameBounds,
 		U_SprintathonSurfaceLightCount,
 		U_SprintathonAllSceneryCount,
 		U_SprintathonDistantSurfaceDetail,
+		U_LiquidEdge0,
+		U_LiquidEdge1,
+		U_LiquidEdge2,
+		U_LiquidEdge3,
+		U_LiquidEdge4,
+		U_LiquidEdge5,
+		U_LiquidEdge6,
+		U_LiquidEdge7,
 		NUMBER_OF_UNIFORM_LOCATIONS
 	};
 

@@ -1219,7 +1219,10 @@ static bool sprintathon_projectile_visual_color(const projectile_data& projectil
 static void sprintathon_projectile_light_rgb(float x, float y, float z, float rgb[3])
 {
     rgb[0] = rgb[1] = rgb[2] = 0.0f;
-    if (!sprintathon_has_active_lighting) return;
+    // Off means no dynamic projectile tint, not a fallback to flat polygon light.
+    // This helper is also used by sprites and the held weapon.
+    if (!graphics_preferences->projectile_lights_per_pixel ||
+        !sprintathon_has_active_lighting) return;
     for (const projectile_data& projectile : ProjectileList) {
         if (!SLOT_IS_USED(&projectile)) continue;
         float strength = 0.0f;
@@ -1951,6 +1954,14 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
         shader->setVector4(Shader::U_SprintathonLightColor, 0, 0, 0, 0);
         return;
     }
+    auto surface_distance_squared = [&](float lx, float ly, float lz) {
+        // Surface centers can lie far outside a light that reaches an edge.
+        const float px = bounds && bounds->valid ? std::max(bounds->x0, std::min(lx, bounds->x1)) : x;
+        const float py = bounds && bounds->valid ? std::max(bounds->y0, std::min(ly, bounds->y1)) : y;
+        const float pz = bounds && bounds->valid ? std::max(bounds->z0, std::min(lz, bounds->z1)) : z;
+        const float dx = px-lx, dy = py-ly, dz = pz-lz;
+        return dx*dx+dy*dy+dz*dz;
+    };
     float radius = 4.5f * WORLD_ONE;
     float nearest = radius * radius;
     const object_data *selected = nullptr;
@@ -1986,8 +1997,8 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
         }
         const object_data *object = get_object_data(projectile.object_index);
         if (!object) continue;
-        const float dx = x - object->location.x, dy = y - object->location.y, dz = z - object->location.z;
-        const float distance_squared = dx*dx + dy*dy + dz*dz;
+        const float distance_squared = surface_distance_squared(
+            object->location.x, object->location.y, object->location.z);
         if (distance_squared < nearest) {
             nearest = distance_squared; selected = object;
             selected_z = object->location.z;
@@ -2000,10 +2011,8 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
     for (const monster_data *monster : sprintathon_burning_monsters) {
         const object_data *object = get_object_data(monster->object_index);
         const float flame_z = object->location.z+WORLD_ONE/2;
-        const float dx = x-object->location.x;
-        const float dy = y-object->location.y;
-        const float dz = z-flame_z;
-        const float distance_squared = dx*dx+dy*dy+dz*dz;
+        const float distance_squared = surface_distance_squared(
+            object->location.x, object->location.y, flame_z);
         const float relative = distance_squared/(flame_radius*flame_radius);
         if (relative < 1.0f && relative < nearest/(radius*radius)) {
             nearest = distance_squared;
@@ -2030,10 +2039,8 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
         }
         const object_data *object = get_object_data(effect.object_index);
         if (!object) continue;
-        const float dx = x - object->location.x;
-        const float dy = y - object->location.y;
-        const float dz = z - object->location.z;
-        const float distance_squared = dx*dx + dy*dy + dz*dz;
+        const float distance_squared = surface_distance_squared(
+            object->location.x, object->location.y, object->location.z);
         if (distance_squared < blast_radius * blast_radius &&
             distance_squared < nearest_explosion) {
             nearest_explosion = distance_squared;
@@ -2058,7 +2065,10 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
     }
 }
 
+static bool sprintathon_flame_scene_captured = false;
+
 void RenderRasterize_Shader::render_tree() {
+    sprintathon_flame_scene_captured = false;
     sprintathon_update_flares();
     if (sprintathon_visual_level != dynamic_world->current_level_number) {
         sprintathon_projectile_visuals.clear();
@@ -2697,6 +2707,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 
 	TMgr->SetupTextureMatrix();
 	s->setVector4(Shader::U_ProjectileBlurVector, 0, 0, 0, 0);
+	s->setVector4(Shader::U_FlameRipple, 0, 0, 0, 0);
 
 	if (renderStep == kGlow) {
 		s->setFloat(Shader::U_BloomScale, TMgr->BloomScale());
@@ -2934,8 +2945,10 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 			media_scene_width = width;
 			media_scene_height = height;
 		}
-		glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0,
-			0, 0, width, height);
+        // The traversal interleaves media with geometry behind each surface.
+        // Capture at this draw, after that geometry has become available.
+        glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0,
+            0, 0, width, height);
 		glActiveTextureARB(GL_TEXTURE0_ARB);
 	}
 	
@@ -3103,6 +3116,31 @@ static void sprintathon_set_sector_light_edges(Shader *shader,
                                                bool ceiling, const view_data *camera)
 {
     if (!shader) return;
+    // Refraction must not cross the boundary into previously composited media.
+    const Shader::UniformName liquid_edges[] = {
+        Shader::U_LiquidEdge0,
+        Shader::U_LiquidEdge1,
+        Shader::U_LiquidEdge2,
+        Shader::U_LiquidEdge3,
+        Shader::U_LiquidEdge4,
+        Shader::U_LiquidEdge5,
+        Shader::U_LiquidEdge6,
+        Shader::U_LiquidEdge7
+    };
+    for (int i = 0; i < 8; ++i) {
+        float nx = 0, ny = 0, offset = 0, enabled = 0;
+        if (polygon && surface && surface->is_media && i < polygon->vertex_count) {
+            const auto& a = get_endpoint_data(polygon->endpoint_indexes[i])->vertex;
+            const auto& b = get_endpoint_data(polygon->endpoint_indexes[(i+1)%polygon->vertex_count])->vertex;
+            const float dx = float(b.x-a.x), dy = float(b.y-a.y);
+            const float length = std::sqrt(dx*dx+dy*dy);
+            if (length > 0.0f) {
+                nx = -dy/length; ny = dx/length;
+                offset = -(nx*a.x+ny*a.y); enabled = 1;
+            }
+        }
+        shader->setVector4(liquid_edges[i], nx, ny, offset, enabled);
+    }
     // The weapon flare is the actual firing flash. The constant player light
     // preference only controls the classic view-centered ambient circle.
     const float flash = graphics_preferences->projectile_lights_per_pixel ?
@@ -3131,8 +3169,7 @@ static void sprintathon_set_sector_light_edges(Shader *shader,
         Shader::U_SprintathonSectorSpan7
     };
     int count = 0;
-    if (polygon && surface && graphics_preferences->soft_sector_light_edges &&
-        !surface->is_media) {
+    if (polygon && surface && graphics_preferences->soft_sector_light_edges) {
         float center_x = 0.0f, center_y = 0.0f;
         for (short i = 0; i < polygon->vertex_count; ++i) {
             const auto& point = get_endpoint_data(polygon->endpoint_indexes[i])->vertex;
@@ -3149,11 +3186,26 @@ static void sprintathon_set_sector_light_edges(Shader *shader,
             if (adjacent_index == NONE) continue;
             const polygon_data *adjacent = get_polygon_data(adjacent_index);
             if (!adjacent) continue;
-            const short adjacent_height = ceiling ? adjacent->ceiling_height :
-                                                    adjacent->floor_height;
-            if (adjacent_height != surface->height) continue;
-            const short adjacent_light = ceiling ? adjacent->ceiling_lightsource_index :
-                                                   adjacent->floor_lightsource_index;
+            short adjacent_light;
+            if (surface->is_media) {
+                // Blend only a continuous exposed liquid surface, including its
+                // underside. Use liquid lighting rather than floor/ceiling light.
+                if (adjacent->media_index == NONE) continue;
+                const media_data *neighbor_media = get_media_data(adjacent->media_index);
+                if (!neighbor_media || neighbor_media->type != surface->media_type ||
+                    neighbor_media->height != surface->height) continue;
+                if (surface->height <= adjacent->floor_height ||
+                    surface->height >= adjacent->ceiling_height ||
+                    surface->height <= polygon->floor_height ||
+                    surface->height >= polygon->ceiling_height) continue;
+                adjacent_light = adjacent->media_lightsource_index;
+            } else {
+                const short adjacent_height = ceiling ? adjacent->ceiling_height :
+                                                        adjacent->floor_height;
+                if (adjacent_height != surface->height) continue;
+                adjacent_light = ceiling ? adjacent->ceiling_lightsource_index :
+                                           adjacent->floor_lightsource_index;
+            }
             const float neighbor = get_light_intensity(adjacent_light) /
                                    float(FIXED_ONE - 1);
             if (std::abs(neighbor - own_light) < 0.025f) continue;
@@ -3886,6 +3938,13 @@ static bool sprintathon_projectile_blur_motion(short index, float motion[3])
 void RenderRasterize_Shader::_render_node_object_helper(render_object_data *object, RenderStep renderStep) {
 
 	rectangle_definition& rect = object->rectangle;
+    const short projectile_index = object->projectile_index;
+    const bool flame = projectile_index >= 0 &&
+        static_cast<size_t>(projectile_index) < ProjectileList.size() &&
+        SLOT_IS_USED(&ProjectileList[projectile_index]) &&
+        ProjectileList[projectile_index].type == _projectile_flamethrower_burst &&
+        rect.transfer_mode == _textured_transfer;
+
 	const world_point3d& pos = rect.Position;
     
 	if(rect.ModelPtr) {
@@ -4033,7 +4092,7 @@ if (!view->mimic_sw_perspective)
 	glTexCoordPointer(2, GL_FLOAT, 0, texcoord_array);
 
     if (renderStep == kDiffuse && !sprintathon_shaft_source.active &&
-        graphics_preferences->projectile_motion_blur &&
+        !flame && graphics_preferences->projectile_motion_blur &&
         rect.transfer_mode == _textured_transfer)
     {
         float motion[3];
@@ -4125,9 +4184,66 @@ if (!view->mimic_sw_perspective)
         }
     }
 
+    // Capture once per view, then reuse the background for all flame sprites.
+    // A dedicated texture prevents intervening invisibility draws overwriting it.
+    static GLuint flame_scene = 0;
+    static GLint flame_width = 0, flame_height = 0;
+    GLint flame_viewport[4] = {0,0,0,0};
+    const bool refract_flame = flame && renderStep == kDiffuse && !sprintathon_shaft_source.active;
+    if (refract_flame) {
+        glGetIntegerv(GL_VIEWPORT, flame_viewport);
+        const GLint width = flame_viewport[0]+flame_viewport[2];
+        const GLint height = flame_viewport[1]+flame_viewport[3];
+        glActiveTextureARB(GL_TEXTURE2_ARB);
+        if (!flame_scene) glGenTextures(1, &flame_scene);
+        glBindTexture(GL_TEXTURE_RECTANGLE_ARB, flame_scene);
+        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        if (width != flame_width || height != flame_height) {
+            glTexImage2D(GL_TEXTURE_RECTANGLE_ARB,0,GL_RGBA,width,height,0,GL_RGBA,GL_UNSIGNED_BYTE,nullptr);
+            flame_width = width; flame_height = height;
+            sprintathon_flame_scene_captured = false;
+        }
+        if (!sprintathon_flame_scene_captured) {
+            glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB,0,0,0,0,0,width,height);
+            sprintathon_flame_scene_captured = true;
+        }
+        glActiveTextureARB(GL_TEXTURE0_ARB);
+    }
+    Shader *flame_shader = nullptr;
+    if (flame) {
+        flame_shader = Shader::get(renderStep == kGlow ? Shader::S_SpriteBloom :
+            (current_player->infravision_duration ? Shader::S_SpriteInfravision : Shader::S_Sprite));
+        GLfloat matrix[16];
+        glGetFloatv(GL_TEXTURE_MATRIX, matrix);
+        float u0 = 1e30f, v0 = 1e30f, u1 = -1e30f, v1 = -1e30f;
+        for (int i = 0; i < 4; ++i) {
+            const float u = matrix[0]*texcoord_array[2*i] + matrix[4]*texcoord_array[2*i+1] + matrix[12];
+            const float v = matrix[1]*texcoord_array[2*i] + matrix[5]*texcoord_array[2*i+1] + matrix[13];
+            u0 = std::min(u0, u); u1 = std::max(u1, u);
+            v0 = std::min(v0, v); v1 = std::max(v1, v);
+        }
+        flame_shader->setVector4(Shader::U_FlameBounds, u0, v0, u1, v1);
+        flame_shader->setVector4(Shader::U_FlameRipple, 1,
+            float(dynamic_world->tick_count % (TICKS_PER_SECOND * 3600)) / TICKS_PER_SECOND,
+            float(projectile_index) * 2.39996f, refract_flame ? 1.0f : 0.0f);
+        flame_shader->setFloat(Shader::U_PixelWidth, float(flame_width));
+        flame_shader->setFloat(Shader::U_PixelHeight, float(flame_height));
+        glPushAttrib(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glAlphaFunc(GL_GREATER, 0.001f);
+        glDepthMask(GL_FALSE);
+    }
 	glDrawArrays(GL_QUADS, 0, 4);
+    if (flame) {
+        flame_shader->setVector4(Shader::U_FlameRipple, 0, 0, 0, 0);
+        glPopAttrib();
+    }
 
-	if (setupGlow(view, TMgr, 0, 1, weaponFlare, selfLuminosity, offset, renderStep)) {
+	if (!flame && setupGlow(view, TMgr, 0, 1, weaponFlare, selfLuminosity, offset, renderStep)) {
 		glDrawArrays(GL_QUADS, 0, 4);
 	}
         

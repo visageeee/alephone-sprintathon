@@ -2432,6 +2432,19 @@ void sprintathon_play_wall_kick_sound(short aggressor_index)
 
 void sprintathon_play_footstep_sound(short aggressor_index, bool alternate)
 {
+    if (current_player && aggressor_index == current_player->monster_index) {
+        const auto flags = current_player->variables.flags;
+        const bool wading = (flags & _FEET_BELOW_MEDIA_BIT) &&
+            !(flags & (_HEAD_BELOW_MEDIA_BIT | _ABOVE_GROUND_BIT));
+        if (wading) {
+            sprintathon_play_external_hit_sound(aggressor_index,
+                alternate ? "snd/wetstep2.ogg" : "snd/wetstep.ogg",
+                alternate ? "Sprintathon/wetstep2.ogg" : "Sprintathon/wetstep.ogg",
+                input_preferences->sprintathon_footstep_volume_percent / 100.f);
+            return;
+        }
+    }
+
 	sprintathon_play_external_hit_sound(
 		aggressor_index,
 		alternate ? "snd/footstep2.ogg" : "snd/footstep.ogg",

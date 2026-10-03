@@ -26,8 +26,27 @@ float getFogFactor(float distance) {
 	}
 }
 
+
+uniform vec4 flameRipple; // enabled, simulation time, phase, unused
+uniform vec4 flameBounds;
+vec4 flameSpriteColor(vec2 uv) {
+    vec2 span = max(flameBounds.zw - flameBounds.xy, vec2(0.00001));
+    vec2 p = (uv - flameBounds.xy) / span;
+    float t = flameRipple.y * 7.0 + flameRipple.z;
+    vec2 warp = vec2(sin(p.y * 19.0 - t) + 0.45 * sin(p.y * 37.0 + t * 1.3),
+                     sin(p.x * 17.0 + t * 0.8));
+    vec2 q = uv + warp * span * vec2(0.024, 0.012);
+    if (any(lessThan(q, flameBounds.xy)) || any(greaterThan(q, flameBounds.zw)))
+        return vec4(0.0);
+    vec4 c = texture2D(texture0, q);
+    float bright = max(c.r, max(c.g, c.b));
+    float edge = smoothstep(0.0, 0.06, min(min(p.x, p.y), min(1.0-p.x, 1.0-p.y)));
+    c.a *= mix(0.35, 0.78, bright) * edge * (0.94 + 0.06 * sin(t + p.y * 23.0));
+    return c;
+}
+
 void main (void) {
-	vec4 color = texture2D(texture0, gl_TexCoord[0].xy);
+	vec4 color = flameRipple.x > 0.0 ? flameSpriteColor(gl_TexCoord[0].xy) : texture2D(texture0, gl_TexCoord[0].xy);
 	vec3 intensity = clamp(vertexColor.rgb + sprintathonLightColor.rgb, glow, 1.0);
 	//intensity = intensity * clamp(2.0 - length(viewDir)/8192.0, 0.0, 1.0);
 	intensity = clamp(intensity * bloomScale + bloomShift, 0.0, 1.0);

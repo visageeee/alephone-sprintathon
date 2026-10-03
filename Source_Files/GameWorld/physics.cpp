@@ -2422,7 +2422,8 @@ static void physics_update(
 		player_is_local && sprintathon &&
 		directional_input_for_footsteps &&
 		(grounded_for_footsteps || wall_running_for_footsteps) &&
-		!(variables->flags&_FEET_BELOW_MEDIA_BIT) &&
+        (!(variables->flags&_FEET_BELOW_MEDIA_BIT) ||
+         (grounded_for_footsteps && !(variables->flags&_HEAD_BELOW_MEDIA_BIT))) &&
 		!PLAYER_IS_DEAD(player) &&
 		player->slide_ticks_remaining==0 &&
 		!player->flying_kick_active &&

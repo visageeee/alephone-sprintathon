@@ -7,6 +7,8 @@ SUBDIRS = Source_Files Steam tools data
 AUTOMAKE_OPTIONS = 1.5 foreign dist-bzip2 no-dist-gzip
 
 EXTRA_DIST = \
+	snd/wetstep.ogg \
+	snd/wetstep2.ogg \
 	snd/footstep2.ogg                                                          \
 	snd/footstep.ogg                                                           \
 	snd/footstep3.ogg                                                          \

@@ -14,6 +14,8 @@ sprintathon_DATA = \
   $(top_srcdir)/snd/slide.ogg \
   $(top_srcdir)/snd/kickhit.ogg \
   $(top_srcdir)/snd/wallkick.ogg \
+  $(top_srcdir)/snd/wetstep.ogg \
+  $(top_srcdir)/snd/wetstep2.ogg \
   $(top_srcdir)/snd/footstep.ogg \
   $(top_srcdir)/snd/footstep2.ogg \
   $(top_srcdir)/snd/footstep3.ogg \

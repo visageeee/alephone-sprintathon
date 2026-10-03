@@ -23,6 +23,8 @@ function GetCommonFiles() {
 		"snd/slide.ogg",
 		"snd/kickhit.ogg",
 		"snd/wallkick.ogg",
+		"snd/wetstep.ogg",
+		"snd/wetstep2.ogg",
 		"snd/footstep.ogg",
 		"snd/footstep2.ogg",
 		"snd/footstep3.ogg",
