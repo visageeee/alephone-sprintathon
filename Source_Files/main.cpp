@@ -9,8 +9,10 @@ int main(int argc, char** argv)
 {
 	// Print banner (don't bother if this doesn't appear when started from a GUI)
 	char app_name_version[256];
-	expand_app_variables(app_name_version, "Aleph One $appLongVersion$");
-	printf("%s\n%s\n\n"
+	expand_app_variables(app_name_version, "Based on Aleph One $appLongVersion$");
+	printf("Sprintathon " A1_DISPLAY_PLATFORM "\n"
+		"https://github.com/visageeee/alephone-sprintathon\n"
+		"%s\n\n"
 		"Original code by Bungie Software <http://www.bungie.com/>\n"
 		"Additional work by Loren Petrich, Chris Pruett, Rhys Hill et al.\n"
 		"TCP/IP networking by Woody Zenfell\n"
@@ -30,7 +32,7 @@ int main(int argc, char** argv)
 #if !defined(DISABLE_NETWORKING)
 		"\nBuilt with network play enabled.\n"
 #endif
-		, app_name_version, A1_HOMEPAGE_URL
+		, app_name_version
 	);
 
 	shell_options.parse(argc, argv);
