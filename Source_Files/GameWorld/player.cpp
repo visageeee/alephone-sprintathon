@@ -1091,7 +1091,12 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 			// LP change: made this code more general;
 			// find the oxygen-change rate appropriate to each environment,
 			// then handle the rate appropriately.
-			if ((static_world->environment_flags&_environment_vacuum) || (player->variables.flags&_HEAD_BELOW_MEDIA_BIT))
+            const bool vacuum_drains_oxygen =
+                (static_world->environment_flags & _environment_vacuum) &&
+                !(input_preferences->sprintathon_enabled &&
+                  input_preferences->sprintathon_no_vacuum_drain);
+            // Submersion still consumes oxygen, including on vacuum levels.
+            if (vacuum_drains_oxygen || (player->variables.flags & _HEAD_BELOW_MEDIA_BIT))
 				player_settings.OxygenChange = - player_settings.OxygenDepletion;
 			else
 			{

@@ -103,6 +103,7 @@ struct graphics_preferences_data
 	bool pickup_flash;
 	bool skip_intro;
 	bool projectile_lights_per_pixel;
+	int16 graphics_preset; // 0 Custom, 1 Low, 2 Medium, 3 High, 4 Total
 	bool projectile_motion_blur;
 	bool bright_texture_lights;
 	bool bright_scenery_lights;
@@ -262,6 +263,7 @@ struct input_preferences_data
 	bool sprintathon_sprint;
 	int16 sprintathon_sprint_drain_percent;
 	int16 sprintathon_oxygen_recovery_percent;
+	bool sprintathon_no_vacuum_drain;
 	bool sprintathon_stamina_sprint;
 	bool sprintathon_stamina_jump;
 	bool sprintathon_stamina_kick;

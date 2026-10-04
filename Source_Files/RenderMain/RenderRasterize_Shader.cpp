@@ -1228,8 +1228,10 @@ static void sprintathon_projectile_light_rgb(float x, float y, float z, float rg
         float strength = 0.0f;
         float red = 1.0f, green = 1.0f, blue = 1.0f;
         switch (projectile.type) {
+            case _projectile_minor_fusion_dispersal:
             case _projectile_fusion_bolt_minor:
                 strength = 0.36f; red = 0.40f; green = 0.65f; blue = 1.0f; break;
+            case _projectile_major_fusion_dispersal:
             case _projectile_fusion_bolt_major:
                 strength = 0.55f; red = 0.50f; green = 0.45f; blue = 1.0f; break;
             case _projectile_compiler_bolt_minor:
@@ -1971,7 +1973,9 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
         if (!SLOT_IS_USED(&projectile)) continue;
         float r = 0, g = 0, b = 0;
         switch (projectile.type) {
+            case _projectile_minor_fusion_dispersal:
             case _projectile_fusion_bolt_minor: r=.18f; g=.24f; b=.48f; break;
+            case _projectile_major_fusion_dispersal:
             case _projectile_fusion_bolt_major: r=.28f; g=.22f; b=.60f; break;
             case _projectile_compiler_bolt_minor:
             case _projectile_compiler_bolt_major: r=.48f; g=.13f; b=.30f; break;

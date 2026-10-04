@@ -855,6 +855,14 @@ void handle_preferences(bool in_game)
 	ADD_EMBEDDED_SOUND_TOGGLE(sound_cavern_echo_w, _cavern_echo_flag,
 		"Cavern Echo (Experimental)");
 #undef ADD_EMBEDDED_SOUND_TOGGLE
+    w_toggle *footsteps_w = new w_toggle(input_preferences->sprintathon_footsteps);
+    sound_table->dual_add(footsteps_w->label("Footstep Sounds"), d);
+    sound_table->dual_add(footsteps_w, d);
+    w_percentage_slider *footstep_volume_w = new w_percentage_slider(
+        101, input_preferences->sprintathon_footstep_volume_percent);
+    sound_table->dual_add(footstep_volume_w->label("Footstep Volume"), d);
+    sound_table->dual_add(footstep_volume_w, d);
+
 	w_percentage_slider *sound_volume_w = new w_percentage_slider(
 		21, static_cast<int>(sound_preferences->volume_db / 2 + 20));
 	sound_table->dual_add(sound_volume_w->label("Master Volume"), d);
@@ -1081,7 +1089,7 @@ void handle_preferences(bool in_game)
 	table_placer *sprintathon_combat = make_sprintathon_table();
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, ricochet_w, sprintathon_bullet_ricochet, "Bullet Ricochets");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, corpses_w, sprintathon_physics_corpses, "Physics Corpses");
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, checkpoints_w, sprintathon_safe_checkpoints, "Safe Checkpoints");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, checkpoints_w, sprintathon_safe_checkpoints, "Checkpoint save system");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, bullet_time_w, sprintathon_bullet_time, "Bullet Time");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, dodge_bullet_time_w, sprintathon_dodge_bullet_time, "Automatic Dodge Bullet Time");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, pistol_scope_w, sprintathon_pistol_scope, "Pistol Scope");
@@ -1091,11 +1099,6 @@ void handle_preferences(bool in_game)
 	w_toggle *projectile_motion_blur_w = new w_toggle(graphics_preferences->projectile_motion_blur);
 	sprintathon_effects->dual_add(projectile_motion_blur_w->label("Projectile Motion Blur"), d);
 	sprintathon_effects->dual_add(projectile_motion_blur_w, d);
-	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, footsteps_w, sprintathon_footsteps, "Footstep Sounds");
-	w_percentage_slider *footstep_volume_w = new w_percentage_slider(
-		101, input_preferences->sprintathon_footstep_volume_percent);
-	sprintathon_effects->dual_add(footstep_volume_w->label("Footstep Volume"), d);
-	sprintathon_effects->dual_add(footstep_volume_w, d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, bullet_time_blur_w, sprintathon_bullet_time_blur, "Bullet Time Blur");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, bullet_time_heavy_blur_w, sprintathon_bullet_time_heavy_blur, "Heavy Bullet Time Blur");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, pistol_scope_blur_w, sprintathon_pistol_scope_blur, "Pistol Scope Blur");
@@ -1113,6 +1116,7 @@ void handle_preferences(bool in_game)
 	w_toggle *widget = new w_toggle(input_preferences->field); \
 	sprintathon_stamina_settings->dual_add(widget->label(label_text), d); \
 	sprintathon_stamina_settings->dual_add(widget, d)
+	ADD_EMBEDDED_STAMINA_TOGGLE(no_vacuum_drain_w, sprintathon_no_vacuum_drain, "No oxygen drain in vacuum levels");
 	ADD_EMBEDDED_STAMINA_TOGGLE(stamina_sprint_w, sprintathon_stamina_sprint, "Sprinting Drains Stamina");
 	ADD_EMBEDDED_STAMINA_TOGGLE(stamina_jump_w, sprintathon_stamina_jump, "Jumping Drains Stamina");
 	ADD_EMBEDDED_STAMINA_TOGGLE(stamina_kick_w, sprintathon_stamina_kick, "Kicks Drain Stamina");
@@ -1162,7 +1166,7 @@ void handle_preferences(bool in_game)
 	static const char *graphics_preset_labels[] = {
 		"Custom", "Low", "Medium", "High", "Total Sprintathon", nullptr
 	};
-	w_select *graphics_preset_w = new w_select(0, graphics_preset_labels);
+	w_select *graphics_preset_w = new w_select(graphics_preferences->graphics_preset, graphics_preset_labels);
 	w_preset_description *graphics_preset_description_w =
 		new w_preset_description;
 	graphics_preset_description_w->set_description(
@@ -1556,6 +1560,8 @@ void handle_preferences(bool in_game)
 			applying_graphics_preset = false;
 		});
 
+	set_graphics_preset_description(graphics_preset_w->get_selection());
+
 	auto select_custom_preset = [&]() {
 		if (!applying_graphics_preset && graphics_preset_w->get_selection() != 0)
 		{
@@ -1726,6 +1732,7 @@ void handle_preferences(bool in_game)
 	store_ogl_flag(OGL_Flag_MimicSW, !ogl_perspective_w->get_selection());
 	store_ogl_flag(OGL_Flag_Blur, ogl_bloom_w->get_selection());
 	graphics_preferences->projectile_lights_per_pixel = projectile_lights_per_pixel_w->get_selection();
+	graphics_preferences->graphics_preset = graphics_preset_w->get_selection();
 	graphics_preferences->projectile_motion_blur = projectile_motion_blur_w->get_selection();
 	graphics_preferences->bright_texture_lights = bright_texture_lights_w->get_selection();
 	graphics_preferences->bright_scenery_lights = bright_scenery_lights_w->get_selection();
@@ -2041,6 +2048,7 @@ void handle_preferences(bool in_game)
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_pistol_scope_blur, pistol_scope_blur_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_level_timer, level_timer_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_dodge_bullet_time, dodge_bullet_time_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_no_vacuum_drain, no_vacuum_drain_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_sprint, stamina_sprint_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_jump, stamina_jump_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_kick, stamina_kick_w);
@@ -3467,6 +3475,14 @@ static void sound_dialog(void *arg)
 	w_toggle *cavern_echo_w = new w_toggle(TEST_FLAG(sound_preferences->flags, _cavern_echo_flag));
 	table->dual_add(cavern_echo_w->label("Cavern Echo"), d);
 	table->dual_add(cavern_echo_w, d);
+    w_toggle *footsteps_w = new w_toggle(input_preferences->sprintathon_footsteps);
+    table->dual_add(footsteps_w->label("Footstep Sounds"), d);
+    table->dual_add(footsteps_w, d);
+    w_percentage_slider *footstep_volume_w = new w_percentage_slider(
+        101, input_preferences->sprintathon_footstep_volume_percent);
+    table->dual_add(footstep_volume_w->label("Footstep Volume"), d);
+    table->dual_add(footstep_volume_w, d);
+
 
 	placer->add(table, true);
 
@@ -3486,6 +3502,12 @@ static void sound_dialog(void *arg)
 	if (d.run() == 0) {	// Accepted
 		bool changed = false;
 
+        if (input_preferences->sprintathon_footsteps != footsteps_w->get_selection() ||
+            input_preferences->sprintathon_footstep_volume_percent != footstep_volume_w->get_selection()) {
+            input_preferences->sprintathon_footsteps = footsteps_w->get_selection();
+            input_preferences->sprintathon_footstep_volume_percent = footstep_volume_w->get_selection();
+            changed = true;
+        }
 		uint16 flags = 0;
 		if (quality_w->get_selection()) flags |= _16bit_sound_flag;
 		if (sounds3d_w->get_selection()) flags |= _3d_sounds_flag;
@@ -3683,7 +3705,7 @@ static key_binding_map default_shell_key_bindings = {
 	} },
 	{ 9, { SDL_SCANCODE_N
 	} },
-	{ 10, { } }, // Assign in Controls > Interface; Shift+F9 also works.
+	{ 10, { SDL_SCANCODE_G } }, // Screenshot Mode; Shift+F9 also works.
 	{ 11, { SDL_SCANCODE_F } }, // Drop Flare.
 };
 
@@ -4350,6 +4372,7 @@ static void sprintathon_dialog(void *arg)
 		input_preferences->sprintathon_oxygen_recovery_percent);
 	options->dual_add(oxygen_recovery_w->label("Stamina Recovery Rate"), d);
 	options->dual_add(oxygen_recovery_w, d);
+	ADD_SPRINTATHON_TOGGLE(no_vacuum_drain_w, sprintathon_no_vacuum_drain, "No oxygen drain in vacuum levels");
 	ADD_SPRINTATHON_TOGGLE(stamina_sprint_w, sprintathon_stamina_sprint, "Sprinting Drains Stamina");
 	ADD_SPRINTATHON_TOGGLE(stamina_jump_w, sprintathon_stamina_jump, "Jumping Drains Stamina");
 	ADD_SPRINTATHON_TOGGLE(stamina_kick_w, sprintathon_stamina_kick, "Kicks Drain Stamina");
@@ -4358,14 +4381,13 @@ static void sprintathon_dialog(void *arg)
 	ADD_SPRINTATHON_TOGGLE(slide_w, sprintathon_slide, "Sprint Sliding");
 	ADD_SPRINTATHON_TOGGLE(ricochet_w, sprintathon_bullet_ricochet, "Bullet Ricochets");
 	ADD_SPRINTATHON_TOGGLE(corpses_w, sprintathon_physics_corpses, "Physics Corpses");
-	ADD_SPRINTATHON_TOGGLE(checkpoints_w, sprintathon_safe_checkpoints, "Safe Checkpoints");
+	ADD_SPRINTATHON_TOGGLE(checkpoints_w, sprintathon_safe_checkpoints, "Checkpoint save system");
 	ADD_SPRINTATHON_TOGGLE(dodge_w, sprintathon_dodge, "Dodging");
 	ADD_SPRINTATHON_TOGGLE(long_jump_w, sprintathon_long_jump, "Crouch Long-Jump");
 	ADD_SPRINTATHON_TOGGLE(wall_run_w, sprintathon_wall_run, "Wall-Running");
 	ADD_SPRINTATHON_TOGGLE(wall_jump_w, sprintathon_wall_jump, "Wall-Jumping");
 	ADD_SPRINTATHON_TOGGLE(swimming_w, sprintathon_swimming, "Modern Swimming");
 	ADD_SPRINTATHON_TOGGLE(ledge_grab_w, sprintathon_ledge_grab, "Ledge-Grabbing");
-	ADD_SPRINTATHON_TOGGLE(footsteps_w, sprintathon_footsteps, "Footstep Sounds");
 	ADD_SPRINTATHON_TOGGLE(bullet_time_w, sprintathon_bullet_time, "Bullet Time");
 	ADD_SPRINTATHON_TOGGLE(bullet_time_blur_w, sprintathon_bullet_time_blur, "Bullet Time Blur");
 	ADD_SPRINTATHON_TOGGLE(bullet_time_heavy_blur_w, sprintathon_bullet_time_heavy_blur, "Heavy Bullet Time Blur");
@@ -4373,10 +4395,6 @@ static void sprintathon_dialog(void *arg)
 	ADD_SPRINTATHON_TOGGLE(pistol_scope_blur_w, sprintathon_pistol_scope_blur, "Pistol Scope Blur");
 	ADD_SPRINTATHON_TOGGLE(dodge_bullet_time_w, sprintathon_dodge_bullet_time, "Automatic Dodge Bullet Time");
 #undef ADD_SPRINTATHON_TOGGLE
-	w_percentage_slider *footstep_volume_w = new w_percentage_slider(
-		101, input_preferences->sprintathon_footstep_volume_percent);
-	options->dual_add(footstep_volume_w->label("Footstep Volume"), d);
-	options->dual_add(footstep_volume_w, d);
 
 	static const char* mouselook_range_labels[] = {
 		"Original (30 degrees)", "45 degrees", "60 degrees", "75 degrees",
@@ -4422,21 +4440,19 @@ static void sprintathon_dialog(void *arg)
 		STORE_SPRINTATHON_TOGGLE(sprintathon_wall_jump, wall_jump_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_swimming, swimming_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_ledge_grab, ledge_grab_w);
-		STORE_SPRINTATHON_TOGGLE(sprintathon_footsteps, footsteps_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_bullet_time, bullet_time_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_bullet_time_blur, bullet_time_blur_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_bullet_time_heavy_blur, bullet_time_heavy_blur_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_pistol_scope, pistol_scope_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_pistol_scope_blur, pistol_scope_blur_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_dodge_bullet_time, dodge_bullet_time_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_no_vacuum_drain, no_vacuum_drain_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_sprint, stamina_sprint_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_jump, stamina_jump_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_kick, stamina_kick_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_dodge, stamina_dodge_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_stamina_bullet_time, stamina_bullet_time_w);
 #undef STORE_SPRINTATHON_TOGGLE
-		input_preferences->sprintathon_footstep_volume_percent =
-			footstep_volume_w->get_selection();
 		write_preferences();
 	}
 }
@@ -4708,7 +4724,6 @@ static placeable *build_embedded_controls(
 		{false, "Turn Right", embedded_game_binding, 3},
 		{false, "Look Up", embedded_game_binding, 8},
 		{false, "Look Down", embedded_game_binding, 9},
-		{true, "Camera", embedded_shell_binding, 0},
 		{false, "Screenshot Mode", embedded_shell_binding, 10},
 		{false, "Drop Flare", embedded_shell_binding, 11}
 	};
@@ -5853,6 +5868,7 @@ void read_preferences ()
 	default_player_preferences(player_preferences);
 	default_input_preferences(input_preferences);
 	*sound_preferences = SoundManager::Parameters();
+	sound_preferences->flags |= _cavern_echo_flag;
 	default_environment_preferences(environment_preferences);
 
 	// Slurp in the file and parse it
@@ -6044,6 +6060,7 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("fps_target", graphics_preferences->fps_target);
 	root.put_attr("pickup_flash", graphics_preferences->pickup_flash);
 	root.put_attr("projectile_lights_per_pixel", graphics_preferences->projectile_lights_per_pixel);
+	root.put_attr("graphics_preset", graphics_preferences->graphics_preset);
 	root.put_attr("projectile_motion_blur", graphics_preferences->projectile_motion_blur);
 	root.put_attr("bright_texture_lights", graphics_preferences->bright_texture_lights);
 	root.put_attr("bright_scenery_lights", graphics_preferences->bright_scenery_lights);
@@ -6397,6 +6414,7 @@ InfoTree input_preferences_tree()
 		input_preferences->sprintathon_sprint_drain_percent);
 	root.put_attr("sprintathon_oxygen_recovery_percent",
 		input_preferences->sprintathon_oxygen_recovery_percent);
+	root.put_attr("sprintathon_no_vacuum_drain", input_preferences->sprintathon_no_vacuum_drain);
 	root.put_attr("sprintathon_stamina_sprint", input_preferences->sprintathon_stamina_sprint);
 	root.put_attr("sprintathon_stamina_jump", input_preferences->sprintathon_stamina_jump);
 	root.put_attr("sprintathon_stamina_kick", input_preferences->sprintathon_stamina_kick);
@@ -6681,21 +6699,22 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->fps_target = 60;
 	preferences->pickup_flash = true;
 	preferences->skip_intro = true;
-	preferences->projectile_lights_per_pixel = false;
-	preferences->projectile_motion_blur = false;
-	preferences->bright_texture_lights = false;
-	preferences->bright_scenery_lights = false;
-	preferences->all_visible_scenery_lights = false;
+	preferences->projectile_lights_per_pixel = true;
+	preferences->graphics_preset = 4;
+	preferences->projectile_motion_blur = true;
+	preferences->bright_texture_lights = true;
+	preferences->bright_scenery_lights = true;
+	preferences->all_visible_scenery_lights = true;
 	preferences->simplify_distant_surfaces = true;
-	preferences->colored_light_intensity = 100;
-	preferences->scenery_light_intensity = 100;
-	preferences->texture_light_intensity = 100;
-	preferences->texture_light_reach = 100;
-	preferences->scenery_light_reach = 25;
-	preferences->light_render_distance = 65;
-	preferences->scenery_light_render_distance = 65;
-	preferences->texture_light_limit = 3;
-	preferences->scenery_light_limit = 2;
+	preferences->colored_light_intensity = 150;
+	preferences->scenery_light_intensity = 40;
+	preferences->texture_light_intensity = 200;
+	preferences->texture_light_reach = 25;
+	preferences->scenery_light_reach = 10;
+	preferences->light_render_distance = 100;
+	preferences->scenery_light_render_distance = 100;
+	preferences->texture_light_limit = 20;
+	preferences->scenery_light_limit = 20;
 	preferences->player_light_circle = false;
 	preferences->soft_sector_light_edges = true;
 
@@ -6703,7 +6722,10 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->movie_export_audio_quality = 50;
 	preferences->movie_export_video_bitrate = 0; // auto
 
-	preferences->ephemera_quality = _ephemera_medium;
+	preferences->ephemera_quality = static_cast<decltype(preferences->ephemera_quality)>(4);
+	preferences->OGL_Configure.Flags |= OGL_Flag_BumpMap | OGL_Flag_Blur | OGL_Flag_Fog | OGL_Flag_ForceFog;
+	preferences->OGL_Configure.AnisotropyLevel = 16.0f;
+	preferences->OGL_Configure.WallTextureUpscaling = 2;
 }
 
 static void default_network_preferences(network_preferences_data *preferences)
@@ -6799,14 +6821,15 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_sprint = true;
 	preferences->sprintathon_sprint_drain_percent = 125;
 	preferences->sprintathon_oxygen_recovery_percent = 200;
+	preferences->sprintathon_no_vacuum_drain = false;
 	preferences->sprintathon_stamina_sprint = true;
 	preferences->sprintathon_stamina_jump = true;
 	preferences->sprintathon_stamina_kick = true;
 	preferences->sprintathon_stamina_dodge = true;
 	preferences->sprintathon_stamina_bullet_time = true;
 	preferences->sprintathon_slide = true;
-	preferences->sprintathon_bullet_ricochet = false;
-	preferences->sprintathon_physics_corpses = false;
+	preferences->sprintathon_bullet_ricochet = true;
+	preferences->sprintathon_physics_corpses = true;
 	preferences->sprintathon_safe_checkpoints = false;
 	preferences->sprintathon_dodge = true;
 	preferences->sprintathon_long_jump = true;
@@ -6822,7 +6845,7 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_pistol_scope_blur = true;
 	preferences->sprintathon_level_timer = false;
 	preferences->sprintathon_dodge_bullet_time = false;
-	preferences->sprintathon_footstep_volume_percent = 100;
+	preferences->sprintathon_footstep_volume_percent = 50;
 
 	preferences->controller_aim_inverted = false;
 	preferences->controller_analog = true;
@@ -7212,6 +7235,8 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("fps_target", graphics_preferences->fps_target);
 	root.read_attr("pickup_flash", graphics_preferences->pickup_flash);
 	root.read_attr("projectile_lights_per_pixel", graphics_preferences->projectile_lights_per_pixel);
+	graphics_preferences->graphics_preset = 0; // Older saved configurations are Custom.
+	root.read_attr_bounded<int16>("graphics_preset", graphics_preferences->graphics_preset, 0, 4);
 	root.read_attr("projectile_motion_blur", graphics_preferences->projectile_motion_blur);
 	root.read_attr("bright_texture_lights", graphics_preferences->bright_texture_lights);
 	graphics_preferences->bright_scenery_lights = graphics_preferences->bright_texture_lights;
@@ -7491,6 +7516,7 @@ void parse_input_preferences(InfoTree root, std::string version)
 		input_preferences->sprintathon_sprint_drain_percent, 10, 400);
 	root.read_attr_bounded<int16>("sprintathon_oxygen_recovery_percent",
 		input_preferences->sprintathon_oxygen_recovery_percent, 10, 400);
+	root.read_attr("sprintathon_no_vacuum_drain", input_preferences->sprintathon_no_vacuum_drain);
 	root.read_attr("sprintathon_stamina_sprint", input_preferences->sprintathon_stamina_sprint);
 	root.read_attr("sprintathon_stamina_jump", input_preferences->sprintathon_stamina_jump);
 	root.read_attr("sprintathon_stamina_kick", input_preferences->sprintathon_stamina_kick);

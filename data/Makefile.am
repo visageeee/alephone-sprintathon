@@ -8,6 +8,8 @@ mml_DATA = Interface_Rects.mml Transparent_Liquids.mml \
 
 sprintathondir = $(pkgdatadir)/Sprintathon
 sprintathon_DATA = \
+  $(top_srcdir)/snd/burningflare.ogg \
+  $(top_srcdir)/snd/lightflare.ogg \
   $(top_srcdir)/gfx/slidelegs.png \
   $(top_srcdir)/gfx/frontlegs.png \
   $(top_srcdir)/gfx/pistol_scope.png \
