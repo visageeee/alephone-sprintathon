@@ -77,6 +77,8 @@ uniform vec4 sprintathonLightPosition20;
 uniform vec4 sprintathonLightColor20;
 uniform vec4 sprintathonLightPosition21;
 uniform vec4 sprintathonLightColor21;
+uniform float sprintathonSectorBlendWidth;
+uniform vec4 sprintathonWallBlendAxis;
 uniform vec4 sprintathonSectorEdge0;
 uniform vec4 sprintathonSectorEdge1;
 uniform vec4 sprintathonSectorEdge2;
@@ -156,7 +158,8 @@ void sprintathonApplySurfaceLights(inout vec3 intensity) {
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor7.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+)"
+R"(            intensity = clamp(intensity + sprintathonLightColor7.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor8.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -396,21 +399,25 @@ R"(        1.0 - smoothstep(16.0 * 1024.0, 32.0 * 1024.0, viewDistance) : 1.0;
     // Select one edge per fragment; blending them in sequence creates dark or
     // bright rectangular patches at corners and in small polygons.
     if (surfaceDetail > 0.0) {
+    vec2 sectorPosition = sprintathonWorldPosition.xy;
+    if (sprintathonWallBlendAxis.w > 0.5)
+        sectorPosition = vec2(dot(sprintathonWorldPosition.xy, sprintathonWallBlendAxis.xy)
+                              + sprintathonWallBlendAxis.z, sprintathonWorldPosition.z);
     float sectorBlendWeight = 0.0;
     float sectorShadeSum = 0.0;
     if (sprintathonSectorEdge0.w >= 0.0) {
-        float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge0.xy) + sprintathonSectorEdge0.z;
+        float edgeDistance = dot(sectorPosition, sprintathonSectorEdge0.xy) + sprintathonSectorEdge0.z;
         vec2 edgeVector = sprintathonSectorSpan0.zw - sprintathonSectorSpan0.xy;
         float edgeLength2 = dot(edgeVector, edgeVector);
-        float alongEdge = dot(sprintathonWorldPosition.xy - sprintathonSectorSpan0.xy, edgeVector);
-        if (edgeDistance >= 0.0 && edgeDistance < 0.22 * 1024.0 + 0.0625 && edgeLength2 > 1.0) {
+        float alongEdge = dot(sectorPosition - sprintathonSectorSpan0.xy, edgeVector);
+        if (edgeDistance >= 0.0 && edgeDistance < sprintathonSectorBlendWidth + 0.0625 && edgeLength2 > 1.0) {
             float t = clamp(alongEdge / edgeLength2, 0.0, 1.0);
             vec2 nearestPoint = sprintathonSectorSpan0.xy + t * edgeVector;
-            vec2 segmentDelta = sprintathonWorldPosition.xy - nearestPoint;
+            vec2 segmentDelta = sectorPosition - nearestPoint;
             float segmentDistanceSquared = dot(segmentDelta, segmentDelta);
-            if (segmentDistanceSquared < (0.22 * 1024.0) * (0.22 * 1024.0)) {
+            if (segmentDistanceSquared < (sprintathonSectorBlendWidth) * (sprintathonSectorBlendWidth)) {
                 float segmentDistance = sqrt(segmentDistanceSquared);
-                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.22 * 1024.0, segmentDistance));
+                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, sprintathonSectorBlendWidth, segmentDistance));
                 if (edgeBlend > 0.0) {
                     float neighborBase = sprintathonSectorEdge0.w > mlFactor ?
                         sprintathonSectorEdge0.w + mlFactor * 0.5 : sprintathonSectorEdge0.w * 0.5 + mlFactor;
@@ -421,18 +428,19 @@ R"(        1.0 - smoothstep(16.0 * 1024.0, 32.0 * 1024.0, viewDistance) : 1.0;
         }
     }
     if (sprintathonSectorEdge1.w >= 0.0) {
-        float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge1.xy) + sprintathonSectorEdge1.z;
+        float edgeDistance = dot(sectorPosition, sprintathonSectorEdge1.xy) + sprintathonSectorEdge1.z;
         vec2 edgeVector = sprintathonSectorSpan1.zw - sprintathonSectorSpan1.xy;
         float edgeLength2 = dot(edgeVector, edgeVector);
-        float alongEdge = dot(sprintathonWorldPosition.xy - sprintathonSectorSpan1.xy, edgeVector);
-        if (edgeDistance >= 0.0 && edgeDistance < 0.22 * 1024.0 + 0.0625 && edgeLength2 > 1.0) {
+        float alongEdge = dot(sectorPosition - sprintathonSectorSpan1.xy, edgeVector);
+        if (edgeDistance >= 0.0 && edgeDistance < sprintathonSectorBlendWidth + 0.0625 && edgeLength2 > 1.0) {
             float t = clamp(alongEdge / edgeLength2, 0.0, 1.0);
             vec2 nearestPoint = sprintathonSectorSpan1.xy + t * edgeVector;
-            vec2 segmentDelta = sprintathonWorldPosition.xy - nearestPoint;
+            vec2 segmentDelta = sectorPosition - nearestPoint;
             float segmentDistanceSquared = dot(segmentDelta, segmentDelta);
-            if (segmentDistanceSquared < (0.22 * 1024.0) * (0.22 * 1024.0)) {
-                float segmentDistance = sqrt(segmentDistanceSquared);
-                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.22 * 1024.0, segmentDistance));
+            if (segmentDistanceSquared < (sprintathonSectorBlendWidth) * (sprintathonSectorBlendWidth)) {
+)"
+R"(                float segmentDistance = sqrt(segmentDistanceSquared);
+                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, sprintathonSectorBlendWidth, segmentDistance));
                 if (edgeBlend > 0.0) {
                     float neighborBase = sprintathonSectorEdge1.w > mlFactor ?
                         sprintathonSectorEdge1.w + mlFactor * 0.5 : sprintathonSectorEdge1.w * 0.5 + mlFactor;
@@ -443,19 +451,19 @@ R"(        1.0 - smoothstep(16.0 * 1024.0, 32.0 * 1024.0, viewDistance) : 1.0;
         }
     }
     if (sprintathonSectorEdge2.w >= 0.0) {
-        float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge2.xy) + sprintathonSectorEdge2.z;
+        float edgeDistance = dot(sectorPosition, sprintathonSectorEdge2.xy) + sprintathonSectorEdge2.z;
         vec2 edgeVector = sprintathonSectorSpan2.zw - sprintathonSectorSpan2.xy;
         float edgeLength2 = dot(edgeVector, edgeVector);
-        float alongEdge = dot(sprintathonWorldPosition.xy - sprintathonSectorSpan2.xy, edgeVector);
+        float alongEdge = dot(sectorPosition - sprintathonSectorSpan2.xy, edgeVector);
 )"
-R"(        if (edgeDistance >= 0.0 && edgeDistance < 0.22 * 1024.0 + 0.0625 && edgeLength2 > 1.0) {
+R"(        if (edgeDistance >= 0.0 && edgeDistance < sprintathonSectorBlendWidth + 0.0625 && edgeLength2 > 1.0) {
             float t = clamp(alongEdge / edgeLength2, 0.0, 1.0);
             vec2 nearestPoint = sprintathonSectorSpan2.xy + t * edgeVector;
-            vec2 segmentDelta = sprintathonWorldPosition.xy - nearestPoint;
+            vec2 segmentDelta = sectorPosition - nearestPoint;
             float segmentDistanceSquared = dot(segmentDelta, segmentDelta);
-            if (segmentDistanceSquared < (0.22 * 1024.0) * (0.22 * 1024.0)) {
+            if (segmentDistanceSquared < (sprintathonSectorBlendWidth) * (sprintathonSectorBlendWidth)) {
                 float segmentDistance = sqrt(segmentDistanceSquared);
-                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.22 * 1024.0, segmentDistance));
+                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, sprintathonSectorBlendWidth, segmentDistance));
                 if (edgeBlend > 0.0) {
                     float neighborBase = sprintathonSectorEdge2.w > mlFactor ?
                         sprintathonSectorEdge2.w + mlFactor * 0.5 : sprintathonSectorEdge2.w * 0.5 + mlFactor;
@@ -466,18 +474,18 @@ R"(        if (edgeDistance >= 0.0 && edgeDistance < 0.22 * 1024.0 + 0.0625 && e
         }
     }
     if (sprintathonSectorEdge3.w >= 0.0) {
-        float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge3.xy) + sprintathonSectorEdge3.z;
+        float edgeDistance = dot(sectorPosition, sprintathonSectorEdge3.xy) + sprintathonSectorEdge3.z;
         vec2 edgeVector = sprintathonSectorSpan3.zw - sprintathonSectorSpan3.xy;
         float edgeLength2 = dot(edgeVector, edgeVector);
-        float alongEdge = dot(sprintathonWorldPosition.xy - sprintathonSectorSpan3.xy, edgeVector);
-        if (edgeDistance >= 0.0 && edgeDistance < 0.22 * 1024.0 + 0.0625 && edgeLength2 > 1.0) {
+        float alongEdge = dot(sectorPosition - sprintathonSectorSpan3.xy, edgeVector);
+        if (edgeDistance >= 0.0 && edgeDistance < sprintathonSectorBlendWidth + 0.0625 && edgeLength2 > 1.0) {
             float t = clamp(alongEdge / edgeLength2, 0.0, 1.0);
             vec2 nearestPoint = sprintathonSectorSpan3.xy + t * edgeVector;
-            vec2 segmentDelta = sprintathonWorldPosition.xy - nearestPoint;
+            vec2 segmentDelta = sectorPosition - nearestPoint;
             float segmentDistanceSquared = dot(segmentDelta, segmentDelta);
-            if (segmentDistanceSquared < (0.22 * 1024.0) * (0.22 * 1024.0)) {
+            if (segmentDistanceSquared < (sprintathonSectorBlendWidth) * (sprintathonSectorBlendWidth)) {
                 float segmentDistance = sqrt(segmentDistanceSquared);
-                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.22 * 1024.0, segmentDistance));
+                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, sprintathonSectorBlendWidth, segmentDistance));
                 if (edgeBlend > 0.0) {
                     float neighborBase = sprintathonSectorEdge3.w > mlFactor ?
                         sprintathonSectorEdge3.w + mlFactor * 0.5 : sprintathonSectorEdge3.w * 0.5 + mlFactor;
@@ -488,19 +496,19 @@ R"(        if (edgeDistance >= 0.0 && edgeDistance < 0.22 * 1024.0 + 0.0625 && e
         }
     }
     if (sprintathonSectorEdge4.w >= 0.0) {
-        float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge4.xy) + sprintathonSectorEdge4.z;
+        float edgeDistance = dot(sectorPosition, sprintathonSectorEdge4.xy) + sprintathonSectorEdge4.z;
         vec2 edgeVector = sprintathonSectorSpan4.zw - sprintathonSectorSpan4.xy;
         float edgeLength2 = dot(edgeVector, edgeVector);
-        float alongEdge = dot(sprintathonWorldPosition.xy - sprintathonSectorSpan4.xy, edgeVector);
-        if (edgeDistance >= 0.0 && edgeDistance < 0.22 * 1024.0 + 0.0625 && edgeLength2 > 1.0) {
+        float alongEdge = dot(sectorPosition - sprintathonSectorSpan4.xy, edgeVector);
+        if (edgeDistance >= 0.0 && edgeDistance < sprintathonSectorBlendWidth + 0.0625 && edgeLength2 > 1.0) {
             float t = clamp(alongEdge / edgeLength2, 0.0, 1.0);
 
             vec2 nearestPoint = sprintathonSectorSpan4.xy + t * edgeVector;
-            vec2 segmentDelta = sprintathonWorldPosition.xy - nearestPoint;
+            vec2 segmentDelta = sectorPosition - nearestPoint;
             float segmentDistanceSquared = dot(segmentDelta, segmentDelta);
-            if (segmentDistanceSquared < (0.22 * 1024.0) * (0.22 * 1024.0)) {
+            if (segmentDistanceSquared < (sprintathonSectorBlendWidth) * (sprintathonSectorBlendWidth)) {
                 float segmentDistance = sqrt(segmentDistanceSquared);
-                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.22 * 1024.0, segmentDistance));
+                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, sprintathonSectorBlendWidth, segmentDistance));
                 if (edgeBlend > 0.0) {
                     float neighborBase = sprintathonSectorEdge4.w > mlFactor ?
                         sprintathonSectorEdge4.w + mlFactor * 0.5 : sprintathonSectorEdge4.w * 0.5 + mlFactor;
@@ -511,18 +519,18 @@ R"(        if (edgeDistance >= 0.0 && edgeDistance < 0.22 * 1024.0 + 0.0625 && e
         }
     }
     if (sprintathonSectorEdge5.w >= 0.0) {
-        float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge5.xy) + sprintathonSectorEdge5.z;
+        float edgeDistance = dot(sectorPosition, sprintathonSectorEdge5.xy) + sprintathonSectorEdge5.z;
         vec2 edgeVector = sprintathonSectorSpan5.zw - sprintathonSectorSpan5.xy;
         float edgeLength2 = dot(edgeVector, edgeVector);
-        float alongEdge = dot(sprintathonWorldPosition.xy - sprintathonSectorSpan5.xy, edgeVector);
-        if (edgeDistance >= 0.0 && edgeDistance < 0.22 * 1024.0 + 0.0625 && edgeLength2 > 1.0) {
+        float alongEdge = dot(sectorPosition - sprintathonSectorSpan5.xy, edgeVector);
+        if (edgeDistance >= 0.0 && edgeDistance < sprintathonSectorBlendWidth + 0.0625 && edgeLength2 > 1.0) {
             float t = clamp(alongEdge / edgeLength2, 0.0, 1.0);
             vec2 nearestPoint = sprintathonSectorSpan5.xy + t * edgeVector;
-            vec2 segmentDelta = sprintathonWorldPosition.xy - nearestPoint;
+            vec2 segmentDelta = sectorPosition - nearestPoint;
             float segmentDistanceSquared = dot(segmentDelta, segmentDelta);
-            if (segmentDistanceSquared < (0.22 * 1024.0) * (0.22 * 1024.0)) {
+            if (segmentDistanceSquared < (sprintathonSectorBlendWidth) * (sprintathonSectorBlendWidth)) {
                 float segmentDistance = sqrt(segmentDistanceSquared);
-                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.22 * 1024.0, segmentDistance));
+                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, sprintathonSectorBlendWidth, segmentDistance));
                 if (edgeBlend > 0.0) {
                     float neighborBase = sprintathonSectorEdge5.w > mlFactor ?
                         sprintathonSectorEdge5.w + mlFactor * 0.5 : sprintathonSectorEdge5.w * 0.5 + mlFactor;
@@ -533,41 +541,42 @@ R"(        if (edgeDistance >= 0.0 && edgeDistance < 0.22 * 1024.0 + 0.0625 && e
         }
     }
     if (sprintathonSectorEdge6.w >= 0.0) {
-        float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge6.xy) + sprintathonSectorEdge6.z;
+        float edgeDistance = dot(sectorPosition, sprintathonSectorEdge6.xy) + sprintathonSectorEdge6.z;
         vec2 edgeVector = sprintathonSectorSpan6.zw - sprintathonSectorSpan6.xy;
         float edgeLength2 = dot(edgeVector, edgeVector);
-        float alongEdge = dot(sprintathonWorldPosition.xy - sprintathonSectorSpan6.xy, edgeVector);
-        if (edgeDistance >= 0.0 && edgeDistance < 0.22 * 1024.0 + 0.0625 && edgeLength2 > 1.0) {
+        float alongEdge = dot(sectorPosition - sprintathonSectorSpan6.xy, edgeVector);
+        if (edgeDistance >= 0.0 && edgeDistance < sprintathonSectorBlendWidth + 0.0625 && edgeLength2 > 1.0) {
             float t = clamp(alongEdge / edgeLength2, 0.0, 1.0);
             vec2 nearestPoint = sprintathonSectorSpan6.xy + t * edgeVector;
-            vec2 segmentDelta = sprintathonWorldPosition.xy - nearestPoint;
+            vec2 segmentDelta = sectorPosition - nearestPoint;
             float segmentDistanceSquared = dot(segmentDelta, segmentDelta);
-            if (segmentDistanceSquared < (0.22 * 1024.0) * (0.22 * 1024.0)) {
+            if (segmentDistanceSquared < (sprintathonSectorBlendWidth) * (sprintathonSectorBlendWidth)) {
                 float segmentDistance = sqrt(segmentDistanceSquared);
-                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.22 * 1024.0, segmentDistance));
+                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, sprintathonSectorBlendWidth, segmentDistance));
                 if (edgeBlend > 0.0) {
                     float neighborBase = sprintathonSectorEdge6.w > mlFactor ?
                         sprintathonSectorEdge6.w + mlFactor * 0.5 : sprintathonSectorEdge6.w * 0.5 + mlFactor;
                     sectorShadeSum += clamp(neighborBase * diffuse, glow, 1.0) * edgeBlend;
-                    sectorBlendWeight += edgeBlend;
+)"
+R"(                    sectorBlendWeight += edgeBlend;
                 }
             }
         }
     }
     if (sprintathonSectorEdge7.w >= 0.0) {
-        float edgeDistance = dot(sprintathonWorldPosition.xy, sprintathonSectorEdge7.xy) + sprintathonSectorEdge7.z;
+        float edgeDistance = dot(sectorPosition, sprintathonSectorEdge7.xy) + sprintathonSectorEdge7.z;
         vec2 edgeVector = sprintathonSectorSpan7.zw - sprintathonSectorSpan7.xy;
         float edgeLength2 = dot(edgeVector, edgeVector);
-        float alongEdge = dot(sprintathonWorldPosition.xy - sprintathonSectorSpan7.xy, edgeVector);
-        if (edgeDistance >= 0.0 && edgeDistance < 0.22 * 1024.0 + 0.0625 && edgeLength2 > 1.0) {
+        float alongEdge = dot(sectorPosition - sprintathonSectorSpan7.xy, edgeVector);
+        if (edgeDistance >= 0.0 && edgeDistance < sprintathonSectorBlendWidth + 0.0625 && edgeLength2 > 1.0) {
             float t = clamp(alongEdge / edgeLength2, 0.0, 1.0);
             vec2 nearestPoint = sprintathonSectorSpan7.xy + t * edgeVector;
-            vec2 segmentDelta = sprintathonWorldPosition.xy - nearestPoint;
+            vec2 segmentDelta = sectorPosition - nearestPoint;
             float segmentDistanceSquared = dot(segmentDelta, segmentDelta);
-            if (segmentDistanceSquared < (0.22 * 1024.0) * (0.22 * 1024.0)) {
+            if (segmentDistanceSquared < (sprintathonSectorBlendWidth) * (sprintathonSectorBlendWidth)) {
 )"
 R"(                float segmentDistance = sqrt(segmentDistanceSquared);
-                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, 0.22 * 1024.0, segmentDistance));
+                float edgeBlend = 0.5 * (1.0 - smoothstep(0.0, sprintathonSectorBlendWidth, segmentDistance));
                 if (edgeBlend > 0.0) {
                     float neighborBase = sprintathonSectorEdge7.w > mlFactor ?
                         sprintathonSectorEdge7.w + mlFactor * 0.5 : sprintathonSectorEdge7.w * 0.5 + mlFactor;

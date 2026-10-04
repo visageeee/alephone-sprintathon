@@ -64,7 +64,8 @@ private:
 };
 
 bool create_quick_save(bool checkpoint = false);
-bool find_last_checkpoint(FileSpecifier& file);
+// Select the latest checkpoint, or regular save when checkpoints is false.
+bool find_last_checkpoint(FileSpecifier& file, bool checkpoints = true);
 bool delete_quick_save(QuickSave& save);
 bool load_quick_save_dialog(FileSpecifier& saved_game);
 size_t saved_game_was_networked(FileSpecifier& saved_game);

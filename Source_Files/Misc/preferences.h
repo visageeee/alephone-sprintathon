@@ -120,6 +120,7 @@ struct graphics_preferences_data
 	int16 scenery_light_limit;
 	bool player_light_circle;
 	bool soft_sector_light_edges;
+	int16 sector_shading_softness;
 };
 
 enum {

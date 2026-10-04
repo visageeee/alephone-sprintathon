@@ -135,6 +135,8 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"sprintathonLightColor20",
 	"sprintathonLightPosition21",
 	"sprintathonLightColor21",
+	"sprintathonSectorBlendWidth",
+	"sprintathonWallBlendAxis",
 	"sprintathonSectorEdge0",
 	"sprintathonSectorEdge1",
 	"sprintathonSectorEdge2",

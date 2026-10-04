@@ -2845,7 +2845,7 @@ bool select_last_checkpoint_for_revert()
 {
     if (game_is_networked || dynamic_world->player_count != 1) return false;
     FileSpecifier file;
-    if (!find_last_checkpoint(file)) return false;
+    if (!find_last_checkpoint(file, input_preferences->sprintathon_safe_checkpoints)) return false;
     revert_game_data.game_is_from_disk = true;
     revert_game_data.SavedGame = file;
     return true;

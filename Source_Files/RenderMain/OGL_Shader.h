@@ -117,6 +117,8 @@ public:
 		U_SprintathonLightColor20,
 		U_SprintathonLightPosition21,
 		U_SprintathonLightColor21,
+		U_SprintathonSectorBlendWidth,
+		U_SprintathonWallBlendAxis,
 		U_SprintathonSectorEdge0,
 		U_SprintathonSectorEdge1,
 		U_SprintathonSectorEdge2,

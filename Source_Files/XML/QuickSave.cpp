@@ -651,9 +651,9 @@ void create_updated_save(QuickSave& save)
 	}
 }
 
-// enumerate() sorts newest first. Restrict to this scenario and generated
-// checkpoint filenames so a manual save can never be selected accidentally.
-bool find_last_checkpoint(FileSpecifier& file)
+// enumerate() sorts newest first. Restrict to this scenario and the requested
+// save type; disabling checkpoints selects regular saves instead.
+bool find_last_checkpoint(FileSpecifier& file, bool checkpoints)
 {
     FileSpecifier map = get_map_file();
     const uint32 checksum = read_wad_file_checksum(map);
@@ -663,7 +663,8 @@ bool find_last_checkpoint(FileSpecifier& file)
     saves->enumerate();
     bool found = false;
     for (auto& save : *saves) {
-        if (save.players != 1 || save.save_file.GetName().find("sprintathon-checkpoint-") != 0 ||
+        const bool is_checkpoint = save.save_file.GetName().find("sprintathon-checkpoint-") == 0;
+        if (save.players != 1 || is_checkpoint != checkpoints ||
             !save.save_file.Exists()) continue;
         const uint32 parent = read_wad_file_parent_checksum(save.save_file);
         if (error_pending()) { clear_game_error(); continue; }

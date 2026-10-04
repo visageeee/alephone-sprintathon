@@ -66,6 +66,8 @@ struct flagged_world_point3d /* for ceilings */
 	be in the side_texture_definition structure */
 struct vertical_surface_data
 {
+    const polygon_data *blend_polygon = nullptr;
+    short blend_edge = NONE;
 	short lightsource_index;
 	_fixed ambient_delta; /* a delta to the lightsource’s intensity, then pinned to [0,FIXED_ONE] */
 	

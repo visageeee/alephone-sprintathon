@@ -1472,7 +1472,9 @@ void do_menu_item_command(
                                         const bool ready = select_last_checkpoint_for_revert();
                                         resume_game();
                                         if (ready) set_game_state(_revert_game);
-                                        else screen_printf("No checkpoint available for this scenario");
+                                        else screen_printf(input_preferences->sprintathon_safe_checkpoints ?
+                                            "No checkpoint available for this scenario" :
+                                            "No saved game available for this scenario");
                                     }
                                     else if (action == _quit_game_preferences)
 									{

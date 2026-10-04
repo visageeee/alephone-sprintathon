@@ -636,10 +636,11 @@ quit_game_dialog_action quit_without_saving(void)
 	placer->add(primary_buttons, true);
     placer->add(new w_spacer(scale_dialog_value(10)), true);
     FileSpecifier checkpoint;
-    w_button *load_checkpoint = new w_button("LOAD LAST CHECKPOINT", [](void *arg) {
+    w_button *load_checkpoint = new w_button(
+        input_preferences->sprintathon_safe_checkpoints ? "LOAD LAST CHECKPOINT" : "LOAD LAST SAVE", [](void *arg) {
         static_cast<dialog *>(arg)->quit(_quit_game_load_checkpoint);
     }, &d);
-    load_checkpoint->set_enabled(!game_is_networked && find_last_checkpoint(checkpoint));
+    load_checkpoint->set_enabled(!game_is_networked && find_last_checkpoint(checkpoint, input_preferences->sprintathon_safe_checkpoints));
     placer->dual_add(load_checkpoint, d);
 
 

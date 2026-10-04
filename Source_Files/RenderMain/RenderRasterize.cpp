@@ -207,6 +207,8 @@ void RenderRasterizerClass::render_node(
 					line_data *line= get_line_data(polygon->line_indexes[i]);
 					side_data *side= get_side_data(side_index);
 					vertical_surface_data surface;
+                    surface.blend_polygon = polygon;
+                    surface.blend_edge = i;
 					
 					surface.length= line->length;
 					store_endpoint(get_endpoint_data(polygon->endpoint_indexes[i]), surface.p0);

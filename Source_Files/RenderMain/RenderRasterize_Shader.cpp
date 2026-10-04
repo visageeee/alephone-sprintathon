@@ -3120,6 +3120,9 @@ static void sprintathon_set_sector_light_edges(Shader *shader,
                                                bool ceiling, const view_data *camera)
 {
     if (!shader) return;
+    shader->setFloat(Shader::U_SprintathonSectorBlendWidth,
+        std::max(1.0f, 0.44f * WORLD_ONE * graphics_preferences->sector_shading_softness / 100.0f));
+    shader->setVector4(Shader::U_SprintathonWallBlendAxis, 0, 0, 0, 0);
     // Refraction must not cross the boundary into previously composited media.
     const Shader::UniformName liquid_edges[] = {
         Shader::U_LiquidEdge0,
@@ -3173,7 +3176,8 @@ static void sprintathon_set_sector_light_edges(Shader *shader,
         Shader::U_SprintathonSectorSpan7
     };
     int count = 0;
-    if (polygon && surface && graphics_preferences->soft_sector_light_edges) {
+    if (polygon && surface && graphics_preferences->soft_sector_light_edges &&
+        graphics_preferences->sector_shading_softness > 0) {
         float center_x = 0.0f, center_y = 0.0f;
         for (short i = 0; i < polygon->vertex_count; ++i) {
             const auto& point = get_endpoint_data(polygon->endpoint_indexes[i])->vertex;
@@ -3452,6 +3456,97 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
 	}
 }
 
+// Reuse the sector blend shader in wall-local coordinates (along wall, height).
+// Follow only polygons sharing the endpoint; never search unrelated nearby walls.
+static void sprintathon_set_wall_light_edges(Shader *shader,
+    const vertical_surface_data *surface, const view_data *camera)
+{
+    sprintathon_set_sector_light_edges(shader, nullptr, nullptr, false, camera);
+    if (!shader || !graphics_preferences->soft_sector_light_edges ||
+        graphics_preferences->sector_shading_softness == 0 ||
+        !surface->blend_polygon || surface->blend_edge == NONE) return;
+    const polygon_data *owner = surface->blend_polygon;
+    const short edge = surface->blend_edge;
+    const short endpoints[2] = {owner->endpoint_indexes[edge],
+        owner->endpoint_indexes[(edge + 1) % owner->vertex_count]};
+    const auto& a = get_endpoint_data(endpoints[0])->vertex;
+    const auto& b = get_endpoint_data(endpoints[1])->vertex;
+    const float dx = float(b.x) - a.x, dy = float(b.y) - a.y;
+    const float length = std::sqrt(dx*dx + dy*dy);
+    if (length < 1) return;
+    // Transparent panels and landscape transfers keep their original shading.
+    const short own_side_index = owner->side_indexes[edge];
+    if (own_side_index == NONE) return;
+    const side_data *own_side = get_side_data(own_side_index);
+    if (surface->texture_definition == &own_side->transparent_texture ||
+        surface->transfer_mode == _xfer_landscape ||
+        surface->transfer_mode == _xfer_big_landscape) return;
+    shader->setVector4(Shader::U_SprintathonWallBlendAxis,
+        dx/length, dy/length, -(a.x*dx + a.y*dy)/length, 1);
+    const Shader::UniformName edges[8] = {
+        Shader::U_SprintathonSectorEdge0, Shader::U_SprintathonSectorEdge1,
+        Shader::U_SprintathonSectorEdge2, Shader::U_SprintathonSectorEdge3,
+        Shader::U_SprintathonSectorEdge4, Shader::U_SprintathonSectorEdge5,
+        Shader::U_SprintathonSectorEdge6, Shader::U_SprintathonSectorEdge7};
+    const Shader::UniformName spans[8] = {
+        Shader::U_SprintathonSectorSpan0, Shader::U_SprintathonSectorSpan1,
+        Shader::U_SprintathonSectorSpan2, Shader::U_SprintathonSectorSpan3,
+        Shader::U_SprintathonSectorSpan4, Shader::U_SprintathonSectorSpan5,
+        Shader::U_SprintathonSectorSpan6, Shader::U_SprintathonSectorSpan7};
+    int count = 0;
+    for (int end = 0; end < 2; ++end) {
+        const polygon_data *polygon = owner;
+        short incoming = owner->line_indexes[edge];
+        for (int step = 0; step < 32 && count < 8; ++step) {
+            short next = NONE;
+            for (short j = 0; j < polygon->vertex_count; ++j)
+                if (polygon->line_indexes[j] != incoming &&
+                    (polygon->endpoint_indexes[j] == endpoints[end] ||
+                     polygon->endpoint_indexes[(j+1)%polygon->vertex_count] == endpoints[end])) {
+                    next = j; break;
+                }
+            if (next == NONE) break;
+            const short adjacent_index = polygon->adjacent_polygon_indexes[next];
+            const polygon_data *adjacent = adjacent_index == NONE ? nullptr : get_polygon_data(adjacent_index);
+            const short side_index = polygon->side_indexes[next];
+            if (side_index != NONE) {
+                const side_data *side = get_side_data(side_index);
+                auto add = [&](float low, float high, short light, short transfer,
+                               const side_texture_definition& texture) {
+                    if (count >= 8 || high <= low || texture.texture == UNONE ||
+                        light == NONE || transfer == _xfer_landscape || transfer == _xfer_big_landscape) return;
+                    low = std::max(low, float(surface->h0) + camera->origin.z);
+                    high = std::min(high, float(std::min(surface->h1, surface->hmax)) + camera->origin.z);
+                    if (high <= low) return;
+                    const float neighbor = std::max(0.0f, std::min(1.0f,
+                        (get_light_intensity(light) + side->ambient_delta) / float(FIXED_ONE - 1)));
+                    const float x = end ? length : 0.0f;
+                    shader->setVector4(edges[count], end ? -1 : 1, 0, end ? length : 0, neighbor);
+                    shader->setVector4(spans[count], x, low, x, high);
+                    ++count;
+                };
+                if (side->type == _full_side)
+                    add(polygon->floor_height, polygon->ceiling_height,
+                        side->primary_lightsource_index, side->primary_transfer_mode, side->primary_texture);
+                else if (adjacent) {
+                    if (side->type == _low_side || side->type == _split_side)
+                        add(polygon->floor_height, std::min(polygon->ceiling_height, adjacent->floor_height),
+                            side->type == _split_side ? side->secondary_lightsource_index : side->primary_lightsource_index,
+                            side->type == _split_side ? side->secondary_transfer_mode : side->primary_transfer_mode,
+                            side->type == _split_side ? side->secondary_texture : side->primary_texture);
+                    if (side->type == _high_side || side->type == _split_side)
+                        add(std::max(polygon->floor_height, adjacent->ceiling_height), polygon->ceiling_height,
+                            side->primary_lightsource_index, side->primary_transfer_mode, side->primary_texture);
+                }
+            }
+            if (!adjacent || adjacent == owner ||
+                (side_index != NONE && get_side_data(side_index)->type == _full_side)) break;
+            incoming = polygon->line_indexes[next];
+            polygon = adjacent;
+        }
+    }
+}
+
 void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vertical_surface_data *surface, bool void_present, RenderStep renderStep) {
 
     // These surfaces stay in the original back-to-front pass. In particular,
@@ -3530,8 +3625,8 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
     }
     if (world_surface_pass == WorldSurfacePass::remaining && skip_world_surface(opaque_surface)) return;
 
-    sprintathon_set_sector_light_edges(
-        sprintathon_surface_shader(renderStep, TMgr->TextureType), nullptr, nullptr, false, view);
+    sprintathon_set_wall_light_edges(
+        sprintathon_surface_shader(renderStep, TMgr->TextureType), surface, view);
     if (graphics_preferences->projectile_lights_per_pixel) {
         glColor4f(intensity, intensity, intensity, 1.0f);
         sprintathon_set_pixel_light(surface_light_x, surface_light_y, surface_light_z, renderStep, TMgr->TextureType, &surface_bounds);
@@ -3638,8 +3733,8 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
 			glDrawArrays(GL_QUADS, 0, vertex_count);
 
 			if (setupGlow(view, TMgr, wobble, intensity, weaponFlare, selfLuminosity, offset, renderStep)) {
-            sprintathon_set_sector_light_edges(
-                sprintathon_surface_shader(renderStep, TMgr->TextureType), nullptr, nullptr, false, view);
+            sprintathon_set_wall_light_edges(
+                sprintathon_surface_shader(renderStep, TMgr->TextureType), surface, view);
 				glDrawArrays(GL_QUADS, 0, vertex_count);
 			}
 

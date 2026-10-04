@@ -1215,6 +1215,8 @@ void handle_preferences(bool in_game)
 		graphics_preferences->scenery_light_render_distance);
 	w_slider *texture_light_limit_w = new w_slider(21, graphics_preferences->texture_light_limit);
 	w_slider *scenery_light_limit_w = new w_slider(21, graphics_preferences->scenery_light_limit);
+	w_percentage_slider *sector_shading_softness_w = new w_percentage_slider(101,
+        graphics_preferences->sector_shading_softness);
 	w_toggle *soft_sector_light_edges_w = new w_toggle(graphics_preferences->soft_sector_light_edges);
 	w_toggle *ogl_bump_w = new w_toggle(ogl_flag(OGL_Flag_BumpMap));
 	w_toggle *simplify_distant_surfaces_w = new w_toggle(graphics_preferences->simplify_distant_surfaces);
@@ -1274,6 +1276,7 @@ void handle_preferences(bool in_game)
 	light_fx->dual_add((widget)->label(caption), d); light_fx->dual_add(widget, d)
 	ADD_LIGHT_FX_ROW("Bloom Effects", ogl_bloom_w);
 	ADD_LIGHT_FX_ROW("Blend Sector Shading", soft_sector_light_edges_w);
+	ADD_LIGHT_FX_ROW("Sector Shading Softness", sector_shading_softness_w);
 	ADD_LIGHT_FX_ROW("Sprite Shadows", ogl_sprite_shadows_w);
 	ADD_LIGHT_FX_ROW("Ambient Occlusion", ogl_ambient_occlusion_w);
 	ADD_LIGHT_FX_ROW("AO Strength", ogl_ambient_occlusion_strength_w);
@@ -1485,7 +1488,7 @@ void handle_preferences(bool in_game)
 		 colored_light_intensity_w, texture_light_intensity_w, scenery_light_intensity_w, projectile_lights_per_pixel_w, projectile_motion_blur_w,
 		 texture_light_limit_w, scenery_light_limit_w,
 		 bright_texture_lights_w, bright_scenery_lights_w, all_visible_scenery_lights_w,
-		 player_light_circle_w, soft_sector_light_edges_w](w_select*) {
+		 player_light_circle_w, soft_sector_light_edges_w, sector_shading_softness_w](w_select*) {
 			const int preset = graphics_preset_w->get_selection();
 			set_graphics_preset_description(preset);
 			if (preset == 0)
@@ -1512,6 +1515,7 @@ void handle_preferences(bool in_game)
 			scenery_light_limit_w->set_selection(high_or_better ? 20 : 2);
 			player_light_circle_w->set_selection(false);
 			soft_sector_light_edges_w->set_selection(medium_or_better);
+			sector_shading_softness_w->set_selection(50);
 			ogl_bloom_w->set_selection(medium_or_better);
 			ogl_bump_w->set_selection(medium_or_better);
 			simplify_distant_surfaces_w->set_selection(true);
@@ -1599,6 +1603,7 @@ void handle_preferences(bool in_game)
 			texture_far_w[i]->set_selection_changed_callback(custom_select_changed);
 	}
 	w_slider *graphics_slider_widgets[] = {
+        sector_shading_softness_w,
 		graphics_fov_w, colored_light_intensity_w, texture_light_intensity_w, scenery_light_intensity_w, texture_light_reach_w,
 		scenery_light_reach_w, light_render_distance_w,
 		scenery_light_render_distance_w,
@@ -1749,6 +1754,7 @@ void handle_preferences(bool in_game)
 	graphics_preferences->scenery_light_limit = scenery_light_limit_w->get_selection();
 	graphics_preferences->player_light_circle = player_light_circle_w->get_selection();
 	graphics_preferences->soft_sector_light_edges = soft_sector_light_edges_w->get_selection();
+	graphics_preferences->sector_shading_softness = sector_shading_softness_w->get_selection();
 	store_ogl_flag(OGL_Flag_BumpMap, ogl_bump_w->get_selection());
 	store_ogl_flag(OGL_Flag_LiqSeeThru, liquid_transparency_w->get_selection());
 	store_ogl_flag(OGL_Flag_Fog, fog_enabled_w->get_selection());
@@ -6077,6 +6083,7 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("scenery_light_limit", graphics_preferences->scenery_light_limit);
 	root.put_attr("player_light_circle", graphics_preferences->player_light_circle);
 	root.put_attr("soft_sector_light_edges", graphics_preferences->soft_sector_light_edges);
+	root.put_attr("sector_shading_softness", graphics_preferences->sector_shading_softness);
 	root.put_attr("skip_intro", graphics_preferences->skip_intro);
 	root.put_attr("anisotropy_level", graphics_preferences->OGL_Configure.AnisotropyLevel);
 	root.put_attr("multisamples", graphics_preferences->OGL_Configure.Multisamples);
@@ -6717,6 +6724,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->scenery_light_limit = 20;
 	preferences->player_light_circle = false;
 	preferences->soft_sector_light_edges = true;
+	preferences->sector_shading_softness = 50;
 
 	preferences->movie_export_video_quality = 50;
 	preferences->movie_export_audio_quality = 50;
@@ -7263,6 +7271,7 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr_bounded<int16>("scenery_light_limit", graphics_preferences->scenery_light_limit, 0, 20);
 	root.read_attr("player_light_circle", graphics_preferences->player_light_circle);
 	root.read_attr("soft_sector_light_edges", graphics_preferences->soft_sector_light_edges);
+	root.read_attr_bounded<int16>("sector_shading_softness", graphics_preferences->sector_shading_softness, 0, 100);
 	root.read_attr("skip_intro", graphics_preferences->skip_intro);
 	root.read_attr("anisotropy_level", graphics_preferences->OGL_Configure.AnisotropyLevel);
 	root.read_attr("multisamples", graphics_preferences->OGL_Configure.Multisamples);
