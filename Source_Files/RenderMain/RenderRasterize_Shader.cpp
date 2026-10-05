@@ -1041,6 +1041,7 @@ struct SprintathonFogCone {
     float x, y, z, floor, radius, red, green, blue;
 };
 static std::vector<SprintathonFogCone> sprintathon_fog_cones;
+static std::vector<SprintathonFogCone> sprintathon_floor_cones;
 
 static void sprintathon_collect_fog_cone(short index, float z, const float *rgb)
 {
@@ -1717,11 +1718,47 @@ static void sprintathon_upload_all_scenery_lights()
     glActiveTextureARB(active_texture);
 }
 
+// Match the floor pool's footprint and falloff at the held weapon's position.
+static void sprintathon_floor_pool_weapon_tint(const view_data *camera, float rgb[3])
+{
+    if(!graphics_preferences->ceiling_fog_cones || !graphics_preferences->projectile_lights_per_pixel ||
+       !graphics_preferences->ceiling_fog_cone_strength || camera->origin_polygon_index==NONE)return;
+    const auto fog=OGL_GetCurrFogData();
+    if(!TEST_FLAG(Get_OGL_ConfigureData().Flags,OGL_Flag_Fog) ||
+       ((!fog || !fog->IsPresent) && !TEST_FLAG(Get_OGL_ConfigureData().Flags,OGL_Flag_ForceFog)))return;
+    const auto* polygon=get_polygon_data(camera->origin_polygon_index);
+    int count=0;
+    for(const auto& cone:sprintathon_floor_cones) {
+        if(count==4)break;
+        if(cone.object_index<0 || size_t(cone.object_index)>=ObjectList.size())continue;
+        const auto* object=get_object_data(cone.object_index);
+        if(!SLOT_IS_USED(object) || GET_OBJECT_OWNER(object)!=_object_is_scenery ||
+           object->polygon!=camera->origin_polygon_index)continue;
+        const float height=cone.z-polygon->floor_height;
+        if(height<=0 || height>5.0f*WORLD_ONE)continue;
+        const float radius=2.0f*std::min(cone.radius,WORLD_ONE*0.04f+height*0.28f);
+        if(radius<1)continue;
+        ++count;
+        // Do not tint a camera above the fixture or below this floor.
+        if(camera->origin.z>cone.z || camera->origin.z<polygon->floor_height)continue;
+        const float dx=camera->origin.x-cone.x,dy=camera->origin.y-cone.y;
+        const float t=std::min(1.0f,std::sqrt(dx*dx+dy*dy)/radius);
+        const float falloff=1.0f-t*t*(3.0f-2.0f*t);
+        const float gain=0.65f*(graphics_preferences->ceiling_fog_cone_strength/100.0f)/
+            (1.0f+0.12f*(height/WORLD_ONE)*(height/WORLD_ONE));
+        rgb[0]+=cone.red*gain*falloff;
+        rgb[1]+=cone.green*gain*falloff;
+        rgb[2]+=cone.blue*gain*falloff;
+    }
+}
+
 // Calculate one colored tint per sprite instead of looping over lights per pixel.
 static void sprintathon_set_sprite_light(Shader *shader, const rectangle_definition& rect,
                                         short type, const view_data *camera)
 {
-    if (!sprintathon_has_active_lighting && sprintathon_dropped_flares.empty() &&
+    if (!(type == OGL_Txtr_WeaponsInHand && graphics_preferences->ceiling_fog_cones &&
+          !sprintathon_floor_cones.empty()) &&
+        !sprintathon_has_active_lighting && sprintathon_dropped_flares.empty() &&
         (!(graphics_preferences->bright_texture_lights ||
            graphics_preferences->bright_scenery_lights) || sprintathon_texture_lights.empty())) {
         shader->setVector4(Shader::U_SprintathonLightColor, 0, 0, 0, 0);
@@ -1734,6 +1771,7 @@ static void sprintathon_set_sprite_light(Shader *shader, const rectangle_definit
         rect.Position.z + 0.5f * (rect.WorldBottom + rect.WorldTop) * rect.Scale;
     float rgb[3] = {0.0f, 0.0f, 0.0f};
     sprintathon_projectile_light_rgb(x, y, z, rgb);
+    if (held_weapon) sprintathon_floor_pool_weapon_tint(camera, rgb);
     if (graphics_preferences->projectile_lights_per_pixel) {
         const float gain = graphics_preferences->colored_light_intensity / 100.0f;
         for (const auto& flare : sprintathon_dropped_flares) {
@@ -2396,6 +2434,13 @@ void RenderRasterize_Shader::render_tree() {
         sprintathon_texture_lights_next.clear();
     }
 
+    static int cone_pool_level = NONE;
+    static int32 cone_pool_tick = -1;
+    if(cone_pool_level != dynamic_world->current_level_number || dynamic_world->tick_count < cone_pool_tick)
+        sprintathon_fog_cones.clear();
+    cone_pool_level = dynamic_world->current_level_number;
+    cone_pool_tick = dynamic_world->tick_count;
+    sprintathon_floor_cones.swap(sprintathon_fog_cones);
     sprintathon_fog_cones.clear();
     sprintathon_visible_scenery.assign(ObjectList.size(), false);
     if (sprintathon_all_scenery_enabled()) {
@@ -3408,6 +3453,43 @@ bool setupGlow(struct view_data *view, std::unique_ptr<TextureManager>& TMgr, fl
 	return false;
 }
 
+static const Shader::UniformName sprintathon_pool_positions[4] = {
+    Shader::U_SprintathonConePool0, Shader::U_SprintathonConePool1,
+    Shader::U_SprintathonConePool2, Shader::U_SprintathonConePool3};
+static const Shader::UniformName sprintathon_pool_colors[4] = {
+    Shader::U_SprintathonConeColor0, Shader::U_SprintathonConeColor1,
+    Shader::U_SprintathonConeColor2, Shader::U_SprintathonConeColor3};
+
+static void sprintathon_set_floor_cone_pools(Shader *shader,
+    const polygon_data *polygon, const horizontal_surface_data *surface, bool ceiling)
+{
+    if(!shader || ceiling || surface->is_media || !polygon ||
+       !graphics_preferences->ceiling_fog_cones || !graphics_preferences->projectile_lights_per_pixel ||
+       graphics_preferences->ceiling_fog_cone_strength == 0) return;
+    const auto fog=OGL_GetCurrFogData();
+    if(!TEST_FLAG(Get_OGL_ConfigureData().Flags,OGL_Flag_Fog) ||
+       ((!fog || !fog->IsPresent) && !TEST_FLAG(Get_OGL_ConfigureData().Flags,OGL_Flag_ForceFog))) return;
+    int count=0;
+    // Previous-frame visible cones are available before this frame's floor draw.
+    for(const auto& cone:sprintathon_floor_cones) {
+        if(count==4)break;
+        if(cone.object_index<0 || size_t(cone.object_index)>=ObjectList.size())continue;
+        const auto* object=get_object_data(cone.object_index);
+        if(!SLOT_IS_USED(object) || GET_OBJECT_OWNER(object)!=_object_is_scenery ||
+           object->polygon==NONE || get_polygon_data(object->polygon)!=polygon)continue;
+        const float height=cone.z-surface->height;
+        // A capped cone that ends above the floor must not leave a detached pool.
+        if(height<=0 || height>5.0f*WORLD_ONE)continue;
+        const float radius=2.0f*std::min(cone.radius,WORLD_ONE*0.04f+height*0.28f);
+        if(radius<1)continue;
+        const float gain=0.65f*(graphics_preferences->ceiling_fog_cone_strength/100.0f)/
+            (1.0f+0.12f*(height/WORLD_ONE)*(height/WORLD_ONE));
+        shader->setVector4(sprintathon_pool_positions[count],cone.x,cone.y,surface->height,1.0f/radius);
+        shader->setVector4(sprintathon_pool_colors[count],cone.red*gain,cone.green*gain,cone.blue*gain,1);
+        ++count;
+    }
+}
+
 // Each vec4 stores an inward-facing edge (normal x/y, offset) and the
 // neighboring sector's light. A negative fourth component disables the slot.
 static void sprintathon_set_sector_light_edges(Shader *shader,
@@ -3416,6 +3498,7 @@ static void sprintathon_set_sector_light_edges(Shader *shader,
                                                bool ceiling, const view_data *camera)
 {
     if (!shader) return;
+    for(int i=0;i<4;++i) shader->setVector4(sprintathon_pool_colors[i],0,0,0,0);
     shader->setFloat(Shader::U_SprintathonSectorBlendWidth,
         std::max(1.0f, 0.44f * WORLD_ONE * graphics_preferences->sector_shading_softness / 100.0f));
     shader->setVector4(Shader::U_SprintathonWallBlendAxis, 0, 0, 0, 0);
@@ -3622,6 +3705,9 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
 
     sprintathon_set_sector_light_edges(
         sprintathon_surface_shader(renderStep, TMgr->TextureType), polygon, surface, ceil, view);
+    if(renderStep == kDiffuse)
+        sprintathon_set_floor_cone_pools(sprintathon_surface_shader(renderStep, TMgr->TextureType),
+            polygon, surface, ceil);
     if (lava_surface && graphics_preferences->bright_texture_lights &&
         !current_player->infravision_duration) {
         // Lava emits its own light: preserve its visible brightness even when

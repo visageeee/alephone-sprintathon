@@ -76,6 +76,14 @@ uniform vec4 sprintathonLightPosition20;
 uniform vec4 sprintathonLightColor20;
 uniform vec4 sprintathonLightPosition21;
 uniform vec4 sprintathonLightColor21;
+uniform vec4 sprintathonConePool0;
+uniform vec4 sprintathonConeColor0;
+uniform vec4 sprintathonConePool1;
+uniform vec4 sprintathonConeColor1;
+uniform vec4 sprintathonConePool2;
+uniform vec4 sprintathonConeColor2;
+uniform vec4 sprintathonConePool3;
+uniform vec4 sprintathonConeColor3;
 uniform float sprintathonSectorBlendWidth;
 uniform vec4 sprintathonWallBlendAxis;
 uniform vec4 sprintathonSectorEdge0;
@@ -551,6 +559,38 @@ R"(            }
     if (sectorBlendWeight > 0.0)
         intensity = mix(intensity, vec3(sectorShadeSum / sectorBlendWeight),
                         min(sectorBlendWeight, 0.5) * surfaceDetail);
+    }
+    if (sprintathonConeColor0.a > 0.0) {
+        vec2 poolDelta = (sprintathonWorldPosition.xy - sprintathonConePool0.xy) * sprintathonConePool0.w;
+        float poolDistance2 = dot(poolDelta, poolDelta);
+        if (poolDistance2 < 1.0) {
+            float falloff = 1.0 - smoothstep(0.0, 1.0, sqrt(poolDistance2));
+            intensity = clamp(intensity + sprintathonConeColor0.rgb * falloff, glow, 1.0);
+        }
+    }
+    if (sprintathonConeColor1.a > 0.0) {
+        vec2 poolDelta = (sprintathonWorldPosition.xy - sprintathonConePool1.xy) * sprintathonConePool1.w;
+        float poolDistance2 = dot(poolDelta, poolDelta);
+        if (poolDistance2 < 1.0) {
+            float falloff = 1.0 - smoothstep(0.0, 1.0, sqrt(poolDistance2));
+            intensity = clamp(intensity + sprintathonConeColor1.rgb * falloff, glow, 1.0);
+        }
+    }
+    if (sprintathonConeColor2.a > 0.0) {
+        vec2 poolDelta = (sprintathonWorldPosition.xy - sprintathonConePool2.xy) * sprintathonConePool2.w;
+        float poolDistance2 = dot(poolDelta, poolDelta);
+        if (poolDistance2 < 1.0) {
+            float falloff = 1.0 - smoothstep(0.0, 1.0, sqrt(poolDistance2));
+            intensity = clamp(intensity + sprintathonConeColor2.rgb * falloff, glow, 1.0);
+        }
+    }
+    if (sprintathonConeColor3.a > 0.0) {
+        vec2 poolDelta = (sprintathonWorldPosition.xy - sprintathonConePool3.xy) * sprintathonConePool3.w;
+        float poolDistance2 = dot(poolDelta, poolDelta);
+        if (poolDistance2 < 1.0) {
+            float falloff = 1.0 - smoothstep(0.0, 1.0, sqrt(poolDistance2));
+            intensity = clamp(intensity + sprintathonConeColor3.rgb * falloff, glow, 1.0);
+        }
     }
     if (sprintathonMuzzleColor.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 muzzleDelta = (sprintathonWorldPosition - sprintathonMuzzlePosition.xyz) * sprintathonMuzzlePosition.w;
