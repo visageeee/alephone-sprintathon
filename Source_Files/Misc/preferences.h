@@ -122,6 +122,10 @@ struct graphics_preferences_data
 	bool soft_sector_light_edges;
 	int16 sector_shading_softness;
     bool ceiling_fog_cones;
+    bool fog_light_coronas;
+    bool fog_projectile_coronas;
+    bool fog_scenery_coronas;
+    int16 fog_corona_strength;
     int16 ceiling_fog_cone_strength;
 };
 

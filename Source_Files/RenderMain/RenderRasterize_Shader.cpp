@@ -2158,6 +2158,212 @@ static void sprintathon_set_pixel_light(float x, float y, float z, RenderStep st
 
 static bool sprintathon_flame_scene_captured = false;
 
+struct SprintathonCorona {
+    int kind, id;
+    short polygon;
+    float x,y,z,r,g,b,size,distance2,visibility;
+};
+static std::vector<SprintathonCorona> sprintathon_corona_history;
+// Trace source visibility through the actual vertical portal openings. The
+// corona is an optical halo, not a disc that should intersect world geometry.
+static bool sprintathon_corona_visible(const view_data *camera, const SprintathonCorona& source)
+{
+    world_point2d from={camera->origin.x,camera->origin.y};
+    world_point2d to={static_cast<world_distance>(source.x),static_cast<world_distance>(source.y)};
+    if(line_is_obstructed(camera->origin_polygon_index,&from,source.polygon,&to))return false;
+    short polygon_index=camera->origin_polygon_index;
+    const double dx=source.x-from.x,dy=source.y-from.y;
+    for(int step=0;step<256 && polygon_index!=NONE;++step) {
+        if(polygon_index==source.polygon)return true;
+        const short line_index=find_line_crossed_leaving_polygon(polygon_index,&from,&to);
+        if(line_index==NONE)return false;
+        const short next=find_adjacent_polygon(polygon_index,line_index);
+        if(next==NONE)return false;
+        const auto* line=get_line_data(line_index);
+        const auto& a=get_endpoint_data(line->endpoint_indexes[0])->vertex;
+        const auto& b=get_endpoint_data(line->endpoint_indexes[1])->vertex;
+        const double ex=double(b.x)-a.x,ey=double(b.y)-a.y;
+        const double denom=dx*ey-dy*ex;
+        if(std::abs(denom)<0.000001)return false;
+        const double t=((a.x-from.x)*ey-(a.y-from.y)*ex)/denom;
+        const double z=camera->origin.z+t*(source.z-camera->origin.z);
+        const auto* current=get_polygon_data(polygon_index);
+        const auto* neighbor=get_polygon_data(next);
+        if(z<=std::max(current->floor_height,neighbor->floor_height) ||
+           z>=std::min(current->ceiling_height,neighbor->ceiling_height))return false;
+        polygon_index=next;
+    }
+    return false;
+}
+
+static void sprintathon_draw_fog_coronas(const view_data *camera)
+{
+    static int level=NONE;
+    static int32 last_tick=-1;
+    if(level!=dynamic_world->current_level_number || dynamic_world->tick_count<last_tick) {
+        sprintathon_corona_history.clear(); level=dynamic_world->current_level_number;
+    }
+    const int32 elapsed=last_tick<0 ? 1 : std::max(int32(0),dynamic_world->tick_count-last_tick);
+    last_tick=dynamic_world->tick_count;
+    const auto fog=OGL_GetCurrFogData();
+    if(!graphics_preferences->fog_light_coronas || !graphics_preferences->fog_corona_strength ||
+       !TEST_FLAG(Get_OGL_ConfigureData().Flags,OGL_Flag_Fog) ||
+       ((!fog || !fog->IsPresent) && !TEST_FLAG(Get_OGL_ConfigureData().Flags,OGL_Flag_ForceFog))) {
+        sprintathon_corona_history.clear();return;
+    }
+    std::vector<SprintathonCorona> sources;
+    auto add=[&](int kind,int id,short polygon,float x,float y,float z,float r,float g,float b,float size) {
+        if(polygon==NONE)return;
+        const float dx=x-camera->origin.x,dy=y-camera->origin.y,dz=z-camera->origin.z;
+        const float d2=dx*dx+dy*dy+dz*dz;
+        if(d2<16 || d2>32.0f*32.0f*WORLD_ONE*WORLD_ONE)return;
+        for(const auto& c:sources)if(c.kind==kind && c.id==id)return;
+        sources.push_back({kind,id,polygon,x,y,z,r,g,b,size,d2,0});
+    };
+    if(graphics_preferences->projectile_lights_per_pixel && graphics_preferences->fog_projectile_coronas) {
+        for(const auto& projectile:ProjectileList) {
+            if(!SLOT_IS_USED(&projectile) || projectile.object_index==NONE)continue;
+            float strength=0,red=1,green=1,blue=1;
+        switch (projectile.type) {
+            case _projectile_minor_fusion_dispersal:
+            case _projectile_fusion_bolt_minor:
+                strength = 0.36f; red = 0.40f; green = 0.65f; blue = 1.0f; break;
+            case _projectile_major_fusion_dispersal:
+            case _projectile_fusion_bolt_major:
+                strength = 0.55f; red = 0.50f; green = 0.45f; blue = 1.0f; break;
+            case _projectile_compiler_bolt_minor:
+            case _projectile_compiler_bolt_major:
+                strength = 0.50f; red = 0.95f; green = 0.30f; blue = 0.65f; break;
+            case _projectile_staff_bolt:
+                strength = 0.48f; red = 0.45f; green = 1.0f; blue = 0.50f; break;
+            case _projectile_alien_weapon:
+                strength = 0.55f; red = 1.0f; green = 0.48f; blue = 0.16f; break;
+            case _projectile_minor_defender:
+            case _projectile_major_defender:
+                strength = 0.48f; red = 0.40f; green = 0.80f; blue = 1.0f; break;
+            case _projectile_minor_hummer:
+            case _projectile_major_hummer:
+            case _projectile_durandal_hummer:
+                strength = 0.55f; red = 0.85f; green = 0.45f; blue = 1.0f; break;
+            case _projectile_rocket:
+            case _projectile_juggernaut_rocket:
+            case _projectile_juggernaut_missile:
+            case _projectile_flamethrower_burst:
+                strength = 0.68f; red = 1.0f; green = 0.50f; blue = 0.16f; break;
+            case _projectile_armageddon_sphere:
+            case _projectile_overloaded_fusion_dispersal:
+                strength = 0.68f; red = 0.70f; green = 0.65f; blue = 1.0f; break;
+            default: continue;
+        }
+
+            float sampled[3];
+            if(sprintathon_projectile_visual_color(projectile,sampled)) {
+                red=sampled[0];green=sampled[1];blue=sampled[2];
+            }
+            const auto* object=get_object_data(projectile.object_index);
+            add(0,projectile.object_index,object->polygon,object->location.x,object->location.y,object->location.z,
+                red,green,blue,WORLD_ONE*0.4f);
+        }
+    }
+    if(graphics_preferences->bright_scenery_lights && graphics_preferences->fog_scenery_coronas) {
+        for(const auto& light:sprintathon_texture_lights) {
+            if(!light.scenery || light.scenery_object_index<0 || size_t(light.scenery_object_index)>=ObjectList.size())continue;
+            const auto* object=get_object_data(light.scenery_object_index);
+            if(!SLOT_IS_USED(object) || GET_OBJECT_OWNER(object)!=_object_is_scenery)continue;
+            add(1,light.scenery_object_index,object->polygon,light.x,light.y,light.z,
+                light.r,light.g,light.b,WORLD_ONE*0.45f);
+        }
+    }
+    for(size_t i=0;i<sprintathon_dropped_flares.size();++i) {
+        const auto& flare=sprintathon_dropped_flares[i];
+        const float strength=sprintathon_flare_strength(flare);
+        add(2,flare.placed_tick,flare.polygon_index,flare.x,flare.y,flare.z,
+            strength,strength*0.08f,strength*0.025f,WORLD_ONE*0.35f);
+    }
+    std::sort(sources.begin(),sources.end(),[](const SprintathonCorona& a,const SprintathonCorona& b) {
+        if(a.distance2!=b.distance2)return a.distance2<b.distance2;
+        return a.kind!=b.kind ? a.kind<b.kind : a.id<b.id;
+    });
+    if(sources.size()>24)sources.resize(24);
+    const float response=1-std::exp(-std::min(float(elapsed)/TICKS_PER_SECOND,0.25f)/0.12f);
+    for(auto& c:sources) {
+        const bool visible=sprintathon_corona_visible(camera,c);
+        float previous=0;
+        for(const auto& old:sprintathon_corona_history)
+            if(old.kind==c.kind && old.id==c.id && std::abs(old.x-c.x)+std::abs(old.y-c.y)<2*WORLD_ONE) {
+                previous=old.visibility;break;
+            }
+        c.visibility=previous+((visible?1.0f:0.0f)-previous)*response;
+    }
+    sprintathon_corona_history=sources;
+    Shader::disable();
+    GLint active_texture;glGetIntegerv(GL_ACTIVE_TEXTURE,&active_texture);
+    glPushAttrib(GL_ENABLE_BIT|GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_CURRENT_BIT|GL_TEXTURE_BIT);
+    glActiveTextureARB(GL_TEXTURE0_ARB);
+    glDisable(GL_TEXTURE_2D);glDisable(GL_TEXTURE_RECTANGLE_ARB);glDisable(GL_ALPHA_TEST);
+    glDisable(GL_CULL_FACE);glDisable(GL_FOG);glDisable(GL_DEPTH_TEST);glDepthMask(GL_FALSE);
+    // Screen blending is bounded; overlapping coronas no longer sum unchecked.
+    glEnable(GL_BLEND);glBlendFunc(GL_ONE,GL_ONE_MINUS_SRC_COLOR);
+    const float depth=fog && fog->IsPresent?std::max(1.0f,fog->Depth):12.0f;
+    for(const auto& c:sources) {
+        const float distance=std::sqrt(c.distance2);
+        const float haze=std::min(1.0f, 0.25f+1.5f*(1-std::exp(-distance/(WORLD_ONE*depth))));
+        const float gain=c.visibility*haze*std::max(0.0f,1-distance/(32*WORLD_ONE))*
+            graphics_preferences->fog_corona_strength/100.0f;
+        if(gain<0.001f)continue;
+        const float dx=(camera->origin.x-c.x)/distance,dy=(camera->origin.y-c.y)/distance,dz=(camera->origin.z-c.z)/distance;
+        const float horizontal=std::sqrt(dx*dx+dy*dy);
+        const float rx=horizontal>0.0001f?-dy/horizontal:1,ry=horizontal>0.0001f?dx/horizontal:0;
+        const float ux=-dz*ry,uy=dz*rx,uz=horizontal;
+        // Separate broad halo from the compact core. A single steep Gaussian
+        // previously put almost all visible brightness inside the source sprite.
+        for(int layer=0;layer<2;++layer) {
+        const float size=c.size*(layer==0?4.0f:1.25f);
+        const float opacity=layer==0?1.1f:1.0f;
+        for(int ring=0;ring<48;++ring) {
+            glBegin(GL_TRIANGLE_STRIP);
+            for(int i=0;i<=32;++i)for(int k=0;k<2;++k) {
+                const float radius=float(ring+k)/48;
+                const float angle=i*(6.28318530718f/32);
+                const float edge=1-radius*radius;
+                // A smooth broad halo, slightly stronger than the original profile.
+                const float profile=layer==0?1.15f*edge*std::sqrt(edge):std::exp(-radius*radius*5.0f)*edge;
+                const float u=std::cos(angle)*radius*size,v=std::sin(angle)*radius*size;
+                const float glow=std::min(0.22f,gain*profile*opacity*0.35f);
+                float red=std::min(1.0f,c.r), green=std::min(1.0f,c.g), blue=std::min(1.0f,c.b);
+                if(layer==0) {
+                    // A faint radial spectral tint, without adding bright rings.
+                    // Preserve the source colour at the centre and the soft edge fade.
+                    // Keep the spectrum inside the visible halo rather than its
+                    // nearly transparent rim. The inner core remains untouched.
+                    const float t=std::max(0.0f,std::min(1.0f,(radius-0.18f)/0.60f));
+                    const float ramp=std::max(0.0f,std::min(1.0f,(radius-0.12f)/0.18f));
+                    const float blend=0.35f*ramp*ramp*(3.0f-2.0f*ramp);
+                    const float phase=(1.0f-t)*4.1887902f;
+                    const float sr=0.5f+0.5f*std::cos(phase);
+                    const float sg=0.5f+0.5f*std::cos(phase-2.0943951f);
+                    const float sb=0.5f+0.5f*std::cos(phase+2.0943951f);
+                    const float brightness=std::max(red,std::max(green,blue));
+                    // Preserve perceived brightness as hue changes, so green
+                    // does not dominate and the blue portion stays visible.
+                    const float source_luma=0.2126f*red+0.7152f*green+0.0722f*blue;
+                    const float spectral_luma=0.2126f*sr+0.7152f*sg+0.0722f*sb;
+                    const float spectral_gain=std::min(brightness*1.5f,
+                        source_luma/std::max(0.15f,spectral_luma));
+                    red+=(spectral_gain*sr-red)*blend;
+                    green+=(spectral_gain*sg-green)*blend;
+                    blue+=(spectral_gain*sb-blue)*blend;
+                }
+                glColor4f(red*glow,green*glow,blue*glow,0);
+                glVertex3f(c.x+rx*u+ux*v,c.y+ry*u+uy*v,c.z+uz*v);
+            }
+            glEnd();
+        }
+    }
+    }
+    glPopAttrib();glActiveTextureARB(active_texture);
+}
+
 void RenderRasterize_Shader::render_tree() {
     sprintathon_flame_scene_captured = false;
     sprintathon_update_flares();
@@ -2419,6 +2625,7 @@ void RenderRasterize_Shader::render_tree() {
 		render_world_diffuse();
 		sprintathon_end_shaft_source();
 	}
+    sprintathon_draw_fog_coronas(view);
     sprintathon_draw_fog_cones(view);
     sprintathon_draw_flare_smoke(view);
     sprintathon_draw_flare_stars(view);
