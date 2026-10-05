@@ -121,6 +121,8 @@ struct graphics_preferences_data
 	bool player_light_circle;
 	bool soft_sector_light_edges;
 	int16 sector_shading_softness;
+    bool ceiling_fog_cones;
+    int16 ceiling_fog_cone_strength;
 };
 
 enum {

@@ -117,7 +117,8 @@ enum /* damage types */
 enum /* damage flags */
 {
 	_alien_damage= 0x1, /* will be decreased at lower difficulty levels */
-	_sprintathon_damage= 0x2 /* ignores scenario-specific immunities/weaknesses */
+	_sprintathon_damage= 0x2, /* ignores scenario-specific immunities/weaknesses */
+    _sprintathon_kick_damage= 0x4 /* direct kick, excluding slide attacks */
 };
 
 struct damage_definition

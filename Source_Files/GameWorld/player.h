@@ -563,6 +563,16 @@ void team_damage_from_player_data(void);
 // ZZZ: this now takes a set of ActionQueues as a parameter so the caller can redirect
 // the update routine's input.  Also, now callers can request a 'predictive update',
 // which changes less state, in an effort to make partial state saving/restoration successful.
+// Local activity counters: intentionally reset on level entry/load, not serialized.
+struct SprintathonGameStats {
+    unsigned long long ticks = 0, sprint_ticks = 0, bullet_ticks = 0;
+    unsigned kick_kills = 0;
+    double distance = 0;
+};
+const SprintathonGameStats& sprintathon_game_stats();
+void sprintathon_reset_game_stats();
+void sprintathon_record_kick_kill();
+
 void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 	bool advance_slow_time= true); /* assumes ∂t==1 tick */
 void decode_hotkeys(ModifiableActionQueues& action_queues);

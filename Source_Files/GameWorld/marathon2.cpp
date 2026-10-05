@@ -775,6 +775,7 @@ extern bool is_network_pregame;
 bool entering_map(bool restoring_saved)
 {
 	sprintathon_checkpoint_reset();
+	sprintathon_reset_game_stats();
 	bool success= true;
 
 	/* if any active monsters think they have paths, we'll make them reconsider */

@@ -619,6 +619,47 @@ static void initialize_marathon_music_handler(void)
 		Music::instance()->SetupIntroMusic(file);
 }
 
+static void sprintathon_show_game_stats(void *)
+{
+    if (local_player_index == NONE) return;
+    const player_data *p = get_player_data(local_player_index);
+    const SprintathonGameStats& stats = sprintathon_game_stats();
+    dialog d;
+    vertical_placer *placer = new vertical_placer;
+    placer->dual_add(new w_title("GAME STATS"), d);
+    placer->add(new w_spacer(scale_dialog_value(8)), true);
+    // Widgets own their text; format each value before constructing its row.
+    auto row = [&](const char *label, const std::string& value) {
+        const std::string text = std::string(label) + ": " + value;
+        placer->dual_add(new w_static_text(text.c_str()), d);
+    };
+    auto duration = [](unsigned long long ticks) {
+        const unsigned long long seconds = ticks / TICKS_PER_SECOND;
+        char text[64];
+        snprintf(text, sizeof(text), "%llu:%02llu:%02llu",
+            seconds / 3600, (seconds / 60) % 60, seconds % 60);
+        return std::string(text);
+    };
+    placer->dual_add(new w_static_text("SAVED GAME TOTALS", LABEL_WIDGET), d);
+    row("Monster kills", std::to_string(p->monster_damage_given.kills));
+    row("Damage taken from monsters", std::to_string(p->monster_damage_taken.damage));
+    placer->add(new w_spacer(scale_dialog_value(10)), true);
+    placer->dual_add(new w_static_text("SINCE LEVEL ENTRY / LOAD", LABEL_WIDGET), d);
+    row("Active game time", duration(stats.ticks));
+    char distance[64];
+    snprintf(distance, sizeof(distance), "%.1f m", stats.distance * 2.0);
+    row("Distance travelled", distance);
+    row("Time sprinting", duration(stats.sprint_ticks));
+    row("Time in bullet time", duration(stats.bullet_ticks));
+    row("Kick kills", std::to_string(stats.kick_kills));
+    placer->add(new w_spacer(scale_dialog_value(10)), true);
+    w_button *back = new w_button("BACK", dialog_ok, &d);
+    placer->dual_add(back, d);
+    d.set_widget_placer(placer);
+    d.activate_widget(back);
+    d.run();
+}
+
 quit_game_dialog_action quit_without_saving(void)
 {
 	dialog d;
@@ -642,6 +683,8 @@ quit_game_dialog_action quit_without_saving(void)
     }, &d);
     load_checkpoint->set_enabled(!game_is_networked && find_last_checkpoint(checkpoint, input_preferences->sprintathon_safe_checkpoints));
     placer->dual_add(load_checkpoint, d);
+    placer->add(new w_spacer(scale_dialog_value(6)), true);
+    placer->dual_add(new w_button("GAME STATS", sprintathon_show_game_stats, nullptr), d);
 
 
 	placer->add(new w_spacer(scale_dialog_value(10)), true);

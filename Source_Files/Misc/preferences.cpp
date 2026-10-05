@@ -1429,6 +1429,8 @@ void handle_preferences(bool in_game)
 	w_toggle *fog_depth_w = new w_toggle(graphics_preferences->OGL_Configure.ForceFogDepthDensity);
 	w_toggle *fog_black_w = new w_toggle(graphics_preferences->OGL_Configure.ForceFogBlack);
 	w_toggle *fog_darken_w = new w_toggle(graphics_preferences->OGL_Configure.ForceFogDistanceDarkening);
+	w_toggle *ceiling_fog_cones_w = new w_toggle(graphics_preferences->ceiling_fog_cones);
+    w_percentage_slider *ceiling_fog_cone_strength_w = new w_percentage_slider(101, graphics_preferences->ceiling_fog_cone_strength);
 	w_toggle *fog_haze_w = new w_toggle(graphics_preferences->OGL_Configure.DeepFogHaze);
 	w_percentage_slider *fog_drift_intensity_w = new w_percentage_slider(
 		201, graphics_preferences->OGL_Configure.DriftingFogIntensity);
@@ -1438,6 +1440,8 @@ void handle_preferences(bool in_game)
 	ADD_FOG_ROW("Animated Density", fog_animated_w); ADD_FOG_ROW("Density Increases with Depth", fog_depth_w);
 	ADD_FOG_ROW("Black Fog", fog_black_w); ADD_FOG_ROW("Darken with Distance", fog_darken_w);
 	ADD_FOG_ROW("Deep Fog Haze", fog_haze_w);
+    ADD_FOG_ROW("Ceiling Scenery Fog Cones", ceiling_fog_cones_w);
+    ADD_FOG_ROW("Fog Cone Strength", ceiling_fog_cone_strength_w);
 	ADD_FOG_ROW("Drifting Fog Intensity", fog_drift_intensity_w);
 #undef ADD_FOG_ROW
 	fog_page->add(fog, true); graphics_tabs->add(fog_page, true);
@@ -1591,7 +1595,7 @@ void handle_preferences(bool in_game)
 		model_quality_w, liquid_transparency_w, underwater_distortion_w,
 		liquid_ripples_w,
 		fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
-		fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w, fog_haze_w
+		fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w, fog_haze_w, ceiling_fog_cones_w
 	};
 	for (w_select *widget : graphics_select_widgets)
 		widget->set_selection_changed_callback(custom_select_changed);
@@ -1603,6 +1607,7 @@ void handle_preferences(bool in_game)
 			texture_far_w[i]->set_selection_changed_callback(custom_select_changed);
 	}
 	w_slider *graphics_slider_widgets[] = {
+        ceiling_fog_cone_strength_w,
         sector_shading_softness_w,
 		graphics_fov_w, colored_light_intensity_w, texture_light_intensity_w, scenery_light_intensity_w, texture_light_reach_w,
 		scenery_light_reach_w, light_render_distance_w,
@@ -1825,6 +1830,8 @@ void handle_preferences(bool in_game)
 	graphics_preferences->OGL_Configure.ForceFogBlack = fog_black_w->get_selection();
 	graphics_preferences->OGL_Configure.ForceFogDistanceDarkening = fog_darken_w->get_selection();
 	graphics_preferences->OGL_Configure.DeepFogHaze = fog_haze_w->get_selection();
+    graphics_preferences->ceiling_fog_cones = ceiling_fog_cones_w->get_selection();
+    graphics_preferences->ceiling_fog_cone_strength = ceiling_fog_cone_strength_w->get_selection();
 	graphics_preferences->OGL_Configure.DriftingFogIntensity =
 		fog_drift_intensity_w->get_selection();
 	graphics_preferences->pickup_flash =
@@ -6084,6 +6091,8 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("player_light_circle", graphics_preferences->player_light_circle);
 	root.put_attr("soft_sector_light_edges", graphics_preferences->soft_sector_light_edges);
 	root.put_attr("sector_shading_softness", graphics_preferences->sector_shading_softness);
+    root.put_attr("ceiling_fog_cones", graphics_preferences->ceiling_fog_cones);
+    root.put_attr("ceiling_fog_cone_strength", graphics_preferences->ceiling_fog_cone_strength);
 	root.put_attr("skip_intro", graphics_preferences->skip_intro);
 	root.put_attr("anisotropy_level", graphics_preferences->OGL_Configure.AnisotropyLevel);
 	root.put_attr("multisamples", graphics_preferences->OGL_Configure.Multisamples);
@@ -6725,6 +6734,8 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->player_light_circle = false;
 	preferences->soft_sector_light_edges = true;
 	preferences->sector_shading_softness = 50;
+    preferences->ceiling_fog_cones = false;
+    preferences->ceiling_fog_cone_strength = 50;
 
 	preferences->movie_export_video_quality = 50;
 	preferences->movie_export_audio_quality = 50;
@@ -7272,6 +7283,8 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("player_light_circle", graphics_preferences->player_light_circle);
 	root.read_attr("soft_sector_light_edges", graphics_preferences->soft_sector_light_edges);
 	root.read_attr_bounded<int16>("sector_shading_softness", graphics_preferences->sector_shading_softness, 0, 100);
+    root.read_attr("ceiling_fog_cones", graphics_preferences->ceiling_fog_cones);
+    root.read_attr_bounded<int16>("ceiling_fog_cone_strength", graphics_preferences->ceiling_fog_cone_strength, 0, 100);
 	root.read_attr("skip_intro", graphics_preferences->skip_intro);
 	root.read_attr("anisotropy_level", graphics_preferences->OGL_Configure.AnisotropyLevel);
 	root.read_attr("multisamples", graphics_preferences->OGL_Configure.Multisamples);

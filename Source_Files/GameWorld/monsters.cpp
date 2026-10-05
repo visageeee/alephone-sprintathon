@@ -1730,6 +1730,9 @@ void damage_monster(
 					if (aggressor_player)
 					{
 						aggressor_player->monster_damage_given.kills+= 1;
+                        if (aggressor_player == local_player &&
+                            (damage->flags & _sprintathon_kick_damage))
+                            sprintathon_record_kick_kill();
 						team_monster_damage_given[aggressor_player->team].kills += 1;
 						
 						if (definition->_class&_class_human_civilian) dynamic_world->civilians_killed_by_players+= 1;
@@ -2472,7 +2475,7 @@ bool sprintathon_slide_attack(
 	// Standard fist damage at half the former 1.5x slide modifier.
 	damage_definition damage = {
 		_damage_fist,
-		_sprintathon_damage,
+		static_cast<int16>(_sprintathon_damage | (slide_hit ? 0 : _sprintathon_kick_damage)),
 		56,
 		0,
 		damage_scale

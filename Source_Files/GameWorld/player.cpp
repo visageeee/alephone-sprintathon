@@ -1,3 +1,4 @@
+#include <cmath>
 /*
 PLAYER.C
 
@@ -692,6 +693,41 @@ void decode_hotkeys(ModifiableActionQueues& action_queues)
 }
 
 /* assumes ∂t==1 tick */
+static SprintathonGameStats sprintathon_stats;
+static bool stats_have_position = false;
+static world_point3d stats_last_position;
+
+const SprintathonGameStats& sprintathon_game_stats() { return sprintathon_stats; }
+void sprintathon_record_kick_kill() { ++sprintathon_stats.kick_kills; }
+
+void sprintathon_reset_game_stats()
+{
+    sprintathon_stats = SprintathonGameStats();
+    stats_have_position = false;
+}
+
+static void sprintathon_update_game_stats()
+{
+    if (local_player_index == NONE || local_player_index >= dynamic_world->player_count) return;
+    const player_data *p = get_player_data(local_player_index);
+    // Called only for authoritative simulation ticks, never while paused.
+    ++sprintathon_stats.ticks;
+    const bool active = !PLAYER_IS_DEAD(p) && !PLAYER_IS_TELEPORTING(p);
+    if (active) {
+        if (p->sprinting) ++sprintathon_stats.sprint_ticks;
+        if (sprintathon_bullet_time_active()) ++sprintathon_stats.bullet_ticks;
+        if (stats_have_position) {
+            const double dx = double(p->location.x) - stats_last_position.x;
+            const double dy = double(p->location.y) - stats_last_position.y;
+            const double distance = std::sqrt(dx*dx + dy*dy);
+            // Reject teleports/scripted jumps; report horizontal map distance.
+            if (distance < 2.0 * WORLD_ONE) sprintathon_stats.distance += distance / WORLD_ONE;
+        }
+    }
+    stats_last_position = p->location;
+    stats_have_position = active;
+}
+
 void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 	bool advance_slow_time)
 {
@@ -700,6 +736,7 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 
 	if(!inPredictive)
 	{
+		sprintathon_update_game_stats();
 		// ZZZ: update ticks-since-terminal stuff
 		sLocalPlayerTicksSinceTerminal++;
 		if(player_in_terminal_mode(local_player_index))

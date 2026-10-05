@@ -1035,6 +1035,93 @@ static float sprintathon_flare_strength(const SprintathonDroppedFlare& flare)
 }
 
 // A depth-tested billboard spark at each flare. The shader still lights the world.
+// Experimental camera-facing fog cone approximation, confined to its source sector.
+struct SprintathonFogCone {
+    short object_index;
+    float x, y, z, floor, radius, red, green, blue;
+};
+static std::vector<SprintathonFogCone> sprintathon_fog_cones;
+
+static void sprintathon_collect_fog_cone(short index, float z, const float *rgb)
+{
+    if (!graphics_preferences->ceiling_fog_cones || index < 0 ||
+        size_t(index) >= ObjectList.size()) return;
+    const object_data *object = get_object_data(index);
+    if (!SLOT_IS_USED(object) || object->polygon == NONE) return;
+    const polygon_data *polygon = get_polygon_data(object->polygon);
+    // Ceiling scenery uses its ceiling anchor, not the sprite's apparent size.
+    if (std::abs(int(object->location.z) - polygon->ceiling_height) > WORLD_ONE/4) return;
+    for (const auto& cone : sprintathon_fog_cones)
+        if (cone.object_index == index) return;
+    float radius = WORLD_ONE * 1.25f;
+    for (short i = 0; i < polygon->vertex_count; ++i) {
+        const auto& a = get_endpoint_data(polygon->endpoint_indexes[i])->vertex;
+        const auto& b = get_endpoint_data(polygon->endpoint_indexes[(i+1)%polygon->vertex_count])->vertex;
+        const float dx = float(b.x)-a.x, dy = float(b.y)-a.y;
+        const float length = std::sqrt(dx*dx+dy*dy);
+        if (length > 0)
+            radius = std::min(radius, std::abs(dx*(object->location.y-a.y)-dy*(object->location.x-a.x))/length);
+    }
+    if (radius < WORLD_ONE*0.03f) return;
+    z = std::min(z, float(polygon->ceiling_height)-1);
+    if (z <= polygon->floor_height) return;
+    sprintathon_fog_cones.push_back({index, float(object->location.x), float(object->location.y),
+        z, float(polygon->floor_height), radius, rgb[0], rgb[1], rgb[2]});
+}
+
+static void sprintathon_draw_fog_cones(const view_data *camera)
+{
+    if (!graphics_preferences->ceiling_fog_cones ||
+        graphics_preferences->ceiling_fog_cone_strength == 0 || sprintathon_fog_cones.empty()) return;
+    const auto fog = OGL_GetCurrFogData();
+    const bool forced = TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_ForceFog);
+    if (!TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_Fog) ||
+        ((!fog || !fog->IsPresent) && !forced)) return;
+    auto distance2 = [&](const SprintathonFogCone& c) {
+        const float dx=c.x-camera->origin.x, dy=c.y-camera->origin.y;
+        return dx*dx+dy*dy;
+    };
+    std::sort(sprintathon_fog_cones.begin(), sprintathon_fog_cones.end(),
+        [&](const SprintathonFogCone& a, const SprintathonFogCone& b) {
+            const float da=distance2(a), db=distance2(b);
+            return da == db ? a.object_index < b.object_index : da < db;
+        });
+    Shader::disable();
+    GLint active_texture; glGetIntegerv(GL_ACTIVE_TEXTURE, &active_texture);
+    glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_CURRENT_BIT | GL_TEXTURE_BIT);
+    glActiveTextureARB(GL_TEXTURE0_ARB);
+    glDisable(GL_TEXTURE_2D); glDisable(GL_TEXTURE_RECTANGLE_ARB);
+    glDisable(GL_ALPHA_TEST); glDisable(GL_CULL_FACE); glDisable(GL_FOG);
+    glEnable(GL_DEPTH_TEST); glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    const float density = fog && fog->IsPresent ? std::min(1.0f, 8.0f/std::max(1.0f, fog->Depth)) : 0.5f;
+    const float strength = graphics_preferences->ceiling_fog_cone_strength/100.0f;
+    for (size_t n=0; n<sprintathon_fog_cones.size() && n<8; ++n) {
+        const auto& c=sprintathon_fog_cones[n];
+        const float distance=std::sqrt(distance2(c));
+        const float fade=std::max(0.0f, 1.0f-distance/(24.0f*WORLD_ONE));
+        if (distance < 1 || fade <= 0) continue;
+        const float rx=-(camera->origin.y-c.y)/distance, ry=(camera->origin.x-c.x)/distance;
+        const float height=std::min(c.z-c.floor, 5.0f*WORLD_ONE);
+        // Smoothly sampled cross-section: transparent edges, no hard base cap.
+        for (int j=0;j<24;++j) {
+            glBegin(GL_TRIANGLE_STRIP);
+            for (int i=0;i<=16;++i) for (int k=0;k<2;++k) {
+                const float t=float(j+k)/24, u=float(i)/8-1;
+                const float tip_width=std::min(c.radius*0.1f, WORLD_ONE*0.04f);
+                const float base_width=std::min(c.radius, WORLD_ONE*0.04f+height*0.28f);
+                const float width=tip_width+(base_width-tip_width)*t;
+                const float noise=0.92f+0.08f*std::sin(t*13+u*4+camera->tick_count/float(TICKS_PER_SECOND)*0.6f);
+                const float alpha=0.32f*strength*density*fade*noise*(1-u*u)*std::sin(t*3.14159265f);
+                glColor4f(c.red,c.green,c.blue,alpha);
+                glVertex3f(c.x+rx*u*width,c.y+ry*u*width,c.z-t*height);
+            }
+            glEnd();
+        }
+    }
+    glPopAttrib(); glActiveTextureARB(active_texture);
+}
+
 static void sprintathon_draw_flare_stars(const view_data *camera)
 {
     if (sprintathon_dropped_flares.empty()) return;
@@ -2103,6 +2190,7 @@ void RenderRasterize_Shader::render_tree() {
         sprintathon_texture_lights_next.clear();
     }
 
+    sprintathon_fog_cones.clear();
     sprintathon_visible_scenery.assign(ObjectList.size(), false);
     if (sprintathon_all_scenery_enabled()) {
         for (const auto& node : RSPtr->SortedNodes) {
@@ -2331,6 +2419,7 @@ void RenderRasterize_Shader::render_tree() {
 		render_world_diffuse();
 		sprintathon_end_shaft_source();
 	}
+    sprintathon_draw_fog_cones(view);
     sprintathon_draw_flare_smoke(view);
     sprintathon_draw_flare_stars(view);
 	if (ogl_config.AmbientOcclusion || ogl_config.LandscapeLightShafts ||
@@ -4111,13 +4200,14 @@ void RenderRasterize_Shader::_render_node_object_helper(render_object_data *obje
 
 	if (object->is_scenery && renderStep == kDiffuse) {
         float bright_u, bright_v, bright_rgb[3];
-        if (graphics_preferences->bright_scenery_lights &&
+        if ((graphics_preferences->bright_scenery_lights || graphics_preferences->ceiling_fog_cones) &&
             TMgr->GetBrightEmission(bright_u, bright_v, bright_rgb)) {
             // Scale the height from the actual scenery frame. Its horizontal
             // hotspot stays at the object location for camera-facing sprites.
             const float bottom = rect.WorldBottom * rect.Scale;
             const float top = rect.WorldTop * rect.Scale;
             const float light_z = pos.z + bottom + (top - bottom) * (1.0f - bright_v);
+            sprintathon_collect_fog_cone(object->scenery_object_index, light_z, bright_rgb);
             sprintathon_record_texture_light(TMgr.get(), pos.x, pos.y, light_z, renderStep, true,
                 false, NONE, 0.0f, object->scenery_object_index);
         }
