@@ -505,7 +505,9 @@ void OGL_BeginRetainedSpriteReload(bool requested)
         std::memcmp(&retained_sprite_config, &Get_OGL_ConfigureData(), sizeof(OGL_ConfigureData))) return;
     unsigned count = 0;
     for (short i = 0; i < MAXIMUM_COLLECTIONS; ++i) {
-        if (retained_sprite_signatures[i].empty()) continue;
+        if (retained_sprite_signatures[i].empty() ||
+            !TextureStateSets[OGL_Txtr_Inhabitant][i] ||
+            !TextureStateSets[OGL_Txtr_WeaponsInHand][i]) continue;
         retain_sprite_collection[i] = retained_sprite_signatures[i] == OGL_NativeSpriteSignature(i);
         if (retain_sprite_collection[i]) ++count;
     }
@@ -787,7 +789,18 @@ bool TextureManager::Setup()
 	
 	// Get the texture-state info: first, per-collection, then per-bitmap
 	CollBitmapTextureState *CBTSList = TextureStateSets[TextureType][Collection];
-	if (CBTSList == NULL) return false;
+	if (CBTSList == NULL) {
+        // A collection may become available after the view context was rebuilt.
+        // Recreate its accounting on first use instead of permanently dropping
+        // valid sprites (including the held weapon) until another restart.
+        if (TextureType != OGL_Txtr_Inhabitant &&
+            TextureType != OGL_Txtr_WeaponsInHand) return false;
+        if (!is_collection_present(Collection)) return false;
+        const short bitmap_count = get_number_of_collection_bitmaps(Collection);
+        if (Bitmap < 0 || Bitmap >= bitmap_count) return false;
+        CBTSList = new CollBitmapTextureState[bitmap_count];
+        TextureStateSets[TextureType][Collection] = CBTSList;
+    }
 	CollBitmapTextureState& CBTS = CBTSList[Bitmap];
 	
 	// Get the control info for this texture type:
