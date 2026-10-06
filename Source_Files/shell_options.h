@@ -21,6 +21,8 @@ struct ShellOptions {
 	bool force_windowed;
 
 	bool skip_intro;
+	bool zpc;
+	std::string zpc_support;
 	bool editor;
 
 	bool no_chooser;

@@ -23,7 +23,9 @@
  *  shell.cpp - Main game loop and input handling
  */
 
+#include "zpc_import.h"
 #include "cseries.h"
+#include "zpc_import_files.h"
 
 #include "map.h"
 #include "monsters.h"
@@ -281,6 +283,25 @@ void initialize_application(void)
 
 	log_dir = get_data_path(kPathLogs);
 	initialize_joystick();
+
+	if (shell_options.zpc)
+	{
+		try
+		{
+			fprintf(stderr, "Importing ZPC files (experimental exploration mode)...\n");
+			shell_options.directory = zpc_import::prepare(shell_options.directory,
+				shell_options.zpc_support, get_data_path(kPathLocalData));
+			shell_options.no_chooser = true;
+			shell_options.skip_intro = true;
+			fprintf(stderr, "ZPC exploration data: %s\n", shell_options.directory.c_str());
+		}
+		catch (const std::exception& e)
+		{
+			fprintf(stderr, "%s\n", e.what());
+			alert_user(e.what(), fatalError);
+			exit(1);
+		}
+	}
 
 	const string default_data_env = a1_getenv("ALEPHONE_DEFAULT_DATA");
 #ifndef SCENARIO_IS_BUNDLED

@@ -1055,13 +1055,33 @@ static void sprintathon_collect_fog_cone(short index, float z, const float *rgb)
     for (const auto& cone : sprintathon_fog_cones)
         if (cone.object_index == index) return;
     float radius = WORLD_ONE * 1.25f;
-    for (short i = 0; i < polygon->vertex_count; ++i) {
-        const auto& a = get_endpoint_data(polygon->endpoint_indexes[i])->vertex;
-        const auto& b = get_endpoint_data(polygon->endpoint_indexes[(i+1)%polygon->vertex_count])->vertex;
-        const float dx = float(b.x)-a.x, dy = float(b.y)-a.y;
-        const float length = std::sqrt(dx*dx+dy*dy);
-        if (length > 0)
-            radius = std::min(radius, std::abs(dx*(object->location.y-a.y)-dy*(object->location.x-a.x))/length);
+    // Sector divisions are not walls. Walk through openings that contain the
+    // full cone height, and limit its radius only at actual room boundaries.
+    std::vector<short> sectors(1, object->polygon);
+    for (size_t visit=0; visit<sectors.size(); ++visit) {
+        const auto* sector=get_polygon_data(sectors[visit]);
+        for (short i=0; i<sector->vertex_count; ++i) {
+            const auto& a=get_endpoint_data(sector->endpoint_indexes[i])->vertex;
+            const auto& b=get_endpoint_data(sector->endpoint_indexes[(i+1)%sector->vertex_count])->vertex;
+            const float dx=float(b.x)-a.x,dy=float(b.y)-a.y;
+            const float length2=dx*dx+dy*dy;
+            if(length2<1)continue;
+            const float t=std::max(0.0f,std::min(1.0f,
+                ((object->location.x-a.x)*dx+(object->location.y-a.y)*dy)/length2));
+            const float ex=object->location.x-(a.x+t*dx),ey=object->location.y-(a.y+t*dy);
+            const float distance=std::sqrt(ex*ex+ey*ey);
+            if(distance>=radius)continue;
+            const short adjacent=sector->adjacent_polygon_indexes[i];
+            if(adjacent!=NONE) {
+                const auto* neighbor=get_polygon_data(adjacent);
+                if(neighbor->floor_height<=polygon->floor_height &&
+                   neighbor->ceiling_height>=std::min(z,float(polygon->ceiling_height)-1)) {
+                    if(std::find(sectors.begin(),sectors.end(),adjacent)!=sectors.end())continue;
+                    if(sectors.size()<64) { sectors.push_back(adjacent); continue; }
+                }
+            }
+            radius=std::min(radius,distance);
+        }
     }
     if (radius < WORLD_ONE*0.03f) return;
     z = std::min(z, float(polygon->ceiling_height)-1);
@@ -5421,6 +5441,10 @@ void RenderRasterize_Shader::render_viewer_sprite(rectangle_definition& RenderRe
 	
 	// Use that texture
 	auto TMgr = setupSpriteTexture(RenderRectangle, OGL_Txtr_WeaponsInHand, 0, renderStep);
+	// Setup can fail while textures are unavailable during a renderer reload.
+	// Match the world-sprite path: never read texture options or draw this quad
+	// when setupSpriteTexture has marked the texture invalid.
+	if (TMgr->ShapeDesc == UNONE) return;
 	
 	// Calculate the texture coordinates;
 	// the scanline direction is downward, (texture coordinate 0)

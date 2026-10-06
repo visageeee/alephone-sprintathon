@@ -94,12 +94,14 @@ static const std::vector<ShellOptionsFlag> shell_options_flags {
 	{"m", "nogamma", "Disable gamma table effects (menu fades)", shell_options.nogamma},
 	{"j", "nojoystick", "Do not initialize joysticks", shell_options.nojoystick},
 	{"i", "insecure_lua", "", shell_options.insecure_lua},
+	{"", "zpc", "Import original ZPC files for exploration", shell_options.zpc},
 	{"Q", "skip-intro", "Skip intro screens", shell_options.skip_intro},
 	{"e", "editor", "Use editor prefs; jump directly to map", shell_options.editor},
 	{"", "no-chooser", "Disable the scenario chooser", shell_options.no_chooser}
 };
 
 static const std::vector<ShellOptionsString> shell_options_strings {
+	{"", "zpc-support", "Marathon support data directory for --zpc", shell_options.zpc_support},
 	{"o", "output", "With -e, output to [file] and exit on quit", shell_options.output},
 	{"l", "replay-directory", "Directory with replays to load", shell_options.replay_directory},
 	{"NSDocumentRevisionsDebugMode", "", "", ignore} // annoying Xcode argument
