@@ -151,6 +151,7 @@ public:
 		U_FlameRipple,
 		U_FlameBounds,
 		U_SprintathonSurfaceLightCount,
+        U_SprintathonLiquidLightSettings,
 		U_SprintathonAllSceneryCount,
 		U_SprintathonDistantSurfaceDetail,
 		U_LiquidEdge0,

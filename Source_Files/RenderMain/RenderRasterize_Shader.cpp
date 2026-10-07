@@ -1886,7 +1886,9 @@ static void sprintathon_set_sprite_light(Shader *shader, const rectangle_definit
         if (source) {
             const float falloff = 1.0f - nearest;
             const float amount = falloff * falloff / (1.0f + 16.0f * nearest);
-            const float gain = sprintathon_emitter_gain(source->scenery) * source->shade_gain;
+            const float gain = sprintathon_emitter_gain(source->scenery) * source->shade_gain *
+                (source->liquid && source->liquid_type != _media_lava ?
+                    graphics_preferences->liquid_fluorescence / 100.0f : 1.0f);
             rgb[0] += source->r * amount * gain;
             rgb[1] += source->g * amount * gain;
             rgb[2] += source->b * amount * gain;
@@ -2107,6 +2109,11 @@ static void sprintathon_set_view_emitters(Shader *shader,
     // retain the ordinary steady liquid light. Share the actual lava ripple
     // clock and speed setting, including its bullet-time rate.
     const bool vertical_receiver = bounds && bounds->valid && bounds->z1 > bounds->z0;
+    // Independent steady fluorescence and additive wall caustic illumination.
+    shader->setVector4(Shader::U_SprintathonLiquidLightSettings,
+        graphics_preferences->liquid_fluorescence / 100.0f,
+        liquid_caustics && graphics_preferences->liquid_caustics && vertical_receiver ?
+            graphics_preferences->liquid_caustic_strength / 100.0f : 0.0f, 0, 0);
     // Each source uses its own liquid ripple speed.
     const float gain = graphics_preferences->colored_light_intensity / 100.0f;
     int active_count = 0;
@@ -2119,9 +2126,8 @@ static void sprintathon_set_view_emitters(Shader *shader,
         uploaded[slot] = true;
         shader->setVector4(positions[slot], x, y, z, 1.0f / radius);
         shader->setVector4(colors[slot], r, g, b,
-            liquid_type != NONE && liquid_caustics &&
-                graphics_preferences->liquid_caustics && vertical_receiver ?
-                2.0f + sprintathon_liquid_ripple_phase(liquid_type, 0.5) : 1.0f);
+            liquid_type != NONE ? (liquid_type == _media_lava ? 10.0f : 2.0f) +
+                sprintathon_liquid_ripple_phase(liquid_type, 0.5) : 1.0f);
         ++active_count;
     };
     for (int i = 0; i < sprintathon_emitter_slots; ++i) {

@@ -122,6 +122,8 @@ struct graphics_preferences_data
 	bool soft_sector_light_edges;
 	int16 sector_shading_softness;
     bool liquid_caustics;
+    int16 liquid_fluorescence;
+    int16 liquid_caustic_strength;
     bool ceiling_fog_cones;
     bool fog_light_coronas;
     bool fog_projectile_coronas;

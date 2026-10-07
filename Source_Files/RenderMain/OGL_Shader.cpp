@@ -169,6 +169,7 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"flameRipple",
 	"flameBounds",
 	"sprintathonSurfaceLightCount",
+    "sprintathonLiquidLightSettings",
 	"sprintathonAllSceneryCount",
 	"sprintathonDistantSurfaceDetail",
 	"liquidEdge0",
