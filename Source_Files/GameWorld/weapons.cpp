@@ -1,3 +1,4 @@
+#include "shell_options.h"
 /*
 	weapons.c
 
@@ -276,6 +277,21 @@ weapon_definition *get_weapon_definition(
 {
 	weapon_definition *definition = GetMemberWithBounds(weapon_definitions,weapon_type,NUMBER_OF_WEAPONS);
 	assert(definition);
+    if (shell_options.zpc && weapon_type == _weapon_fist) {
+        definition->collection = _collection_weapons_in_hand;
+        definition->idle_shape = 0;
+        definition->firing_shape = 1;
+        definition->reloading_shape = 0;
+        definition->idle_height = FIXED_ONE;
+        definition->kick_height = 0;
+        for (auto& trigger : definition->weapons_by_trigger) {
+            trigger.projectile_type = _projectile_fusion_bolt_minor;
+            trigger.ticks_per_round = 32; // 16 original frames, two ticks each
+            trigger.recovery_ticks = 8;
+            trigger.recoil_magnitude = 0;
+        }
+    }
+
 	
 	return definition;
 }

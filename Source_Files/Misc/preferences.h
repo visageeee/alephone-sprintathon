@@ -121,6 +121,7 @@ struct graphics_preferences_data
 	bool player_light_circle;
 	bool soft_sector_light_edges;
 	int16 sector_shading_softness;
+    bool liquid_caustics;
     bool ceiling_fog_cones;
     bool fog_light_coronas;
     bool fog_projectile_coronas;

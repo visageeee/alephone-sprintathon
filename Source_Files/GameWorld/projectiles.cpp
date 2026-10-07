@@ -1,3 +1,4 @@
+#include "shell_options.h"
 /*
 PROJECTILES.C
 
@@ -176,6 +177,14 @@ projectile_definition *get_projectile_definition(
 {
 	projectile_definition *definition = GetMemberWithBounds(projectile_definitions,type,NUMBER_OF_PROJECTILE_TYPES);
 	vassert(definition, csprintf(temporary, "projectile type #%d is out of range", type));
+    if (shell_options.zpc && type == _projectile_fusion_bolt_minor) {
+        definition->collection = BUILD_COLLECTION(_collection_weapons_in_hand, 1);
+        definition->shape = 2;
+        definition->damage.base = 0;
+        definition->damage.random = 0;
+        definition->flyby_sound = NONE;
+    }
+
 	
 	return definition;
 }

@@ -118,6 +118,25 @@ float getFogFactor(float distance) {
 	}
 }
 
+// World-anchored crossing wave ridges: an inexpensive caustic approximation.
+// Include height in the projection so vertical walls show moving patches too.
+float sprintathonLiquidCaustic(float phase, vec3 sourcePosition) {
+    // Finer by the liquid, spreading out over the next four world units.
+    // Anchor to each emitter to avoid extreme stretching far from map origin.
+    vec3 relativePosition = sprintathonWorldPosition - sourcePosition;
+    float heightAboveLiquid = max(relativePosition.z / 1024.0, 0.0);
+    float patternScale = mix(0.60, 1.80,
+        smoothstep(0.0, 4.0, heightAboveLiquid));
+    vec3 p = relativePosition / (768.0 * patternScale);
+    vec2 q = p.xy + p.z * vec2(0.37, -0.29);
+    float a = sin(q.x * 5.1 + q.y * 2.7 + phase * 2.0
+        + 0.65 * sin(q.y * 3.4 - phase));
+    float b = sin(q.x * -3.2 + q.y * 5.8 - phase
+        + 0.65 * sin(q.x * 3.9 + phase * 2.0));
+    float ridge = 1.0 - smoothstep(0.06, 0.38, abs(a + b));
+    return 0.70 + 0.85 * ridge * ridge;
+}
+
 void sprintathonApplySurfaceLights(inout vec3 intensity) {
     if (sprintathonSurfaceLightCount <= 0.0) return;
     if (sprintathonLightColor2.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -125,7 +144,12 @@ void sprintathonApplySurfaceLights(inout vec3 intensity) {
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor2.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor2.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor2.a - 2.0, sprintathonLightPosition2.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor2.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor3.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -133,7 +157,12 @@ void sprintathonApplySurfaceLights(inout vec3 intensity) {
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor3.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor3.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor3.a - 2.0, sprintathonLightPosition3.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor3.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor4.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -141,7 +170,12 @@ void sprintathonApplySurfaceLights(inout vec3 intensity) {
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor4.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor4.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor4.a - 2.0, sprintathonLightPosition4.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor4.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor5.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -149,7 +183,12 @@ void sprintathonApplySurfaceLights(inout vec3 intensity) {
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor5.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor5.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor5.a - 2.0, sprintathonLightPosition5.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor5.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonSurfaceLightCount <= 4.0) return;
@@ -158,7 +197,12 @@ void sprintathonApplySurfaceLights(inout vec3 intensity) {
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor6.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor6.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor6.a - 2.0, sprintathonLightPosition6.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor6.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor7.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -167,7 +211,12 @@ void sprintathonApplySurfaceLights(inout vec3 intensity) {
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
 )"
-R"(            intensity = clamp(intensity + sprintathonLightColor7.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+R"(            float causticGain = 1.0;
+            if (sprintathonLightColor7.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor7.a - 2.0, sprintathonLightPosition7.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor7.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor8.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -175,7 +224,12 @@ R"(            intensity = clamp(intensity + sprintathonLightColor7.rgb * (light
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor8.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor8.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor8.a - 2.0, sprintathonLightPosition8.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor8.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor9.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -184,7 +238,12 @@ R"(            intensity = clamp(intensity + sprintathonLightColor7.rgb * (light
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
 )"
-R"(            intensity = clamp(intensity + sprintathonLightColor9.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+R"(            float causticGain = 1.0;
+            if (sprintathonLightColor9.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor9.a - 2.0, sprintathonLightPosition9.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor9.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonSurfaceLightCount <= 8.0) return;
@@ -193,7 +252,12 @@ R"(            intensity = clamp(intensity + sprintathonLightColor9.rgb * (light
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor10.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor10.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor10.a - 2.0, sprintathonLightPosition10.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor10.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor11.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -202,7 +266,12 @@ R"(            intensity = clamp(intensity + sprintathonLightColor9.rgb * (light
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
 
-            intensity = clamp(intensity + sprintathonLightColor11.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor11.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor11.a - 2.0, sprintathonLightPosition11.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor11.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor12.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -210,7 +279,12 @@ R"(            intensity = clamp(intensity + sprintathonLightColor9.rgb * (light
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor12.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor12.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor12.a - 2.0, sprintathonLightPosition12.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor12.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor13.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -218,7 +292,12 @@ R"(            intensity = clamp(intensity + sprintathonLightColor9.rgb * (light
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor13.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor13.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor13.a - 2.0, sprintathonLightPosition13.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor13.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonSurfaceLightCount <= 12.0) return;
@@ -227,7 +306,12 @@ R"(            intensity = clamp(intensity + sprintathonLightColor9.rgb * (light
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor14.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor14.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor14.a - 2.0, sprintathonLightPosition14.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor14.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor15.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -235,7 +319,12 @@ R"(            intensity = clamp(intensity + sprintathonLightColor9.rgb * (light
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor15.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor15.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor15.a - 2.0, sprintathonLightPosition15.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor15.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor16.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -243,7 +332,12 @@ R"(            intensity = clamp(intensity + sprintathonLightColor9.rgb * (light
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor16.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor16.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor16.a - 2.0, sprintathonLightPosition16.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor16.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor17.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -251,7 +345,12 @@ R"(            intensity = clamp(intensity + sprintathonLightColor9.rgb * (light
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor17.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor17.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor17.a - 2.0, sprintathonLightPosition17.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor17.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonSurfaceLightCount <= 16.0) return;
@@ -260,7 +359,12 @@ R"(            intensity = clamp(intensity + sprintathonLightColor9.rgb * (light
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor18.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor18.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor18.a - 2.0, sprintathonLightPosition18.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor18.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor19.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -268,7 +372,12 @@ R"(            intensity = clamp(intensity + sprintathonLightColor9.rgb * (light
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor19.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor19.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor19.a - 2.0, sprintathonLightPosition19.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor19.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor20.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -276,7 +385,12 @@ R"(            intensity = clamp(intensity + sprintathonLightColor9.rgb * (light
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor20.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor20.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor20.a - 2.0, sprintathonLightPosition20.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor20.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
     if (sprintathonLightColor21.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
@@ -284,7 +398,12 @@ R"(            intensity = clamp(intensity + sprintathonLightColor9.rgb * (light
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
-            intensity = clamp(intensity + sprintathonLightColor21.rgb * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
+            float causticGain = 1.0;
+            if (sprintathonLightColor21.a >= 2.0) {
+                causticGain = sprintathonLiquidCaustic(
+                    sprintathonLightColor21.a - 2.0, sprintathonLightPosition21.xyz);
+            }
+            intensity = clamp(intensity + sprintathonLightColor21.rgb * causticGain * (lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared)), glow, 1.0);
         }
     }
 }

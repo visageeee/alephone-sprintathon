@@ -216,7 +216,8 @@ bool get_scenery_collection(short scenery_type, short& collection)
 	struct scenery_definition *definition = get_scenery_definition(scenery_type);
 	if (!definition) return false;
 
-	collection = GET_DESCRIPTOR_COLLECTION(definition->shape);
+	// Loading tracks base collections, not the packed collection + CLUT code.
+	collection = GET_COLLECTION(GET_DESCRIPTOR_COLLECTION(definition->shape));
 	return true;
 }
 
@@ -226,7 +227,7 @@ bool get_damaged_scenery_collection(short scenery_type, short& collection)
 	if (!definition || !(definition->flags & _scenery_can_be_destroyed))
 		return false;
 
-	collection = GET_DESCRIPTOR_COLLECTION(definition->destroyed_shape);
+	collection = GET_COLLECTION(GET_DESCRIPTOR_COLLECTION(definition->destroyed_shape));
 	return true;
 }
 

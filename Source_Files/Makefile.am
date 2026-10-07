@@ -18,7 +18,7 @@ endif
 
 alephone_SOURCES = shell.h \
   \
-  shell.cpp shell_misc.cpp shell_options.h shell_options.cpp zpc_import.h zpc_import_files.h main.cpp
+  shell.cpp shell_misc.cpp shell_options.h shell_options.cpp zpc_import.h zpc_import_files.h zpc_static_data.h main.cpp
 
 alephone_LDADD = \
   CSeries/libcseries.a Files/libfiles.a Videos/libvideos.a \

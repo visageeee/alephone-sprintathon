@@ -1271,10 +1271,12 @@ void handle_preferences(bool in_game)
 	vertical_placer *light_fx_page = new vertical_placer(get_theme_space(ITEM_WIDGET));
 	light_fx_page->center_vertically();
 	light_fx_page->min_width(scale_dialog_value(430));
+	w_toggle *liquid_caustics_w = new w_toggle(graphics_preferences->liquid_caustics);
 	table_placer *light_fx = make_preferences_table();
 #define ADD_LIGHT_FX_ROW(caption, widget) \
 	light_fx->dual_add((widget)->label(caption), d); light_fx->dual_add(widget, d)
 	ADD_LIGHT_FX_ROW("Bloom Effects", ogl_bloom_w);
+	ADD_LIGHT_FX_ROW("Liquid Caustics", liquid_caustics_w);
 	ADD_LIGHT_FX_ROW("Blend Sector Shading", soft_sector_light_edges_w);
 	ADD_LIGHT_FX_ROW("Sector Shading Softness", sector_shading_softness_w);
 	ADD_LIGHT_FX_ROW("Sprite Shadows", ogl_sprite_shadows_w);
@@ -1495,7 +1497,7 @@ void handle_preferences(bool in_game)
 		 fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
 		 fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w,
 		 fog_haze_w, fog_drift_intensity_w, texture_light_reach_w,
-         ceiling_fog_cones_w, ceiling_fog_cone_strength_w, fog_light_coronas_w,
+         liquid_caustics_w, ceiling_fog_cones_w, ceiling_fog_cone_strength_w, fog_light_coronas_w,
          fog_projectile_coronas_w, fog_scenery_coronas_w, fog_corona_strength_w,
 		 scenery_light_reach_w, light_render_distance_w,
 		 scenery_light_render_distance_w,
@@ -1576,6 +1578,7 @@ void handle_preferences(bool in_game)
 			fog_haze_w->set_selection(total);
 			fog_drift_intensity_w->set_selection(total ? 50 : high_or_better ? 25 : 0);
             ceiling_fog_cones_w->set_selection(high_or_better);
+            liquid_caustics_w->set_selection(high_or_better);
             fog_light_coronas_w->set_selection(high_or_better);
             fog_projectile_coronas_w->set_selection(high_or_better);
             fog_scenery_coronas_w->set_selection(high_or_better);
@@ -1609,7 +1612,7 @@ void handle_preferences(bool in_game)
 		ogl_anamorphic_lens_flares_w, ogl_vsync_w, ogl_npot_w,
 		ogl_effects_w, ogl_aniso_w, sprite_upscaling_w, wall_upscaling_w,
 		model_quality_w, liquid_transparency_w, underwater_distortion_w,
-		liquid_ripples_w,
+		liquid_ripples_w, liquid_caustics_w,
 		fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
 		fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w, fog_haze_w, ceiling_fog_cones_w, fog_light_coronas_w, fog_projectile_coronas_w, fog_scenery_coronas_w
 	};
@@ -1848,6 +1851,7 @@ void handle_preferences(bool in_game)
 	graphics_preferences->OGL_Configure.ForceFogDistanceDarkening = fog_darken_w->get_selection();
 	graphics_preferences->OGL_Configure.DeepFogHaze = fog_haze_w->get_selection();
     graphics_preferences->ceiling_fog_cones = ceiling_fog_cones_w->get_selection();
+    graphics_preferences->liquid_caustics = liquid_caustics_w->get_selection();
     graphics_preferences->fog_light_coronas = fog_light_coronas_w->get_selection();
     graphics_preferences->fog_projectile_coronas = fog_projectile_coronas_w->get_selection();
     graphics_preferences->fog_scenery_coronas = fog_scenery_coronas_w->get_selection();
@@ -6113,6 +6117,7 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("soft_sector_light_edges", graphics_preferences->soft_sector_light_edges);
 	root.put_attr("sector_shading_softness", graphics_preferences->sector_shading_softness);
     root.put_attr("ceiling_fog_cones", graphics_preferences->ceiling_fog_cones);
+    root.put_attr("liquid_caustics", graphics_preferences->liquid_caustics);
     root.put_attr("fog_light_coronas", graphics_preferences->fog_light_coronas);
     root.put_attr("fog_projectile_coronas", graphics_preferences->fog_projectile_coronas);
     root.put_attr("fog_scenery_coronas", graphics_preferences->fog_scenery_coronas);
@@ -6760,6 +6765,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->soft_sector_light_edges = true;
 	preferences->sector_shading_softness = 50;
     preferences->ceiling_fog_cones = true;
+    preferences->liquid_caustics = true;
     preferences->fog_light_coronas = true;
     preferences->fog_projectile_coronas = true;
     preferences->fog_scenery_coronas = true;
@@ -7313,6 +7319,7 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("soft_sector_light_edges", graphics_preferences->soft_sector_light_edges);
 	root.read_attr_bounded<int16>("sector_shading_softness", graphics_preferences->sector_shading_softness, 0, 100);
     root.read_attr("ceiling_fog_cones", graphics_preferences->ceiling_fog_cones);
+    root.read_attr("liquid_caustics", graphics_preferences->liquid_caustics);
     root.read_attr("fog_light_coronas", graphics_preferences->fog_light_coronas);
     root.read_attr("fog_projectile_coronas", graphics_preferences->fog_projectile_coronas);
     root.read_attr("fog_scenery_coronas", graphics_preferences->fog_scenery_coronas);

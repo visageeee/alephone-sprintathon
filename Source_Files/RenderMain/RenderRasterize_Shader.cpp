@@ -1,3 +1,4 @@
+#include "shell_options.h"
 /*
  *  RenderRasterize_Shader.cpp
  *  Created by Clemens Unterkofler on 1/20/09.
@@ -267,6 +268,52 @@ void RenderRasterize_Shader::setupGL(Rasterizer_Shader_Class& Rasterizer) {
 const double TWO_PI = 8*atan(1.0);
 const float FixedAngleToRadians = TWO_PI/(float(FIXED_ONE)*float(FULL_CIRCLE));
 const float FixedAngleToDegrees = 360.0/(float(FIXED_ONE)*float(FULL_CIRCLE));
+
+// One clock shared by liquid surfaces and their projected caustics.
+static float sprintathon_liquid_ripple_phase(int16 mediaType, double rate = 1.0)
+{
+	const OGL_ConfigureData& config = Get_OGL_ConfigureData();
+	int16 ripple_speed_index = config.AnimatedMediaRippleSpeed;
+	switch (mediaType)
+	{
+		case _media_lava:
+			ripple_speed_index = config.AnimatedLavaRippleSpeed;
+			break;
+		case _media_goo:
+			ripple_speed_index = config.AnimatedGooRippleSpeed;
+			break;
+		case _media_sewage:
+			ripple_speed_index = config.AnimatedSewageRippleSpeed;
+			break;
+		case _media_jjaro:
+			ripple_speed_index = config.AnimatedJjaroRippleSpeed;
+			break;
+		default:
+			break;
+	}
+	const float ripple_speed =
+		(static_cast<float>(ripple_speed_index) + 1.0f) * 0.25f;
+	// The temporal phase wraps at 2-pi. Shader time harmonics and spatial wave
+	// cycles are integers, so both time and scrolling texture UVs wrap cleanly.
+	// Accumulate phase instead of multiplying absolute wall-clock time. This
+	// lets bullet time change animation speed without producing a phase jump.
+	static uint32 last_ripple_tick = machine_tick_count();
+	static double ripple_seconds = 0.0;
+	const uint32 ripple_tick = machine_tick_count();
+	const uint32 elapsed_ripple_ticks = ripple_tick - last_ripple_tick;
+	if (elapsed_ripple_ticks > 0)
+	{
+		const double elapsed = std::min(
+			static_cast<double>(elapsed_ripple_ticks) /
+				MACHINE_TICKS_PER_SECOND, 0.25);
+		ripple_seconds += elapsed *
+			(sprintathon_bullet_time_active() ? 0.35 : 1.0);
+		last_ripple_tick = ripple_tick;
+	}
+	const float ripple_phase = static_cast<float>(std::fmod(
+		ripple_seconds * 1.05 * ripple_speed * rate, TWO_PI));
+	return ripple_phase;
+}
 
 static float sprintathon_underwater_phase(int16 media_type)
 {
@@ -1442,6 +1489,8 @@ struct SprintathonTextureEmitter {
     short scenery_object_index;
     short scenery_type;
     float scenery_object_z;
+    bool liquid; // Distinguish liquid emission from ordinary bright textures.
+    short liquid_type;
 };
 static std::vector<SprintathonTextureEmitter> sprintathon_texture_lights;
 static std::vector<SprintathonTextureEmitter> sprintathon_texture_lights_next;
@@ -1518,7 +1567,8 @@ static bool sprintathon_same_emitter(const SprintathonTextureEmitter& a,
                                     const SprintathonTextureEmitter& b,
                                     float distance_squared = WORLD_ONE * WORLD_ONE)
 {
-    if (a.scenery != b.scenery) return false;
+    if (a.scenery != b.scenery || a.liquid != b.liquid ||
+        a.liquid_type != b.liquid_type) return false;
     if (a.scenery)
         return a.scenery_object_index != NONE &&
                a.scenery_object_index == b.scenery_object_index &&
@@ -1552,7 +1602,14 @@ static float sprintathon_texture_light_shade(const SprintathonTextureEmitter& so
     if (source.light_index < 0 || size_t(source.light_index) >= LightList.size()) return 0.0f;
     const float intensity = (float(get_light_intensity(source.light_index)) +
                              source.ambient_delta) / float(FIXED_ONE - 1);
-    return std::max(0.0f, std::min(1.0f, intensity));
+    const float shade = std::max(0.0f, std::min(1.0f, intensity));
+    if (source.liquid && source.liquid_type != _media_lava) {
+        // Only brightly shaded liquids emit. Fade in to avoid threshold pops;
+        // evaluate the live map light every frame, including animated lights.
+        const float t = std::max(0.0f, std::min(1.0f, (shade - 0.70f) / 0.25f));
+        return shade * t * t * (3.0f - 2.0f * t);
+    }
+    return shade;
 }
 
 // Preserve known static texture sources before adding newly visible ones. Camera
@@ -1625,8 +1682,9 @@ static void sprintathon_refresh_texture_lights()
 static void sprintathon_record_texture_light(TextureManager *texture,
                                              float x, float y, float z, RenderStep step, bool vertical, bool lava = false,
                                              short light_index = NONE, float ambient_delta = 0.0f,
-                                             short scenery_object_index = NONE)
+                                             short scenery_object_index = NONE, short liquid_type = NONE)
 {
+    if (lava) liquid_type = _media_lava;
     if (step != kDiffuse || !graphics_preferences->projectile_lights_per_pixel ||
         !(texture && (texture->TextureType == OGL_Txtr_Inhabitant ?
             graphics_preferences->bright_scenery_lights :
@@ -1638,6 +1696,11 @@ static void sprintathon_record_texture_light(TextureManager *texture,
     if (lava) {
         u = v = 0.5f;
         rgb[0] = 1.0f; rgb[1] = 0.38f; rgb[2] = 0.10f;
+    } else if (liquid_type != NONE) {
+        u = v = 0.5f;
+        // Whole-texture colour; liquid emission is gated by map shading,
+        // not by the bright-pixel fixture detector.
+        if (!texture->GetProjectileVisualColor(rgb)) return;
     } else if (!texture->GetBrightEmission(u, v, rgb)) return;
     if (texture->TextureType == OGL_Txtr_Wall) {
         if (vertical) {
@@ -1661,7 +1724,8 @@ static void sprintathon_record_texture_light(TextureManager *texture,
         rgb[0] * 0.8f, rgb[1] * 0.8f, rgb[2] * 0.8f,
         scenery, machine_tick_count(), light_index, ambient_delta, 1.0f,
         scenery_object_index, static_cast<short>(scenery ? ObjectList[scenery_object_index].permutation : NONE),
-        scenery ? float(ObjectList[scenery_object_index].location.z) : 0.0f};
+        scenery ? float(ObjectList[scenery_object_index].location.z) : 0.0f,
+        liquid_type != NONE, liquid_type};
     // Static surfaces may arrive as different clipped fragments. Scenery already
     // has an exact object position and must never snap to a neighboring fixture.
     if (!scenery) {
@@ -2034,17 +2098,30 @@ static void sprintathon_set_view_emitters(Shader *shader,
         const char *setting = std::getenv("SPRINTATHON_COMPACT_SURFACE_LIGHTS");
         return !setting || setting[0] != '0';
     }();
+    // Experimental opt-out for comparing the original steady liquid light.
+    static const bool liquid_caustics = []() {
+        const char *setting = std::getenv("SPRINTATHON_LIQUID_CAUSTICS");
+        return !setting || setting[0] != '0';
+    }();
+    // Apply caustic modulation only to vertical receivers. Horizontal surfaces
+    // retain the ordinary steady liquid light. Share the actual lava ripple
+    // clock and speed setting, including its bullet-time rate.
+    const bool vertical_receiver = bounds && bounds->valid && bounds->z1 > bounds->z0;
+    // Each source uses its own liquid ripple speed.
     const float gain = graphics_preferences->colored_light_intensity / 100.0f;
     int active_count = 0;
     bool uploaded[sprintathon_emitter_slots] = {};
     auto upload = [&](int original_slot, float x, float y, float z, float radius,
-                      float r, float g, float b) {
+                      float r, float g, float b, short liquid_type) {
         if ((r <= 0.0f && g <= 0.0f && b <= 0.0f) ||
             !sprintathon_light_reaches_surface(bounds, x, y, z, radius)) return;
         const int slot = compact ? active_count : original_slot;
         uploaded[slot] = true;
         shader->setVector4(positions[slot], x, y, z, 1.0f / radius);
-        shader->setVector4(colors[slot], r, g, b, 1.0f);
+        shader->setVector4(colors[slot], r, g, b,
+            liquid_type != NONE && liquid_caustics &&
+                graphics_preferences->liquid_caustics && vertical_receiver ?
+                2.0f + sprintathon_liquid_ripple_phase(liquid_type, 0.5) : 1.0f);
         ++active_count;
     };
     for (int i = 0; i < sprintathon_emitter_slots; ++i) {
@@ -2056,14 +2133,14 @@ static void sprintathon_set_view_emitters(Shader *shader,
         const float radius = std::max(sprintathon_emitter_radius(light.scenery), 1.0f);
         const float fade = sprintathon_emitter_fade[i] * sprintathon_emitter_gain(light.scenery) * light.shade_gain;
         upload(i, light.x, light.y, light.z, radius,
-               light.r * fade, light.g * fade, light.b * fade);
+               light.r * fade, light.g * fade, light.b * fade, light.liquid_type);
     }
     for (size_t i = 0; i < sprintathon_dropped_flares.size(); ++i) {
         const auto& flare = sprintathon_dropped_flares[i];
         const float strength = sprintathon_flare_strength(flare) * gain;
         upload(sprintathon_emitter_slots - sprintathon_flare_capacity + int(i),
                flare.x, flare.y, flare.z, 5.5f * WORLD_ONE,
-               strength, strength * 0.12f, strength * 0.04f);
+               strength, strength * 0.12f, strength * 0.04f, NONE);
     }
     if (!compact) {
         for (int i = 0; i < sprintathon_emitter_slots; ++i)
@@ -3018,7 +3095,9 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 		s->enable();
 		const float visibility = 1.0f - rect.transfer_data / 32.0f;
 		if (renderStep == kDiffuse &&
-			Get_OGL_ConfigureData().RefractiveInvisibility)
+            (Get_OGL_ConfigureData().RefractiveInvisibility ||
+             (shell_options.zpc && GET_DESCRIPTOR_COLLECTION(rect.ShapeDesc) ==
+              BUILD_COLLECTION(_collection_weapons_in_hand, 1))))
 		{
 			setup_invisibility_refraction(s,
 				static_cast<GLsizei>(view->screen_width * MainScreenPixelScale()),
@@ -3227,45 +3306,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 
 	TMgr->SetupTextureMatrix();
 	const OGL_ConfigureData& config = Get_OGL_ConfigureData();
-	int16 ripple_speed_index = config.AnimatedMediaRippleSpeed;
-	switch (mediaType)
-	{
-		case _media_lava:
-			ripple_speed_index = config.AnimatedLavaRippleSpeed;
-			break;
-		case _media_goo:
-			ripple_speed_index = config.AnimatedGooRippleSpeed;
-			break;
-		case _media_sewage:
-			ripple_speed_index = config.AnimatedSewageRippleSpeed;
-			break;
-		case _media_jjaro:
-			ripple_speed_index = config.AnimatedJjaroRippleSpeed;
-			break;
-		default:
-			break;
-	}
-	const float ripple_speed =
-		(static_cast<float>(ripple_speed_index) + 1.0f) * 0.25f;
-	// The temporal phase wraps at 2-pi. Shader time harmonics and spatial wave
-	// cycles are integers, so both time and scrolling texture UVs wrap cleanly.
-	// Accumulate phase instead of multiplying absolute wall-clock time. This
-	// lets bullet time change animation speed without producing a phase jump.
-	static uint32 last_ripple_tick = machine_tick_count();
-	static double ripple_seconds = 0.0;
-	const uint32 ripple_tick = machine_tick_count();
-	const uint32 elapsed_ripple_ticks = ripple_tick - last_ripple_tick;
-	if (elapsed_ripple_ticks > 0)
-	{
-		const double elapsed = std::min(
-			static_cast<double>(elapsed_ripple_ticks) /
-				MACHINE_TICKS_PER_SECOND, 0.25);
-		ripple_seconds += elapsed *
-			(sprintathon_bullet_time_active() ? 0.35 : 1.0);
-		last_ripple_tick = ripple_tick;
-	}
-	const float ripple_phase = static_cast<float>(std::fmod(
-		ripple_seconds * 1.05 * ripple_speed, TWO_PI));
+	const float ripple_phase = sprintathon_liquid_ripple_phase(mediaType);
 	s->setFloat(Shader::U_Time, ripple_phase);
 	s->setFloat(Shader::U_PixelWidth,
 		view->screen_width * MainScreenPixelScale());
@@ -3700,17 +3741,19 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
     if (world_surface_pass == WorldSurfacePass::opaque && skip_world_surface(opaque_surface)) return;
     const bool lava_surface = surface->is_media && surface->media_type == _media_lava;
     if (graphics_preferences->projectile_lights_per_pixel &&
-        world_surface_pass != WorldSurfacePass::opaque && (!surface->is_media || lava_surface)) {
+        world_surface_pass != WorldSurfacePass::opaque) {
         sprintathon_record_texture_light(TMgr.get(), surface_light_x, surface_light_y,
-            surface_light_z, renderStep, false, lava_surface, surface->lightsource_index);
-        if (lava_surface && polygon && renderStep == kDiffuse) {
+            surface_light_z, renderStep, false, lava_surface, surface->lightsource_index,
+            0.0f, NONE, surface->is_media ? surface->media_type : NONE);
+        if (surface->is_media && polygon && renderStep == kDiffuse) {
             // One emitter at the center of a broad pool cannot reach its banks.
             // The shared emitter limit keeps the added work bounded.
             for (short i = 0; i < polygon->vertex_count; ++i) {
                 const world_point2d& bank =
                     get_endpoint_data(polygon->endpoint_indexes[i])->vertex;
                 sprintathon_record_texture_light(TMgr.get(), bank.x, bank.y,
-                    surface->height, renderStep, false, true);
+                    surface->height, renderStep, false, lava_surface,
+                    surface->lightsource_index, 0.0f, NONE, surface->media_type);
             }
         }
     }

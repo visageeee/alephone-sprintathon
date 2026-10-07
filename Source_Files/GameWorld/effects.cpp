@@ -1,3 +1,4 @@
+#include "shell_options.h"
 /*
 EFFECTS.C
 
@@ -82,7 +83,12 @@ effect_data *get_effect_data(
 // LP change: moved down here because it refers to effect definitions
 effect_definition *get_effect_definition(const short type)
 {
-	return GetMemberWithBounds(effect_definitions,type,NUMBER_OF_EFFECT_TYPES);
+    auto *definition = GetMemberWithBounds(effect_definitions,type,NUMBER_OF_EFFECT_TYPES);
+    if (definition && shell_options.zpc && type == _effect_minor_fusion_detonation) {
+        definition->collection = BUILD_COLLECTION(_collection_weapons_in_hand, 1);
+        definition->shape = 3;
+    }
+    return definition;
 }
 
 

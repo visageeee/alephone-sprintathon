@@ -899,10 +899,12 @@ bool TextureManager::Setup()
                     if (TextureType == OGL_Txtr_Inhabitant && pixel[3] >= 220 &&
                         pixel[0] >= 245 && pixel[1] >= 245 && pixel[2] >= 245)
                         ++white_scenery_pixels;
-                    if (TextureType == OGL_Txtr_Inhabitant && pixel[3] >= 64 && peak >= 80) {
+                    if ((TextureType == OGL_Txtr_Inhabitant && pixel[3] >= 64 && peak >= 80) ||
+                        (TextureType == OGL_Txtr_Wall && pixel[3] >= 32 && peak > 0)) {
                         // Sample the actual rendered palette/glow, weighted toward
                         // the most luminous visible projectile pixels.
-                        const double weight = (peak - 64) * (pixel[3] / 255.0);
+                        const double weight = (TextureType == OGL_Txtr_Wall ? peak : peak - 64) *
+                            (pixel[3] / 255.0);
                         visual_r += pixel[0] * weight;
                         visual_g += pixel[1] * weight;
                         visual_b += pixel[2] * weight;

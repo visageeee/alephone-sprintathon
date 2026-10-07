@@ -10,9 +10,11 @@ int main(int argc,char** argv) {
  assert(argc==7);
  auto s=read(argv[1]), m=read(argv[2]);
  auto b=read(argv[3]), l=read(argv[4]);
- auto ss=shapes(s,b,l), mm=maps(m);
+ auto displays=static_displays(s);
+ assert(displays.descriptors.size()==198);
+ auto ss=shapes(s,b,l,&displays), mm=maps(m,&displays);
  write(argv[5],ss);write(argv[6],mm);
- assert(get(mm,76,2)==36); auto expected=get(mm,68,4);put(mm,68,0,4);assert(crc(mm)==expected);
+ assert(get(mm,76,2)==79); auto expected=get(mm,68,4);put(mm,68,0,4);assert(crc(mm)==expected);
  assert(get(collection(ss,27),26,2)==8);
  rejected([&]{maps(Bytes(127));});
  auto broken=m;put(broken,72,0xffffffff,4);rejected([&]{maps(broken);});
@@ -21,5 +23,5 @@ int main(int argc,char** argv) {
  rejected([&]{shapes(b,b,l);});
  rejected([&]{texture(0x1f00);});
  rejected([&]{texture(0x0528);});
- std::cout<<"PASS: 36 maps, eight landscapes, CRC, malformed-file rejection\n";
+ std::cout<<"PASS: 36 maps plus 43 picture resources, eight landscapes, CRC, malformed-file rejection\n";
 }

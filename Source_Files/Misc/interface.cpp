@@ -1325,6 +1325,7 @@ extern void set_about_alephone_rect(int width, int height);
 
 static void draw_powered_by_aleph_one(bool pressed)
 {
+	if (shell_options.zpc) return;
 	if (!powered_by_alephone_surface[0])
 	{
 		SDL_RWops *rw = SDL_RWFromConstMem(powered_by_alephone_bmp, sizeof(powered_by_alephone_bmp));
@@ -1671,33 +1672,39 @@ void process_main_menu_highlight_advance(bool reverse)
 	if (get_game_state() != _display_main_menu)
 		return;
 	
+    // Keep keyboard navigation aligned with the seven original ZPC buttons.
+    static const std::array<int, iAbout> zpc_menu_order = {
+        iNewGame, iLoadGame, iGatherGame, iSaveLastFilm,
+        iReplaySavedFilm, iPreferences, iQuit, -1, -1, -1, -1, -1, -1
+    };
+    const auto& order = shell_options.zpc ? zpc_menu_order : menu_item_order;
 	int old_button = game_state.highlighted_main_menu_item;
 
-	const auto last_index = []() {
-		return std::distance(std::find_if(menu_item_order.rbegin(),
-										  menu_item_order.rend(),
+	const auto last_index = [&]() {
+		return std::distance(std::find_if(order.rbegin(),
+										  order.rend(),
 										  [](int i) { return i != -1; }),
-							 menu_item_order.rend()) - 1;
+							 order.rend()) - 1;
 	};
 
 	if (game_state.highlighted_main_menu_item == -1)
 	{
 		if (reverse)
 		{
-			game_state.highlighted_main_menu_item = menu_item_order[0];
+			game_state.highlighted_main_menu_item = order[0];
 		}
 		else
 		{
-			game_state.highlighted_main_menu_item = menu_item_order[last_index()];
+			game_state.highlighted_main_menu_item = order[last_index()];
 		}
 	}
 
 	do
 	{
 		auto index = -1;
-		for (auto i = 0; i < menu_item_order.size(); ++i)
+		for (auto i = 0; i < order.size(); ++i)
 		{
-			if (menu_item_order[i] == game_state.highlighted_main_menu_item)
+			if (order[i] == game_state.highlighted_main_menu_item)
 			{
 				index = i;
 				break;
@@ -1715,13 +1722,13 @@ void process_main_menu_highlight_advance(bool reverse)
 		else
 		{
 			++index;
-			if (menu_item_order[index] == -1)
+			if (order[index] == -1)
 			{
 				index = 0;
 			}
 		}
 			
-		game_state.highlighted_main_menu_item = menu_item_order[index];
+		game_state.highlighted_main_menu_item = order[index];
 	}
 	while (!enabled_item(game_state.highlighted_main_menu_item));
 	

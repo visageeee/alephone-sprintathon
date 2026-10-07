@@ -18,7 +18,7 @@ The ZPC directory must contain:
 
 Unzip the Map and Shapes attachments first. The original files are never
 modified. The importer generates a separate scenario inside the application's
-local data directory under `ZPC-import-v1/<content fingerprint>`. It prints the
+local data directory under `ZPC-import-v2/<content fingerprint>`. It prints the
 path at launch. Identical generated files are reused; missing files are rebuilt.
 Imports fail with a ZPC-specific explanation when required inputs or supported
 format checks fail. Without `--zpc`, normal scenario loading is unchanged.
@@ -42,9 +42,12 @@ health and oxygen and hidden weapons. The Lua weapons setter correction is
 required; the distribution bundle includes it as a separate patch so an already
 applied correction need not be reapplied.
 
-ZPC enemies, items, scenery, liquids, terminals, control panels, automatic exits,
-and game-specific sounds/physics are not implemented. The exploration import
-removes or disables these rather than interpreting their IDs as Marathon data.
+ZPC monsters and scenery are restored as static, non-solid displays using original
+placements, palettes, colour variants and viewing directions. Dormant actors are
+made visible. Combat, AI, items, liquids, terminals, control panels, automatic exits,
+and game-specific sounds/physics remain disabled. Start a new game after importing;
+old exploration saves do not include these displays. The supplied executable was
+inspected to recover the display mappings; it is never executed by the importer.
 The player, interface, and fallback sounds still come from Marathon support data.
 Treat saves and films from this experimental mode as disposable. Do not use the
 mode for multiplayer compatibility testing.
@@ -54,7 +57,8 @@ mode for multiplayer compatibility testing.
 The importer was compiled and run with AddressSanitizer and UndefinedBehaviorSanitizer
 against the supplied ZPC files. The generated Shapes passed an isolated harness
 using Sprintathon's native shape decoding functions: 36 collection variants,
-1,533 bitmaps, and 302 sequences. All 43,396 nonempty surface references were
+1,769 bitmaps, and 430 sequences. All 2,098 monster and 990 scenery
+placements in the supplied maps were checked against their original coordinates. All 43,396 nonempty surface references were
 checked, and original line/endpoint geometry was compared byte for byte.
 Truncated data, bad WAD offsets/chunk links, wrong landscape sizes and unsupported
 surface IDs are covered by the standalone regression test. Full engine compilation

@@ -1,3 +1,4 @@
+#include "shell_options.h"
 /*
 	images.c
 
@@ -106,6 +107,7 @@ private:
 
 // Global variables
 static image_file_t ImagesFile;
+static image_file_t ZPCMenuFile;
 static image_file_t ScenarioFile;
 static image_file_t ExternalResourcesFile;
 static image_file_t ShapesImagesFile;
@@ -1002,6 +1004,14 @@ void initialize_images_manager(void)
 	if (!ImagesFile.open_file(file))
         logContext("Images file could not be opened");
 
+	ZPCMenuFile.close_file();
+	if (shell_options.zpc) {
+		FileSpecifier menu(shell_options.directory);
+		menu += "ZPC-Menu";
+		if (!ZPCMenuFile.open_file(menu))
+			logWarning("Could not open imported ZPC menu");
+	}
+
 	atexit(shutdown_images_handler);
 }
 
@@ -1012,6 +1022,7 @@ void initialize_images_manager(void)
 
 static void shutdown_images_handler(void)
 {
+	ZPCMenuFile.close_file();
 	SoundsImagesFile.close_file();
 	ExternalResourcesFile.close_file();
 	ShapesImagesFile.close_file();
@@ -1228,6 +1239,11 @@ bool image_file_t::get_text(int id, LoadedResource &rsrc)
 
 bool get_picture_resource_from_images(int base_resource, LoadedResource &PictRsrc)
 {
+    if (shell_options.zpc && ZPCMenuFile.is_open() &&
+        (base_resource == 1100 || base_resource == 1101) &&
+        ZPCMenuFile.get_pict(base_resource, PictRsrc))
+        return true;
+
     bool found = false;
     
     if (!found && ImagesFile.is_open())
