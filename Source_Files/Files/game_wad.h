@@ -45,6 +45,7 @@ void restore_revert_info_after_preferences(void);
 struct wad_data *build_meta_game_wad(const std::string& metadata, const std::string& imagedata, struct wad_header *header, int32 *length);
 
 bool export_level(FileSpecifier& File);
+bool save_edited_level(FileSpecifier& File, short level_index);
 
 /* -------------- New functions */
 void get_current_saved_game_name(FileSpecifier& File);

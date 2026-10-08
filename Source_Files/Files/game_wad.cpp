@@ -105,6 +105,8 @@ Feb 15, 2002 (Br'fin (Jeremy Parsons)):
 #include "editor.h"
 #include "tags.h"
 #include "wad.h"
+#include <cstdint>
+#include <climits>
 #include "game_wad.h"
 #include "QuickSave.h"
 #include "screen.h"
@@ -1431,7 +1433,7 @@ bool export_level(FileSpecifier& File)
 			close_wad_file(SaveFile);
 		}
 
-		if (!err)
+		if (success && !err && !error_pending())
 		{
 			// We can't delete open files on Windows, so close
 			// the current level before we overwrite it.
@@ -2602,6 +2604,97 @@ static uint8 *tag_to_global_array_and_size(
 	}
 	
 	return array;
+}
+
+// Replace one level transactionally, preserving all other WADs, directory
+// metadata and tags that the visual editor does not understand.
+bool save_edited_level(FileSpecifier& File, short level_index)
+{
+    clear_game_error();
+    OpenedFile input;
+    wad_header header{};
+    int32 source_length = 0;
+    if (!open_wad_file_for_reading(File, input)) return false;
+    if (!read_wad_header(input, &header) || !input.GetLength(source_length) ||
+        header.version < WADFILE_HAS_INFINITY_STUFF || header.parent_checksum ||
+        header.data_version != MARATHON_TWO_DATA_VERSION ||
+        header.wad_count <= 0 || header.directory_entry_base_size < SIZEOF_directory_entry ||
+        header.application_specific_directory_data_size < 0) return false;
+    const int stride = header.directory_entry_base_size+header.application_specific_directory_data_size;
+    const int64_t directory_size = int64_t(stride)*header.wad_count;
+    if (header.directory_offset < SIZEOF_wad_header || directory_size > source_length ||
+        int64_t(header.directory_offset)+directory_size > source_length) return false;
+    std::vector<uint8> directory(static_cast<size_t>(directory_size));
+    if (!input.SetPosition(header.directory_offset) || !input.Read(int32(directory_size), directory.data())) return false;
+    int slot = -1;
+    for (int i = 0; i < header.wad_count; ++i) {
+        const auto* entry = directory.data()+i*stride;
+        const short index = static_cast<int16>((uint16(entry[8])<<8)|entry[9]);
+        if (index == level_index) { slot = i; break; }
+    }
+    if (slot < 0) return false;
+    wad_data* original = read_indexed_wad_from_file(input, &header, level_index, false);
+    if (!original) return false;
+    int32 edited_length = 0;
+    wad_data* edited = build_export_wad(&header, &edited_length);
+    if (!edited) { free_wad(original); return false; }
+    // Start with exported arrays, so newly empty arrays stay absent. Copy only
+    // unrecognized tags from the original, preserving embedded scripts/data.
+    for (int i = 0; i < original->tag_count; ++i) {
+        const auto& tag = original->tag_data[i];
+        bool exported = false;
+        for (unsigned j = 0; j < NUMBER_OF_EXPORT_ARRAYS; ++j)
+            exported = exported || tag.tag == export_data[j].tag;
+        if (!exported && tag.length > 0)
+            edited = append_data_to_wad(edited, tag.tag, tag.data, tag.length, 0);
+    }
+    free_wad(original);
+    original = edited;
+    edited_length = calculate_wad_length(&header, original);
+    // Reuse the previous trailing level block on subsequent saves, preventing
+    // unbounded file growth. The first save retains all original file bytes.
+    const auto* entry = directory.data()+slot*stride;
+    auto read32 = [](const uint8* p) -> int64_t {
+        return (uint32(p[0])<<24)|(uint32(p[1])<<16)|(uint32(p[2])<<8)|p[3];
+    };
+    const int64_t old_start = read32(entry), old_length = read32(entry+4);
+    int32 prefix_length = source_length;
+    bool trailing = old_start >= SIZEOF_wad_header && old_start+old_length == header.directory_offset &&
+        int64_t(header.directory_offset)+directory_size == source_length;
+    for (int i = 0; trailing && i < header.wad_count; ++i) if (i != slot) {
+        const auto* other = directory.data()+i*stride;
+        if (read32(other)+read32(other+4) > old_start) trailing = false;
+    }
+    if (trailing) prefix_length = int32(old_start);
+    if (int64_t(prefix_length)+edited_length+directory_size > INT32_MAX) { free_wad(original); return false; }
+    FileSpecifier temporary;
+    temporary.SetTempName(File);
+    bool success = create_wadfile(temporary, _typecode_scenario);
+    OpenedFile output;
+    success = success && open_wad_file_for_writing(temporary, output) && input.SetPosition(0);
+    std::vector<uint8> buffer(65536);
+    for (int32 pos = 0; success && pos < prefix_length;) {
+        const int32 count = std::min<int32>(buffer.size(), prefix_length-pos);
+        success = input.Read(count, buffer.data()) && output.Write(count, buffer.data());
+        pos += count;
+    }
+    set_indexed_directory_offset_and_length(&header, directory.data(), slot, prefix_length, edited_length, level_index);
+    header.directory_offset = prefix_length+edited_length;
+    success = success && write_wad(output, &header, original, prefix_length) &&
+        write_wad_header(output, &header) && write_directorys(output, &header, directory.data());
+    free_wad(original);
+    if (success) calculate_and_store_wadfile_checksum(output);
+    success = success && !input.GetError() && !output.GetError() && !error_pending();
+    close_wad_file(input);
+    close_wad_file(output);
+    if (success) {
+        const bool current = File == get_map_file();
+        if (current) unset_scenario_images_file();
+        success = temporary.Rename(File);
+        if (current) { set_scenario_images_file(File); clear_game_error(); }
+    }
+    if (!success) temporary.Delete();
+    return success;
 }
 
 static wad_data *build_export_wad(wad_header *header, int32 *length)

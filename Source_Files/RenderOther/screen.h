@@ -191,6 +191,19 @@ void screenshot_mode_begin();
 void screenshot_mode_end();
 void screenshot_mode_mouse_look(int dx, int dy);
 
+// Paused, local-only visual texturing editor (Shift+F8).
+bool surface_editor_active();
+bool surface_editor_palette_cursor();
+void surface_editor_begin();
+void surface_editor_end();
+void surface_editor_toggle_cursor();
+void surface_editor_motion(int x, int y);
+void surface_editor_scroll(int direction);
+void surface_editor_release();
+void surface_editor_click(int button, int x, int y);
+void surface_editor_undo(bool redo);
+void surface_editor_save(bool save_as = false);
+
 void toggle_overhead_map_display_status(void);
 
 // Returns whether the size scale had been changed

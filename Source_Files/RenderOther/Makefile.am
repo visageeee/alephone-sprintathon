@@ -7,7 +7,7 @@ librenderother_a_SOURCES = ChaseCam.h computer_interface.h \
   HUDRenderer_OGL.h HUDRenderer_SW.h HUDRenderer_Lua.h images.h motion_sensor.h \
   Image_Blitter.h OGL_Blitter.h Shape_Blitter.h OGL_LoadScreen.h overhead_map.h OverheadMap_OGL.h OverheadMapRenderer.h OverheadMap_SDL.h \
   screen_definitions.h screen_drawing.h screen.h \
-  screen_shared.h sdl_fonts.h sdl_resize.h TextLayoutHelper.h TextStrings.h ViewControl.h \
+  screen_shared.h SurfaceEditor.h SurfaceEditorGeometry.h SurfaceEditorObjects.h sdl_fonts.h sdl_resize.h TextLayoutHelper.h TextStrings.h ViewControl.h \
   \
   ChaseCam.cpp computer_interface.cpp fades.cpp FontHandler.cpp game_window.cpp \
   HUDRenderer.cpp HUDRenderer_OGL.cpp HUDRenderer_SW.cpp HUDRenderer_Lua.cpp \

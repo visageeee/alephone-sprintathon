@@ -49,6 +49,10 @@ void damage_scenery(short object_index);
 bool get_scenery_collection(short scenery_type, short &collection);
 bool get_damaged_scenery_collection(short scenery_type, short& collection);
 
+// Editor previews use the first animation frame from the active scenario/MML.
+short scenery_type_count();
+bool get_scenery_preview(short type, short& collection, short& frame, bool& hanging);
+
 class InfoTree;
 void parse_mml_scenery(const InfoTree& root);
 void reset_mml_scenery();

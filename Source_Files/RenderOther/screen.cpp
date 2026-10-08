@@ -674,6 +674,7 @@ bool map_is_translucent(void)
 
 void enter_screen(void)
 {
+	if (surface_editor_active()) surface_editor_end();
 	if (world_view->overhead_map_active)
 		set_overhead_map_status(false);
 	if (world_view->terminal_mode_active)
@@ -734,6 +735,7 @@ void enter_screen(void)
 
 void exit_screen(void)
 {
+    if (surface_editor_active()) surface_editor_end();
     screen_checkpoint_notice(nullptr);
 	in_game = false;
 #ifdef HAVE_OPENGL
@@ -1398,7 +1400,9 @@ void screenshot_mode_mouse_look(int dx, int dy)
 static void update_screenshot_camera()
 {
 	const uint64_t now = machine_tick_count();
-	const float dt = screenshot_last_time ?
+	const float dt = screenshot_last_time && !surface_editor_palette_cursor() &&
+		!(surface_editor_active() && (SDL_GetModState() & (KMOD_CTRL | KMOD_GUI))) &&
+		(SDL_GetWindowFlags(MainScreenWindow()) & SDL_WINDOW_INPUT_FOCUS) ?
 		std::min(0.05f, static_cast<float>(now - screenshot_last_time) /
 			MACHINE_TICKS_PER_SECOND) : 0.0f;
 	screenshot_last_time = now;
@@ -1420,7 +1424,8 @@ static void update_screenshot_camera()
 	constexpr int crouch_binding = 20;
 	float climb = float(action_down(jump_binding)) - float(action_down(crouch_binding));
 	// Q/E roll independently of travel speed; preserve the angle when released.
-	const float roll_input = float(keys[SDL_SCANCODE_E]) - float(keys[SDL_SCANCODE_Q]);
+	const float roll_input = surface_editor_active() ? 0.0f :
+		float(keys[SDL_SCANCODE_E]) - float(keys[SDL_SCANCODE_Q]);
 	screenshot_roll += roll_input * (FULL_CIRCLE / 8.0f) * dt;
 	screenshot_roll = std::fmod(screenshot_roll, float(FULL_CIRCLE));
 	const float magnitude = sqrtf(forward * forward + strafe * strafe + climb * climb);
@@ -1460,6 +1465,8 @@ static void update_screenshot_camera()
 	world_view->show_weapons_in_hand = false;
 }
 
+#include "SurfaceEditor.h"
+
 extern bool is_network_pregame;
 
 void render_screen(short ticks_elapsed)
@@ -1478,7 +1485,7 @@ void render_screen(short ticks_elapsed)
 	bool SwitchedModes = false;
 	
 	// Suppress the overhead map if desired
-	if (PLAYER_HAS_MAP_OPEN(current_player) && View_MapActive()) {
+	if (!surface_editor_active() && PLAYER_HAS_MAP_OPEN(current_player) && View_MapActive()) {
 		if (!world_view->overhead_map_active) {
 			set_overhead_map_status(true);
 			SwitchedModes = true;
@@ -1490,7 +1497,7 @@ void render_screen(short ticks_elapsed)
 		}
 	}
 
-	if(player_in_terminal_mode(current_player_index)) {
+	if(!surface_editor_active() && player_in_terminal_mode(current_player_index)) {
 		if (!world_view->terminal_mode_active) {
 			set_terminal_status(true);
 			SwitchedModes = true;
@@ -1693,6 +1700,7 @@ void render_screen(short ticks_elapsed)
 	DisplayMessages(disp_pixels);
     DisplayCheckpointNotice(disp_pixels);
 	DisplayInputLine(disp_pixels);
+	if (surface_editor_active()) surface_editor::draw_target(disp_pixels);
 	
 #ifdef HAVE_OPENGL
 	// Set OpenGL viewport to whole window (so HUD will be in the right position)
@@ -1744,7 +1752,7 @@ void render_screen(short ticks_elapsed)
 		{
 			Lua_DrawHUD(ticks_elapsed);
 		}
-		else if (HUD_RenderRequest) {
+		else if (HUD_RenderRequest && !surface_editor_active()) {
 			SDL_Rect src_rect = { 0, 320, 640, 160 };
 			DrawSurface(HUD_Buffer, HUD_DestRect, src_rect);
 			HUD_RenderRequest = false;
@@ -1764,7 +1772,9 @@ void render_screen(short ticks_elapsed)
 			darken_world_window();
 		}
 
-		if (update_full_screen || Screen::instance()->lua_hud())
+		if (surface_editor_active()) surface_editor::draw_panel();
+
+		if (update_full_screen || Screen::instance()->lua_hud() || surface_editor_active())
 		{
 			MainScreenUpdateRect(0, 0, 0, 0);
 		}
@@ -1784,7 +1794,8 @@ void render_screen(short ticks_elapsed)
 			darken_world_window();
 		}
 
-		draw_sprintathon_bullet_time_effect();
+		if (surface_editor_active()) surface_editor::draw_panel();
+		else draw_sprintathon_bullet_time_effect();
 
 		OGL_SwapBuffers();
 	}

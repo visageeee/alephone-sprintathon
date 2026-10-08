@@ -1453,6 +1453,35 @@ static void process_game_key(const SDL_Event &event)
 		!Console::instance()->input_active())
 	{
 		const SDL_Scancode screenshot_key = event.key.keysym.scancode;
+		const bool editor_toggle = screenshot_key == SDL_SCANCODE_F8 &&
+			(event.key.keysym.mod & KMOD_SHIFT);
+		if (surface_editor_active()) {
+			if (event.key.repeat) return;
+			if (editor_toggle || screenshot_key == SDL_SCANCODE_ESCAPE) {
+				surface_editor_end();
+				SDL_SetRelativeMouseMode(SDL_FALSE);
+				resume_game();
+				screen_printf("Editor closed.");
+			} else if (screenshot_key == SDL_SCANCODE_TAB) {
+				surface_editor_toggle_cursor();
+			} else if (event.key.keysym.mod & (KMOD_CTRL | KMOD_GUI)) {
+				if (screenshot_key == SDL_SCANCODE_S) surface_editor_save((event.key.keysym.mod & KMOD_SHIFT) != 0);
+				else if (screenshot_key == SDL_SCANCODE_Z) surface_editor_undo(event.key.keysym.mod & KMOD_SHIFT);
+				else if (screenshot_key == SDL_SCANCODE_Y) surface_editor_undo(true);
+			}
+			return;
+		}
+		if (editor_toggle && !event.key.repeat) {
+			if (!game_is_networked && !game_is_being_replayed() &&
+				get_keyboard_controller_status() && current_player &&
+				!screenshot_mode_active()) {
+				surface_editor_begin();
+				pause_game();
+				SDL_SetRelativeMouseMode(SDL_FALSE);
+				SDL_ShowCursor(SDL_ENABLE);
+			} else screen_printf("Texturing mode requires a running single-player game.");
+			return;
+		}
 		if (!event.key.repeat &&
 			((screenshot_key == SDL_SCANCODE_F9 &&
 			  (event.key.keysym.mod & KMOD_SHIFT)) ||
@@ -1659,6 +1688,10 @@ static void process_event(const SDL_Event &event)
 	case SDL_MOUSEMOTION:
 		if (get_game_state() == _game_in_progress)
 		{
+			if (surface_editor_palette_cursor()) {
+				surface_editor_motion(event.motion.x, event.motion.y);
+				break;
+			}
 			if (screenshot_mode_active())
 				screenshot_mode_mouse_look(event.motion.xrel, event.motion.yrel);
 			else
@@ -1668,6 +1701,14 @@ static void process_event(const SDL_Event &event)
 	case SDL_MOUSEWHEEL:
 		if (get_game_state() == _game_in_progress)
 		{
+			if (surface_editor_active()) {
+				int direction = event.wheel.y;
+#if SDL_VERSION_ATLEAST(2,0,4)
+				if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) direction = -direction;
+#endif
+				surface_editor_scroll(direction);
+				break;
+			}
 			bool up = (event.wheel.y > 0);
 #if SDL_VERSION_ATLEAST(2,0,4)
 			if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED)
@@ -1685,7 +1726,17 @@ static void process_event(const SDL_Event &event)
 			}
 		}
 		break;
+	case SDL_MOUSEBUTTONUP:
+		if (surface_editor_active() && event.button.button == SDL_BUTTON_LEFT) {
+			surface_editor_motion(event.button.x, event.button.y);
+			surface_editor_release();
+		}
+		break;
 	case SDL_MOUSEBUTTONDOWN:
+		if (surface_editor_active()) {
+			surface_editor_click(event.button.button, event.button.x, event.button.y);
+			break;
+		}
 		if (screenshot_mode_active()) {
 			const SDL_Scancode code = static_cast<SDL_Scancode>(
 				AO_SCANCODE_BASE_MOUSE_BUTTON + event.button.button - 1);
@@ -1718,6 +1769,7 @@ static void process_event(const SDL_Event &event)
 		break;
 	
 	case SDL_CONTROLLERBUTTONDOWN:
+		if (surface_editor_active()) break;
 		if (screenshot_mode_active()) {
 			const SDL_Scancode code = static_cast<SDL_Scancode>(
 				AO_SCANCODE_BASE_JOYSTICK_BUTTON + event.cbutton.button);
@@ -1782,6 +1834,7 @@ static void process_event(const SDL_Event &event)
 	case SDL_WINDOWEVENT:
 		switch (event.window.event) {
 			case SDL_WINDOWEVENT_FOCUS_LOST:
+				if (surface_editor_active()) surface_editor_release();
 				if (screenshot_mode_active()) SDL_SetRelativeMouseMode(SDL_FALSE);
 				if (get_game_state() == _game_in_progress && get_keyboard_controller_status() && !Movie::instance()->IsRecording() && shell_options.replay_directory.empty()) {
 					pause_game();
@@ -1808,7 +1861,7 @@ static void process_event(const SDL_Event &event)
 				}
 #endif
 				set_game_focus_gained();
-				if (screenshot_mode_active()) SDL_SetRelativeMouseMode(SDL_TRUE);
+				if (screenshot_mode_active() && !surface_editor_palette_cursor()) SDL_SetRelativeMouseMode(SDL_TRUE);
 				break;
 		}
 		break;

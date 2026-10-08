@@ -233,6 +233,22 @@ bool get_damaged_scenery_collection(short scenery_type, short& collection)
 
 /* ---------- private code */
 
+short scenery_type_count() { return NUMBER_OF_SCENERY_DEFINITIONS; }
+
+bool get_scenery_preview(short type, short& collection, short& frame, bool& hanging)
+{
+	const auto* definition = get_scenery_definition(type);
+	if (!definition || definition->shape == UNONE) return false;
+	collection = GET_DESCRIPTOR_COLLECTION(definition->shape);
+	if (!is_collection_present(GET_COLLECTION(collection))) return false;
+	const auto* animation = get_shape_animation_data(definition->shape);
+	if (!animation || animation->frames_per_view <= 0) return false;
+	frame = animation->low_level_shape_indexes[0];
+	if (frame < 0 || frame >= get_number_of_collection_frames(GET_COLLECTION(collection))) return false;
+	hanging = definition->height < 0;
+	return true;
+}
+
 struct scenery_definition *get_scenery_definition(
 	short scenery_type)
 {
