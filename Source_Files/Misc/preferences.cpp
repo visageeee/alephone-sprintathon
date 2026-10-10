@@ -1087,6 +1087,7 @@ void handle_preferences(bool in_game)
 	add_sprintathon_page(sprintathon_parkour);
 
 	table_placer *sprintathon_combat = make_sprintathon_table();
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, enhanced_ai_w, sprintathon_enhanced_enemy_ai, "Enhanced enemy AI");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, ricochet_w, sprintathon_bullet_ricochet, "Bullet Ricochets");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, corpses_w, sprintathon_physics_corpses, "Physics Corpses");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, checkpoints_w, sprintathon_safe_checkpoints, "Checkpoint save system");
@@ -2077,6 +2078,7 @@ void handle_preferences(bool in_game)
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_crouch, crouch_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_sprint, sprint_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_enhanced_enemy_ai, enhanced_ai_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_bullet_ricochet, ricochet_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_physics_corpses, corpses_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_safe_checkpoints, checkpoints_w);
@@ -4426,6 +4428,7 @@ static void sprintathon_dialog(void *arg)
 	ADD_SPRINTATHON_TOGGLE(stamina_dodge_w, sprintathon_stamina_dodge, "Dodging Drains Stamina");
 	ADD_SPRINTATHON_TOGGLE(stamina_bullet_time_w, sprintathon_stamina_bullet_time, "Bullet Time Drains Stamina");
 	ADD_SPRINTATHON_TOGGLE(slide_w, sprintathon_slide, "Sprint Sliding");
+	ADD_SPRINTATHON_TOGGLE(enhanced_ai_w, sprintathon_enhanced_enemy_ai, "Enhanced enemy AI");
 	ADD_SPRINTATHON_TOGGLE(ricochet_w, sprintathon_bullet_ricochet, "Bullet Ricochets");
 	ADD_SPRINTATHON_TOGGLE(corpses_w, sprintathon_physics_corpses, "Physics Corpses");
 	ADD_SPRINTATHON_TOGGLE(checkpoints_w, sprintathon_safe_checkpoints, "Checkpoint save system");
@@ -4478,6 +4481,7 @@ static void sprintathon_dialog(void *arg)
 		input_preferences->sprintathon_oxygen_recovery_percent =
 			oxygen_recovery_w->get_selection() + 10;
 		STORE_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_enhanced_enemy_ai, enhanced_ai_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_bullet_ricochet, ricochet_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_physics_corpses, corpses_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_safe_checkpoints, checkpoints_w);
@@ -6493,6 +6497,7 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_stamina_dodge", input_preferences->sprintathon_stamina_dodge);
 	root.put_attr("sprintathon_stamina_bullet_time", input_preferences->sprintathon_stamina_bullet_time);
 	root.put_attr("sprintathon_slide", input_preferences->sprintathon_slide);
+	root.put_attr("sprintathon_enhanced_enemy_ai", input_preferences->sprintathon_enhanced_enemy_ai);
 	root.put_attr("sprintathon_bullet_ricochet", input_preferences->sprintathon_bullet_ricochet);
 	root.put_attr("sprintathon_physics_corpses", input_preferences->sprintathon_physics_corpses);
 	root.put_attr("sprintathon_safe_checkpoints", input_preferences->sprintathon_safe_checkpoints);
@@ -6910,6 +6915,7 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_stamina_dodge = true;
 	preferences->sprintathon_stamina_bullet_time = true;
 	preferences->sprintathon_slide = true;
+	preferences->sprintathon_enhanced_enemy_ai = true;
 	preferences->sprintathon_bullet_ricochet = true;
 	preferences->sprintathon_physics_corpses = true;
 	preferences->sprintathon_safe_checkpoints = false;
@@ -7615,6 +7621,7 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_stamina_dodge", input_preferences->sprintathon_stamina_dodge);
 	root.read_attr("sprintathon_stamina_bullet_time", input_preferences->sprintathon_stamina_bullet_time);
 	root.read_attr("sprintathon_slide", input_preferences->sprintathon_slide);
+	root.read_attr("sprintathon_enhanced_enemy_ai", input_preferences->sprintathon_enhanced_enemy_ai);
 	root.read_attr("sprintathon_bullet_ricochet", input_preferences->sprintathon_bullet_ricochet);
 	root.read_attr("sprintathon_physics_corpses", input_preferences->sprintathon_physics_corpses);
 	root.read_attr("sprintathon_safe_checkpoints", input_preferences->sprintathon_safe_checkpoints);

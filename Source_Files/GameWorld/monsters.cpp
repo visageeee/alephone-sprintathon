@@ -1967,7 +1967,8 @@ static void cause_shrapnel_damage(
 // Experimental flight: no new saved state, random calls, or multiplayer changes.
 static bool sprintathon_organic_flight(const monster_data* monster, const monster_definition* definition)
 {
-    return input_preferences->sprintathon_enabled && !game_is_networked && !game_is_being_replayed() &&
+    return input_preferences->sprintathon_enabled && input_preferences->sprintathon_enhanced_enemy_ai &&
+        !game_is_networked && !game_is_being_replayed() &&
         (definition->flags & (_monster_flys | _monster_floats)) == _monster_flys &&
         !MONSTER_IS_DYING(monster) && !MONSTER_IS_ATTACKING(monster) &&
         monster->action != _monster_is_being_hit && !monster->external_velocity;
@@ -1989,7 +1990,8 @@ struct SprintathonClearShot {
 static std::map<short, SprintathonClearShot> sprintathon_clear_shots;
 static bool sprintathon_small_flyer(const monster_data* monster, const monster_definition* definition)
 {
-    return input_preferences->sprintathon_enabled && !game_is_networked && !game_is_being_replayed() &&
+    return input_preferences->sprintathon_enabled && input_preferences->sprintathon_enhanced_enemy_ai &&
+        !game_is_networked && !game_is_being_replayed() &&
         (definition->flags & (_monster_flys | _monster_floats)) == _monster_flys &&
         definition->radius < WORLD_ONE/2 && definition->height < 3*WORLD_ONE/2 && !MONSTER_IS_DYING(monster);
 }
@@ -2032,6 +2034,7 @@ struct SprintathonFlightBank {
 static std::map<short, SprintathonFlightBank> sprintathon_flight_banks;
 float sprintathon_flight_bank(short index, float camera_yaw)
 {
+    if (!input_preferences->sprintathon_enhanced_enemy_ai) return 0;
     // Large flyers keep their movement but remain visually level.
     const auto* definition = get_monster_definition(get_monster_data(index)->type);
     if (definition->radius >= WORLD_ONE/2 || definition->height >= 3*WORLD_ONE/2)
