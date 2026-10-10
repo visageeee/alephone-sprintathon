@@ -377,3 +377,9 @@ void parse_mml_monsters(const InfoTree& root);
 void reset_mml_monsters();
 
 #endif
+
+// Visual bank in degrees, projected onto the camera right vector.
+float sprintathon_flight_bank(short monster_index, float camera_yaw);
+
+// Actual short dodge trail in world coordinates, for the shader renderer.
+bool sprintathon_flight_dodge_motion(short monster_index, float* motion);

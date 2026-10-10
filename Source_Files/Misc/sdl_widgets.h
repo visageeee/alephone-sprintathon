@@ -57,7 +57,7 @@
 #include	<set>
 #include <functional>
 
-#include "metaserver_messages.h" // for GameListMessage, for w_games_in_room and MetaserverPlayerInfo, for w_players_in_room
+#include "../Network/Metaserver/metaserver_messages.h" // for GameListMessage, for w_games_in_room and MetaserverPlayerInfo, for w_players_in_room
 #include "network.h" // for prospective_joiner_info
 
 #include	"binders.h"

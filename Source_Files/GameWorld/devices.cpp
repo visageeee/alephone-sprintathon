@@ -535,6 +535,59 @@ void try_and_toggle_control_panel(
 	}
 }
 
+// Editor-only metadata; do not change runtime panel activation.
+int surface_editor_panel_variant(short type)
+{
+    if (type < 0 || size_t(type) >= NUMBER_OF_CONTROL_PANEL_DEFINITIONS) return 0;
+    const auto& d = control_panel_definitions[type];
+    if (d._class != _panel_is_tag_switch) return 0;
+    if (d.item != NONE) return 1;
+    return d.sounds[0] == _snd_destroy_control_panel ? 2 : 0;
+}
+short surface_editor_breakable_panel(shape_descriptor texture, short preferred)
+{
+    if (texture == UNONE) return NONE;
+    const short collection = GET_COLLECTION(GET_DESCRIPTOR_COLLECTION(texture));
+    const short frame = GET_DESCRIPTOR_SHAPE(texture);
+    auto matches = [&](short i) {
+        const auto& d = control_panel_definitions[i];
+        return surface_editor_panel_variant(i) == 2 && d.collection == collection &&
+            (frame == d.active_shape || frame == d.inactive_shape);
+    };
+    if (preferred >= 0 && size_t(preferred) < NUMBER_OF_CONTROL_PANEL_DEFINITIONS && matches(preferred))
+        return preferred;
+    for (short i = 0; size_t(i) < NUMBER_OF_CONTROL_PANEL_DEFINITIONS; ++i)
+        if (matches(i)) return i;
+    return NONE;
+}
+
+// Read-only editor access to the current (possibly MML-modified) definitions.
+bool surface_editor_panel_definition(short type, short& kind, short& collection)
+{
+    if (type < 0 || size_t(type) >= NUMBER_OF_CONTROL_PANEL_DEFINITIONS) return false;
+    kind = control_panel_definitions[type]._class;
+    collection = control_panel_definitions[type].collection;
+    return true;
+}
+
+// Match the requested function to the painted primary texture, honoring MML.
+short surface_editor_match_panel(short type, shape_descriptor texture)
+{
+    if (texture == UNONE || type < 0 || size_t(type) >= NUMBER_OF_CONTROL_PANEL_DEFINITIONS) return NONE;
+    const auto& requested = control_panel_definitions[type];
+    const short collection = GET_COLLECTION(GET_DESCRIPTOR_COLLECTION(texture));
+    const short frame = GET_DESCRIPTOR_SHAPE(texture);
+    auto matches = [&](const control_panel_definition& candidate) {
+        return candidate._class == requested._class && candidate.item == requested.item &&
+            candidate.collection == collection &&
+            (candidate.active_shape == frame || candidate.inactive_shape == frame);
+    };
+    if (matches(requested)) return type;
+    for (size_t i = 0; i < NUMBER_OF_CONTROL_PANEL_DEFINITIONS; ++i)
+        if (matches(control_panel_definitions[i])) return static_cast<short>(i);
+    return NONE;
+}
+
 short get_panel_class(
 	short panel_type)
 {

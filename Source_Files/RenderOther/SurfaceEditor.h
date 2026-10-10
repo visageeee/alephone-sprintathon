@@ -10,8 +10,18 @@
 #include "game_errors.h"
 #include "FileHandler.h"
 #include "scenery.h"
+#include "platforms.h"
 #include "lightsource.h"
 #include "OGL_Setup.h"
+#include "sdl_dialogs.h"
+#include "sdl_widgets.h"
+#include <cstdlib>
+
+// Metadata comes from the engine definitions, including scenario MML overrides.
+bool surface_editor_panel_definition(short type, short& kind, short& collection);
+short surface_editor_match_panel(short type, shape_descriptor texture);
+int surface_editor_panel_variant(short type);
+short surface_editor_breakable_panel(shape_descriptor texture, short preferred);
 #include <map>
 #include <memory>
 #include <cstdio>
@@ -27,8 +37,16 @@ constexpr int panel_width = 160, panel_height = 708, tiles_y = 68;
 struct Texture { shape_descriptor shape; bool landscape; };
 struct Scenery { short type, collection, frame; bool hanging; };
 struct OffsetChange { Hit hit; int old_x, old_y, new_x, new_y, base_x = 0, base_y = 0; };
+struct HeightState {
+    std::vector<std::pair<short, line_data>> lines;
+    std::vector<std::pair<short, side_data>> sides;
+    int side_count = 0;
+};
 struct Change {
     Hit hit; Texture before, after; int16 old_mode, new_mode;
+    bool transparent_geometry = false;
+    bool panel = false;
+    side_data old_panel{}, new_panel{};
     bool scenery = false;
     map_object placement = {};
     short object_index = NONE;
@@ -39,16 +57,30 @@ struct Change {
     bool texture_enabled = true, lighting_enabled = false;
     int16 old_light = 0, new_light = 0;
     std::vector<OffsetChange> offsets;
+    bool height = false;
+    int old_height = 0, new_height = 0;
+    HeightState old_geometry, new_geometry;
 };
 std::vector<Texture> textures;
 std::vector<Scenery> scenery;
 std::vector<int> light_choices, saved_ids;
 std::map<int, short> live_scenery;
 int next_id = 0, selected_light = 0;
+int custom_light = NONE; // Existing map light; NONE selects the shading swatches.
 constexpr int light_steps = 10, light_cell = 57, light_width = 32, header_height = 32;
 bool left_collapsed = false, right_collapsed = false;
 bool apply_texture = true, apply_lighting = false, align_adjacent = false;
+bool edit_panels = false;
+bool transparent_surface = false, remove_texture = false;
 bool dragging = false;
+int height_start_y = 0;
+// One transfer mode per surface: scrolling and wobble are mutually exclusive.
+enum Motion { keep_motion, still_motion, scroll_x, scroll_y, reverse_x, reverse_y, wobble_motion, motion_count };
+int texture_motion = keep_motion;
+bool fast_motion = false;
+const char* motion_names[] = {"Keep", "Still", "Scroll X", "Scroll Y", "Scroll -X", "Scroll -Y", "Wobble"};
+constexpr int controls_height = 297;
+void message(const std::string& text);
 Change drag_change{};
 double drag_u = 0, drag_v = 0;
 void update_drag();
@@ -63,6 +95,7 @@ bool panel_dirty = true;
 FileSpecifier save_target, source_map;
 int source_level = NONE, save_level = NONE;
 bool save_target_ready = false, original_fog = false;
+uint64_t animation_started = 0;
 void save(bool save_as = false);
 bool fog_enabled() { return TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_Fog); }
 std::string status;
@@ -73,7 +106,7 @@ OGL_Blitter panel_blitters[8];
 
 SDL_Rect panel_rect(bool right = false)
 {
-    const int h = std::max(1, std::min(Screen::instance()->height()-99-header_height, 1239));
+    const int h = std::max(1, std::min(Screen::instance()->height()-(right ? 99 : controls_height)-header_height, 1239));
     const int w = std::max(128, h*panel_width/panel_height);
     return {right ? Screen::instance()->width()-w : std::max(20, h*light_width/panel_height), header_height, w, h};
 }
@@ -85,7 +118,7 @@ SDL_Rect light_rect()
 SDL_Rect checkbox_rect()
 {
     const auto r = panel_rect();
-    return {0, Screen::instance()->height()-99, r.x+r.w, 99};
+    return {0, Screen::instance()->height()-controls_height, r.x+r.w, controls_height};
 }
 SDL_Rect actions_rect()
 {
@@ -165,7 +198,7 @@ Surface surface(Hit hit)
         return hit.part == Part::floor ? Surface{&p->floor_texture, &p->floor_transfer_mode, &p->floor_lightsource_index} :
             Surface{&p->ceiling_texture, &p->ceiling_transfer_mode, &p->ceiling_lightsource_index};
     }
-    if (hit.part == Part::none || hit.index >= dynamic_world->side_count) return {};
+    if (hit.part == Part::none || hit.index < 0 || hit.index >= dynamic_world->side_count) return {};
     auto* s = get_side_data(hit.index);
     if (hit.part == Part::secondary) return {&s->secondary_texture.texture, &s->secondary_transfer_mode, &s->secondary_lightsource_index};
     if (hit.part == Part::transparent) return {&s->transparent_texture.texture, &s->transparent_transfer_mode, &s->transparent_lightsource_index};
@@ -187,11 +220,14 @@ Hit target(const surface_editor_geometry::Ray& ray, std::vector<std::pair<int, d
             r.edges.push_back({double(a.x), double(a.y), double(b.x), double(b.y),
                 p->adjacent_polygon_indexes[i], side_index, s && s->type == _split_side,
                 s && s->transparent_texture.texture != UNONE,
-                s && s->type == _full_side});
+                s && s->type == _full_side && s->primary_texture.texture != UNONE, p->line_indexes[i]});
         }
         return r;
     };
-    return trace(ray, screenshot_polygon, room, (SDL_GetModState() & KMOD_ALT) != 0, visited);
+    const bool texture_tool = !visited && !scenery_brush && !edit_panels;
+    const bool through = texture_tool ? !transparent_surface : (SDL_GetModState() & KMOD_ALT) != 0;
+    return trace(ray, screenshot_polygon, room, through, visited,
+        texture_tool && transparent_surface);
 }
 
 struct Offset { world_distance* x; world_distance* y; };
@@ -255,19 +291,312 @@ void set_offsets(const Change& c, bool forward)
         *o.y = forward ? edit.new_y : edit.old_y;
     }
 }
+// Snapshot only the boundary of the edited polygon. New sides are appended by
+// new_side(), and removed again by undo, keeping map references reversible.
+HeightState capture_geometry(int polygon)
+{
+    HeightState state;
+    state.side_count = int(SideList.size());
+    const auto* p = get_polygon_data(polygon);
+    for (int i = 0; i < p->vertex_count; ++i) {
+        const short index = p->line_indexes[i];
+        const auto& line = *get_line_data(index);
+        state.lines.push_back({index, line});
+        for (short side : {line.clockwise_polygon_side_index, line.counterclockwise_polygon_side_index})
+            if (side != NONE) state.sides.push_back({side, *get_side_data(side)});
+    }
+    return state;
+}
+void refresh_height_geometry(int polygon)
+{
+    const auto* p = get_polygon_data(polygon);
+    std::set<short> owners;
+    for (int i = 0; i < p->vertex_count; ++i) {
+        auto* line = get_line_data(p->line_indexes[i]);
+        for (short owner : {line->clockwise_polygon_owner, line->counterclockwise_polygon_owner})
+            if (owner != NONE) owners.insert(owner);
+        recalculate_redundant_line_data(p->line_indexes[i]);
+    }
+    // Render flags are normally allocated only at level load. Height edits
+    // can append sides beyond that original allocation.
+    if (RenderFlagList.size() < size_t(RENDER_FLAGS_BUFFER_SIZE))
+        RenderFlagList.resize(RENDER_FLAGS_BUFFER_SIZE);
+    for (short owner : owners) recalculate_redundant_polygon_data(owner);
+    for (int i = 0; i < p->vertex_count; ++i)
+        recalculate_redundant_endpoint_data(p->endpoint_indexes[i]);
+    init_interpolated_world();
+}
+void restore_geometry(const HeightState& state, int polygon)
+{
+    SideList.resize(state.side_count);
+    dynamic_world->side_count = state.side_count;
+    for (const auto& entry : state.lines) *get_line_data(entry.first) = entry.second;
+    for (const auto& entry : state.sides) *get_side_data(entry.first) = entry.second;
+    refresh_height_geometry(polygon);
+}
+// Paused editor door previews never change platform activation or save state.
+std::map<short, std::pair<world_distance, world_distance>> door_positions;
+std::map<short, uint16> door_line_flags;
+void repair_door_side(short index);
+void preview_door_height(short polygon, world_distance floor, world_distance ceiling)
+{
+    auto* p = get_polygon_data(polygon);
+    p->floor_height = floor; p->ceiling_height = ceiling;
+    refresh_height_geometry(polygon);
+    // Platform movement normally updates these portal flags too. The paused
+    // editor must do it explicitly, without advancing the gameplay simulation.
+    for (int i = 0; i < p->vertex_count; ++i) {
+        auto* line = get_line_data(p->line_indexes[i]);
+        if (line->clockwise_polygon_owner == NONE || line->counterclockwise_polygon_owner == NONE) continue;
+        const bool open = line->highest_adjacent_floor < line->lowest_adjacent_ceiling;
+        SET_LINE_TRANSPARENCY(line, open);
+        SET_LINE_SOLIDITY(line, !open);
+        for (short side_index : {line->clockwise_polygon_side_index, line->counterclockwise_polygon_side_index})
+            if (side_index != NONE) repair_door_side(side_index);
+    }
+    for (int i = 0; i < p->vertex_count; ++i)
+        recalculate_redundant_endpoint_data(p->endpoint_indexes[i]);
+    init_interpolated_world();
+}
+void restore_door_positions()
+{
+    for (const auto& entry : door_positions)
+        preview_door_height(entry.first, entry.second.first, entry.second.second);
+    for (const auto& entry : door_line_flags) get_line_data(entry.first)->flags = entry.second;
+    for (const auto& entry : door_positions) {
+        const auto* p = get_polygon_data(entry.first);
+        for (int i = 0; i < p->vertex_count; ++i)
+            recalculate_redundant_endpoint_data(p->endpoint_indexes[i]);
+    }
+    init_interpolated_world();
+}
+struct SavedDoorPositions {
+    std::map<short, std::pair<world_distance, world_distance>> preview;
+    SavedDoorPositions() {
+        for (const auto& entry : door_positions) {
+            const auto* p = get_polygon_data(entry.first);
+            preview[entry.first] = {p->floor_height, p->ceiling_height};
+        }
+        restore_door_positions();
+    }
+    ~SavedDoorPositions() {
+        for (const auto& entry : preview)
+            preview_door_height(entry.first, entry.second.first, entry.second.second);
+    }
+};
+void use_door()
+{
+    finish_drag();
+    // Trace visible surfaces, independent of the current paint channel.
+    std::vector<std::pair<int, double>> visited;
+    const Hit hit = target(picking_ray(), &visited);
+    short polygon = NONE;
+    auto consider = [&](short index) {
+        if (polygon == NONE && index != NONE && get_polygon_data(index)->type == _polygon_is_platform)
+            polygon = index;
+    };
+    // Include the camera's room so an open door can be closed from inside.
+    consider(screenshot_polygon);
+    short line_index = hit.line;
+    if (line_index < 0 && hit.index >= 0 &&
+        (hit.part == Part::primary || hit.part == Part::secondary || hit.part == Part::transparent))
+        line_index = get_side_data(hit.index)->line_index;
+    if (line_index >= 0) {
+        const auto* line = get_line_data(line_index);
+        consider(line->clockwise_polygon_owner); consider(line->counterclockwise_polygon_owner);
+    }
+    if (polygon == NONE) {
+        for (const auto& step : visited) {
+            consider(step.first);
+            if (polygon != NONE) break;
+        }
+    }
+    if (polygon == NONE) { message("Point at a door or its opening, then press E."); return; }
+    auto* p = get_polygon_data(polygon);
+    const auto* platform = get_platform_data(p->permutation);
+    if (!door_positions.count(polygon)) {
+        door_positions[polygon] = {p->floor_height, p->ceiling_height};
+        for (int i = 0; i < p->vertex_count; ++i) {
+            const short index = p->line_indexes[i];
+            if (!door_line_flags.count(index)) door_line_flags[index] = get_line_data(index)->flags;
+        }
+    }
+    const bool open = p->floor_height == platform->minimum_floor_height &&
+        p->ceiling_height == platform->maximum_ceiling_height;
+    preview_door_height(polygon,
+        open ? platform->maximum_floor_height : platform->minimum_floor_height,
+        open ? platform->minimum_ceiling_height : platform->maximum_ceiling_height);
+    message(open ? "Door closed (preview)." : "Door opened (preview).");
+}
+
+bool set_height(Hit hit, int height)
+{
+    if (door_positions.count(hit.index)) { message("Leave visual mode before changing a previewed door height."); return false; }
+    auto* p = get_polygon_data(hit.index);
+    const int floor = hit.part == Part::floor ? height : p->floor_height;
+    const int ceiling = hit.part == Part::ceiling ? height : p->ceiling_height;
+    // Engine collision code stores the gap in a signed world_distance.
+    if (floor >= ceiling || ceiling-floor > 32767) return false;
+    if (p->first_object != NONE && !surface_editor_objects::removable(p->first_object,
+        p->first_object, MAXIMUM_OBJECTS_PER_MAP,
+        [](int i) { return SLOT_IS_USED(&objects[i]); },
+        [](int i) { return objects[i].next_object; })) {
+        message("Cannot change height: invalid polygon object list."); return false;
+    }
+    if (!change_polygon_height(hit.index, floor, ceiling, nullptr)) {
+        message("Height blocked by an occupant."); return false;
+    }
+    // Saved scenery heights are offsets from their floor/ceiling. Keep the live
+    // objects in agreement, including hanging scenery and nonzero offsets.
+    for (size_t i = 0; i < SavedObjectList.size(); ++i) {
+        const auto& record = SavedObjectList[i];
+        if (record.type != _saved_object || record.polygon_index != hit.index) continue;
+        const auto live = live_scenery.find(saved_ids[i]);
+        if (live == live_scenery.end()) continue;
+        auto* object = get_object_data(live->second);
+        const int z = record.location.z + ((record.flags & _map_object_hanging_from_ceiling) ? ceiling : floor);
+        object->location.z = std::max(-32768, std::min(32767, z));
+    }
+    return true;
+}
+// Full-height sides do not clip to a moving door's opening. Repair only
+// full sides facing a platform, using the engine's standard travel extents.
+void repair_door_side(short index)
+{
+    auto* side = get_side_data(index);
+    if (side->type != _full_side) return;
+    const short neighbor = find_adjacent_polygon(side->polygon_index, side->line_index);
+    if (neighbor == NONE) return;
+    if (get_polygon_data(neighbor)->type != _polygon_is_platform &&
+        get_polygon_data(side->polygon_index)->type != _polygon_is_platform) return;
+    recalculate_side_type(index);
+    // The generic classifier returns full for flush openings too. On a
+    // two-sided platform boundary that must be a zero-height lower surface,
+    // otherwise painting the shaft face fills the entire open doorway.
+    if (side->type == _full_side) side->type = _low_side;
+    // A full side had one texture. A split door needs the same initial
+    // material below as above; retain any explicitly painted lower face.
+    if (side->type == _split_side && side->secondary_texture.texture == UNONE) {
+        side->secondary_texture = side->primary_texture;
+        side->secondary_transfer_mode = side->primary_transfer_mode;
+        side->secondary_lightsource_index = side->primary_lightsource_index;
+    }
+}
+
+void expose_height_sides(Hit hit)
+{
+    const auto* p = get_polygon_data(hit.index);
+    for (int i = 0; i < p->vertex_count; ++i) {
+        const short line_index = p->line_indexes[i];
+        auto* line = get_line_data(line_index);
+        for (int direction = 0; direction < 2; ++direction) {
+            const short owner = direction ? line->counterclockwise_polygon_owner : line->clockwise_polygon_owner;
+            const short neighbor = direction ? line->clockwise_polygon_owner : line->counterclockwise_polygon_owner;
+            if (owner == NONE) continue;
+            const auto* room = get_polygon_data(owner);
+            const auto* other = neighbor == NONE ? nullptr : get_polygon_data(neighbor);
+            const bool exposed = !other || other->floor_height > room->floor_height || other->ceiling_height < room->ceiling_height;
+            short side = direction ? line->counterclockwise_polygon_side_index : line->clockwise_polygon_side_index;
+            if (side == NONE && exposed) {
+                side = new_side(owner, line_index);
+                auto* s = get_side_data(side);
+                s->primary_texture.texture = s->secondary_texture.texture =
+                    hit.part == Part::floor ? p->floor_texture : p->ceiling_texture;
+                s->primary_lightsource_index = s->secondary_lightsource_index =
+                    hit.part == Part::floor ? p->floor_lightsource_index : p->ceiling_lightsource_index;
+            }
+            if (side != NONE) {
+                auto* s = get_side_data(side);
+                const short old_type = s->type;
+                recalculate_side_type(side);
+                // The engine's generic guess returns full for flush portals.
+                // A zero-height low side keeps these portals visibly open.
+                if (other && !exposed && (old_type != _full_side || s->primary_texture.texture == UNONE))
+                    s->type = _low_side;
+                else if (old_type == _full_side && s->primary_texture.texture != UNONE)
+                    s->type = _full_side; // preserve intentional full walls
+                repair_door_side(side);
+                if (old_type == _low_side && s->type == _split_side) {
+                    s->secondary_texture = s->primary_texture;
+                    s->secondary_transfer_mode = s->primary_transfer_mode;
+                    s->secondary_lightsource_index = s->primary_lightsource_index;
+                } else if (old_type == _split_side && s->type == _low_side) {
+                    s->primary_texture = s->secondary_texture;
+                    s->primary_transfer_mode = s->secondary_transfer_mode;
+                    s->primary_lightsource_index = s->secondary_lightsource_index;
+                }
+                const auto shape = hit.part == Part::floor ? p->floor_texture : p->ceiling_texture;
+                const auto light = hit.part == Part::floor ? p->floor_lightsource_index : p->ceiling_lightsource_index;
+                if (exposed && s->primary_texture.texture == UNONE) {
+                    s->primary_texture.texture = shape;
+                    s->primary_lightsource_index = light;
+                    s->primary_transfer_mode = _xfer_normal;
+                }
+                if (s->type == _split_side && s->secondary_texture.texture == UNONE) {
+                    s->secondary_texture.texture = shape;
+                    s->secondary_lightsource_index = light;
+                    s->secondary_transfer_mode = _xfer_normal;
+                }
+            }
+        }
+    }
+    refresh_height_geometry(hit.index);
+}
+void start_height_drag()
+{
+    const Hit hit = target(picking_ray());
+    if (hit.part != Part::floor && hit.part != Part::ceiling) {
+        message("Grab a floor or ceiling to change its height."); return;
+    }
+    const auto* p = get_polygon_data(hit.index);
+    if (p->type == _polygon_is_platform) {
+        message("Platform heights are controlled by their movement settings."); return;
+    }
+    // Reserve the worst-case number of new boundary sides before changing height.
+    if (SideList.size()+2*p->vertex_count > 32767) { message("Map side limit reached."); return; }
+    drag_change = Change{}; drag_change.hit = hit; drag_change.height = true;
+    drag_change.old_height = drag_change.new_height = hit.part == Part::floor ? p->floor_height : p->ceiling_height;
+    drag_change.old_geometry = capture_geometry(hit.index);
+    height_start_y = cursor_y;
+    dragging = true;
+    message("");
+}
 void finish_drag()
 {
     if (!dragging) return;
     dragging = false;
-    bool changed = false;
+    bool changed = drag_change.height && drag_change.old_height != drag_change.new_height;
+    if (drag_change.height) {
+        if (changed) drag_change.new_geometry = capture_geometry(drag_change.hit.index);
+        else restore_geometry(drag_change.old_geometry, drag_change.hit.index);
+    }
     for (const auto& e : drag_change.offsets)
         changed = changed || e.old_x != e.new_x || e.old_y != e.new_y;
     if (changed) { undo.push_back(drag_change); redo.clear(); }
-    drag_change.offsets.clear();
+    drag_change = Change{};
     init_interpolated_world();
 }
 void update_drag()
 {
+    if (drag_change.height) {
+        const auto* p = get_polygon_data(drag_change.hit.index);
+        const bool floor = drag_change.hit.part == Part::floor;
+        const int low = std::max(-32768, floor ? p->ceiling_height-32767 : p->floor_height+1);
+        const int high = std::min(32767, floor ? p->ceiling_height-1 : p->floor_height+32767);
+        const int height = surface_editor_geometry::drag_height(drag_change.old_height,
+            height_start_y-cursor_y, WORLD_ONE, low, high);
+        if (height == drag_change.new_height || !set_height(drag_change.hit, height)) return;
+        drag_change.new_height = height;
+        // Always derive side types/textures from the pre-drag snapshot so a
+        // split -> low -> split excursion cannot replace the upper texture.
+        for (const auto& entry : drag_change.old_geometry.sides)
+            *get_side_data(entry.first) = entry.second;
+        expose_height_sides(drag_change.hit);
+        char text[80];
+        snprintf(text, sizeof(text), "%s: %.3f", floor ? "Floor" : "Ceiling", double(height)/WORLD_ONE);
+        message(text);
+        return;
+    }
     double u, v;
     if (!drag_coordinates(drag_change.hit, u, v)) return;
     const int dx = int(std::lround(u-drag_u)), dy = int(std::lround(v-drag_v));
@@ -349,6 +678,14 @@ void apply(Hit hit, Texture texture, int16 mode, int16 light, bool texture_enabl
     if (!dst.shape) return;
     if (lighting_enabled) *dst.light = light;
     if (texture_enabled) { *dst.shape = texture.shape; *dst.mode = mode; }
+    if (texture_enabled && (hit.part == Part::primary || hit.part == Part::secondary)) {
+        repair_door_side(hit.index);
+        init_interpolated_world();
+    }
+    if (texture_enabled && hit.part == Part::transparent) {
+        recalculate_redundant_line_data(get_side_data(hit.index)->line_index);
+        init_interpolated_world();
+    }
     // Keep the projectile/landscape classification consistent with the renderer.
     if (texture_enabled && hit.part == Part::primary) {
         const auto* side = get_side_data(hit.index);
@@ -399,34 +736,101 @@ int swatch_light(int step)
     return light_choices[step] = index;
 }
 
+int16 paint_motion(int16 previous)
+{
+    switch (texture_motion) {
+        case still_motion: return _xfer_normal;
+        case scroll_x: return fast_motion ? _xfer_fast_horizontal_slide : _xfer_horizontal_slide;
+        case scroll_y: return fast_motion ? _xfer_fast_vertical_slide : _xfer_vertical_slide;
+        case reverse_x: return fast_motion ? _xfer_reverse_fast_horizontal_slide : _xfer_reverse_horizontal_slide;
+        case reverse_y: return fast_motion ? _xfer_reverse_fast_vertical_slide : _xfer_reverse_vertical_slide;
+        case wobble_motion: return fast_motion ? _xfer_fast_wobble : _xfer_wobble;
+        default: return previous == _xfer_landscape ? _xfer_normal : previous;
+    }
+}
+void sample_motion(int16 mode)
+{
+    texture_motion = keep_motion; fast_motion = false;
+    for (int motion = still_motion; motion < motion_count; ++motion) {
+        texture_motion = motion;
+        for (bool fast : {false, true}) {
+            fast_motion = fast;
+            if (paint_motion(_xfer_normal) == mode) return;
+        }
+    }
+    texture_motion = keep_motion; fast_motion = false;
+}
 void paint(bool sample)
 {
-    const Hit hit = target(picking_ray());
+    Hit hit = target(picking_ray());
+    if (transparent_surface && hit.part != Part::transparent) {
+        message("Aim at an opening between polygons for transparent decor."); return;
+    }
+    HeightState before_geometry;
+    bool created_side = false;
+    if ((hit.part == Part::primary || hit.part == Part::secondary || hit.part == Part::transparent) &&
+        hit.index == NONE && !sample &&
+        !remove_texture && apply_texture && !textures.empty()) {
+        if (hit.line < 0 || SideList.size() >= 32767) {
+            message("Cannot create a wall surface here."); return;
+        }
+        if (hit.part == Part::transparent && textures[selected].landscape) { message("Choose a wall texture for transparent decor."); return; }
+        before_geometry = capture_geometry(hit.polygon);
+        hit.index = new_side(hit.polygon, hit.line);
+        auto* side = get_side_data(hit.index);
+        side->primary_lightsource_index = side->secondary_lightsource_index =
+            side->transparent_lightsource_index = get_polygon_data(hit.polygon)->floor_lightsource_index;
+        if (hit.part != Part::transparent && side->type == _split_side) {
+            const auto ray = picking_ray();
+            const short neighbor = find_adjacent_polygon(hit.polygon, hit.line);
+            if (neighbor != NONE && ray.z + hit.distance * ray.dz <= get_polygon_data(neighbor)->floor_height)
+                hit.part = Part::secondary;
+        }
+        refresh_height_geometry(hit.polygon);
+        created_side = true;
+    }
     const auto dst = surface(hit);
-    if (!dst.shape) { message("No surface."); return; }
+    if (!dst.shape) { message("No textured surface here."); return; }
     if (sample) {
         for (size_t i = 0; i < textures.size(); ++i)
             if (textures[i].shape == *dst.shape && textures[i].landscape == (*dst.mode == _xfer_landscape)) {
                 selected = int(i); page = selected/page_size; break;
             }
+        sample_motion(*dst.mode);
+        custom_light = *dst.light;
         const double brightness = double(get_light_intensity(*dst.light))/FIXED_ONE;
         selected_light = std::max(0, std::min(light_steps-1, int(std::lround((1-brightness)*(light_steps-1)))));
-        scenery_brush = false; message("Sampled."); return;
+        remove_texture = false; scenery_brush = false; message("Sampled."); return;
     }
-    const bool tex = apply_texture && !textures.empty();
-    const bool illumination = apply_lighting && !light_choices.empty();
+    if (!sample && remove_texture && hit.part != Part::transparent) {
+        message("Remove texture is for transparent decorations only."); return;
+    }
+    const bool tex = remove_texture || (apply_texture && !textures.empty());
+    const bool illumination = !remove_texture && apply_lighting && (custom_light != NONE || !light_choices.empty());
     if (!tex && !illumination) { message("No paint channel selected."); return; }
-    const Texture next = tex ? textures[selected] : Texture{*dst.shape, *dst.mode == _xfer_landscape};
+    const Texture next = remove_texture ? Texture{UNONE, false} :
+        tex ? textures[selected] : Texture{*dst.shape, *dst.mode == _xfer_landscape};
+    if (hit.part == Part::transparent && next.landscape) {
+        message("Choose a wall texture for transparent decor."); return;
+    }
     const int16 mode = tex ? (next.landscape ? _xfer_landscape :
-        (*dst.mode == _xfer_landscape ? _xfer_normal : *dst.mode)) : *dst.mode;
-    const int16 light = illumination ? swatch_light(selected_light) : *dst.light;
-    if (illumination && light == NONE) { message("Map light limit reached."); return; }
+        paint_motion(*dst.mode)) : *dst.mode;
+    const int16 light = illumination ? (custom_light != NONE ? custom_light : swatch_light(selected_light)) : *dst.light;
+    if (illumination && (light < 0 || size_t(light) >= LightList.size() || !get_light_data(light))) {
+        if (created_side) restore_geometry(before_geometry, hit.polygon);
+        message("Map light limit reached."); return;
+    }
     if (*dst.shape == next.shape && *dst.mode == mode && *dst.light == light) return;
     Change c{hit, {*dst.shape, *dst.mode == _xfer_landscape}, next, *dst.mode, mode};
     c.old_light = *dst.light; c.new_light = light;
     c.texture_enabled = tex; c.lighting_enabled = illumination;
-    undo.push_back(c); redo.clear();
     apply(hit, next, mode, light, tex, illumination);
+    if (created_side) {
+        c.transparent_geometry = true;
+        c.old_geometry = before_geometry;
+        c.new_geometry = capture_geometry(hit.polygon);
+    }
+    undo.push_back(c); redo.clear();
     message("");
 }
 
@@ -449,6 +853,10 @@ bool add_scenery(Change& c)
         saved_ids.push_back(c.id);
         dynamic_world->initial_objects_count = static_cast<int16>(SavedObjectList.size());
     }
+    // Placement and redo must publish the new slot and polygon links together.
+    // Otherwise leaving an interpolated frame can restore the pre-placement
+    // snapshot while the editor/animation lists still reference the new object.
+    init_interpolated_world();
     return true;
 }
 
@@ -614,6 +1022,113 @@ void place_scenery()
     message("");
 }
 
+
+void edit_control_panel()
+{
+    finish_drag();
+    const Hit hit = target(picking_ray());
+    if ((hit.part != Part::primary && hit.part != Part::secondary && hit.part != Part::transparent) ||
+        hit.index < 0 || hit.index >= dynamic_world->side_count) {
+        message("Select a wall to edit its panel."); return;
+    }
+    const side_data before = *get_side_data(hit.index);
+    static const char* classes[] = {"Oxygen", "Shield", "Double shield", "Triple shield",
+        "Light switch", "Platform switch", "Tag switch", "Save terminal", "Computer terminal"};
+    std::vector<std::string> names;
+    short kind, collection;
+    for (short i = 0; surface_editor_panel_definition(i, kind, collection); ++i)
+        names.push_back(std::to_string(i)+": "+(surface_editor_panel_variant(i) == 1 ? "Chip slot" :
+                surface_editor_panel_variant(i) == 2 ? "Breakable tag switch" :
+                kind >= 0 && kind < 9 ? classes[kind] : "Panel")+
+            " (C"+std::to_string(collection)+")");
+    if (names.empty()) { message("No panel definitions available."); return; }
+    std::vector<const char*> labels;
+    for (const auto& name : names) labels.push_back(name.c_str());
+    labels.push_back(nullptr);
+    dialog d;
+    vertical_placer* layout = new vertical_placer;
+    layout->dual_add(new w_title("CONTROL PANEL"), d);
+    table_placer* table = new table_placer(2, get_theme_space(ITEM_WIDGET));
+    w_toggle* enabled = new w_toggle(SIDE_IS_CONTROL_PANEL(&before) != 0);
+    w_select* type = new w_select(std::max(0, std::min(int(names.size())-1, int(before.control_panel_type))), labels.data());
+    const std::string target_text = std::to_string(before.control_panel_permutation);
+    w_text_entry* target_w = new w_text_entry(6, target_text.c_str());
+    auto row = [&](const char* title, widget* w) { table->dual_add(w->label(title), d); table->dual_add(w, d); };
+    row("Enabled", enabled); row("Type", type); row("Target ID (light / platform polygon / tag / terminal)", target_w);
+    const uint16 masks[] = {_control_panel_status, _side_is_repair_switch, _side_is_destructive_switch,
+        _side_is_lighted_switch, _side_switch_can_be_destroyed, _side_switch_can_only_be_hit_by_projectiles};
+    const char* flag_names[] = {"Initially on", "Required for exit", "Consumes item", "Requires light",
+        "Destroyable", "Projectile activation only"};
+    w_toggle* flags[6];
+    for (int i=0;i<6;++i) { flags[i]=new w_toggle((before.flags & masks[i]) != 0); row(flag_names[i], flags[i]); }
+    layout->add(table, true);
+    horizontal_placer* buttons = new horizontal_placer;
+    buttons->dual_add(new w_button("ACCEPT", dialog_ok, &d), d);
+    buttons->dual_add(new w_button("CANCEL", dialog_cancel, &d), d);
+    layout->add(buttons, true); d.set_widget_placer(layout);
+    SDL_SetRelativeMouseMode(SDL_FALSE); SDL_ShowCursor(SDL_ENABLE);
+    if (d.run() == 0) {
+        char* end = nullptr;
+        const char* text = target_w->get_text();
+        const long target_id = std::strtol(text, &end, 10);
+        surface_editor_panel_definition(type->get_selection(), kind, collection);
+        bool valid = *text && end && !*end && target_id >= -1 && target_id <= 32767;
+        if (kind == _panel_is_light_switch)
+            valid = valid && target_id >= 0 && size_t(target_id) < LightList.size() && get_light_data(target_id) != nullptr;
+        if (kind == _panel_is_platform_switch) {
+            valid = valid && target_id >= 0 && target_id < dynamic_world->polygon_count;
+            if (valid) {
+                const auto* polygon = get_polygon_data(static_cast<short>(target_id));
+                valid = polygon->type == _polygon_is_platform &&
+                    polygon->permutation >= 0 &&
+                    polygon->permutation < dynamic_world->platform_count;
+            }
+        }
+        if (kind == _panel_is_computer_terminal)
+            valid = valid && target_id >= 0;
+        // Keep panel placement usable with the standard Aleph One reach check.
+        const auto* panel_line = get_line_data(before.line_index);
+        const auto is_platform = [](short polygon_index) {
+            return polygon_index != NONE &&
+                get_polygon_data(polygon_index)->type == _polygon_is_platform;
+        };
+        const bool platform_boundary = is_platform(panel_line->clockwise_polygon_owner) ||
+            is_platform(panel_line->counterclockwise_polygon_owner);
+        const bool breakable_tag = kind == _panel_is_tag_switch &&
+            (flags[4]->get_selection() || surface_editor_panel_variant(type->get_selection()) == 2);
+        const short matched_type = breakable_tag ?
+            surface_editor_breakable_panel(before.primary_texture.texture, type->get_selection()) :
+            surface_editor_match_panel(type->get_selection(), before.primary_texture.texture);
+        if (enabled->get_selection() && hit.part != Part::primary)
+            message("Control panels must be placed on the primary wall surface.");
+        else if (enabled->get_selection() && platform_boundary)
+            message("Use a fixed wall away from the platform boundary. Target the platform polygon ID.");
+        else if (enabled->get_selection() && matched_type == NONE)
+            message(breakable_tag ? "No breakable tag switch matches this texture. Choose a compatible switch texture." :
+                "No matching panel definition for this texture and function. Paint a compatible switch texture first.");
+        else if (enabled->get_selection() && !valid) message("Invalid target ID. No changes made.");
+        else {
+            Change c{}; c.hit=hit; c.panel=true; c.old_panel=before; c.new_panel=before;
+            SET_SIDE_CONTROL_PANEL((&c.new_panel), enabled->get_selection());
+            if (enabled->get_selection()) {
+                c.new_panel.control_panel_type=matched_type;
+                c.new_panel.control_panel_permutation=static_cast<int16>(target_id);
+                if (breakable_tag) flags[4]->set_selection(true);
+                for (int i=0;i<6;++i) {
+                    if (flags[i]->get_selection()) c.new_panel.flags |= masks[i];
+                    else c.new_panel.flags &= ~masks[i];
+                }
+            }
+            *get_side_data(hit.index)=c.new_panel;
+            undo.push_back(c); redo.clear(); init_interpolated_world();
+            message("Panel settings updated. Wall texture preserved.");
+        }
+    }
+    SDL_SetRelativeMouseMode(palette_cursor ? SDL_FALSE : SDL_TRUE);
+    SDL_ShowCursor(palette_cursor ? SDL_ENABLE : SDL_DISABLE);
+    screenshot_last_time=machine_tick_count(); panel_dirty=true;
+}
+
 void history(bool forward)
 {
     finish_drag();
@@ -621,7 +1136,16 @@ void history(bool forward)
     auto& to = forward ? undo : redo;
     if (from.empty()) { message(forward ? "Nothing to redo." : "Nothing to undo."); return; }
     Change c = from.back();
-    if (!c.offsets.empty()) { set_offsets(c, forward); init_interpolated_world(); }
+    if (c.transparent_geometry) {
+        restore_geometry(forward ? c.new_geometry : c.old_geometry, c.hit.polygon);
+    } else if (c.panel) {
+        if (c.hit.index < 0 || c.hit.index >= dynamic_world->side_count) return;
+        *get_side_data(c.hit.index) = forward ? c.new_panel : c.old_panel;
+        init_interpolated_world();
+    } else if (c.height) {
+        if (!set_height(c.hit, forward ? c.new_height : c.old_height)) return;
+        restore_geometry(forward ? c.new_geometry : c.old_geometry, c.hit.index);
+    } else if (!c.offsets.empty()) { set_offsets(c, forward); init_interpolated_world(); }
     else if (c.scenery) {
         const bool adding = forward != c.erased;
         if (adding ? !add_scenery(c) : !remove_scenery(c)) return;
@@ -635,6 +1159,7 @@ void history(bool forward)
 void save(bool save_as)
 {
     finish_drag();
+    SavedDoorPositions saved_door_positions;
     clear_game_error();
     SDL_SetRelativeMouseMode(SDL_FALSE);
     SDL_ShowCursor(SDL_ENABLE);
@@ -673,12 +1198,15 @@ void begin()
     // Object edits must not be overwritten by the next interpolation restore.
     exit_interpolated_world();
     init_interpolated_world();
+    for (short i = 0; i < dynamic_world->side_count; ++i) repair_door_side(i);
+    init_interpolated_world();
+    animation_started = machine_tick_count();
     textures.clear(); thumbnails.clear(); undo.clear(); redo.clear();
     scenery.clear(); scenery_thumbnails.clear();
     scenery.push_back({-1, 0, 0, false}); // eraser is always first
     index_scenery();
     light_choices.assign(light_steps, NONE);
-    selected_light = 0;
+    selected_light = 0; custom_light = NONE;
     selected = page = selected_scenery = scenery_page = 0;
     scenery_brush = false;
     pick_viewport = {};
@@ -727,6 +1255,9 @@ void begin()
 void end()
 {
     finish_drag();
+    restore_door_positions();
+    door_positions.clear();
+    door_line_flags.clear();
     SET_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_Fog, original_fog);
     active = false;
     palette_cursor = false;
@@ -778,6 +1309,40 @@ void scroll(int direction)
     panel_dirty = true;
 }
 
+void choose_map_light()
+{
+    finish_drag();
+    dialog d;
+    vertical_placer* layout = new vertical_placer;
+    layout->dual_add(new w_title("MAP LIGHT"), d);
+    const std::string initial = std::to_string(custom_light == NONE ? 0 : custom_light);
+    w_text_entry* id = new w_text_entry(6, initial.c_str());
+    id->set_enter_pressed_callback(dialog_try_ok);
+    const std::string range_label = "Light ID (0-" +
+        std::to_string(int(LightList.size())-1) + ")";
+    layout->dual_add(id->label(range_label.c_str()), d);
+    layout->dual_add(id, d);
+    horizontal_placer* buttons = new horizontal_placer;
+    buttons->dual_add(new w_button("ACCEPT", dialog_ok, &d), d);
+    buttons->dual_add(new w_button("CANCEL", dialog_cancel, &d), d);
+    layout->add(buttons, true); d.set_widget_placer(layout);
+    SDL_SetRelativeMouseMode(SDL_FALSE); SDL_ShowCursor(SDL_ENABLE);
+    if (d.run() == 0) {
+        char* end = nullptr;
+        const char* text = id->get_text();
+        const long value = std::strtol(text, &end, 10);
+        if (*text && end && !*end && value >= 0 && value <= 32767 && size_t(value) < LightList.size() && get_light_data(value) != nullptr) {
+            custom_light = static_cast<int>(value);
+            apply_lighting = true; apply_texture = false;
+            remove_texture = false; edit_panels = false; scenery_brush = false;
+            message("Light " + std::to_string(custom_light) + " selected. Click a surface to apply.");
+        } else message("Invalid light ID. Enter an existing map light number, not its tag.");
+    }
+    SDL_SetRelativeMouseMode(palette_cursor ? SDL_FALSE : SDL_TRUE);
+    SDL_ShowCursor(palette_cursor ? SDL_ENABLE : SDL_DISABLE);
+    screenshot_last_time = machine_tick_count(); panel_dirty = true;
+}
+
 void click(int button, int x, int y)
 {
     if (palette_cursor) {
@@ -800,9 +1365,16 @@ void click(int button, int x, int y)
         }
         if (!left_collapsed && contains(checkbox_rect(), cursor_x, cursor_y)) {
             if (button == SDL_BUTTON_LEFT) {
-                if (cursor_y-checkbox_rect().y < 33) apply_texture = !apply_texture;
-                else if (cursor_y-checkbox_rect().y < 66) apply_lighting = !apply_lighting;
-                else align_adjacent = !align_adjacent;
+                const int row = (cursor_y-checkbox_rect().y)/33;
+                if (row == 0) texture_motion = (texture_motion+1)%motion_count;
+                else if (row == 1) fast_motion = !fast_motion;
+                else if (row == 2) apply_texture = !apply_texture;
+                else if (row == 3) apply_lighting = !apply_lighting;
+                else if (row == 4) align_adjacent = !align_adjacent;
+                else if (row == 5) edit_panels = !edit_panels;
+                else if (row == 6) { transparent_surface = !transparent_surface; remove_texture = false; edit_panels = false; }
+                else if (row == 7) { remove_texture = !remove_texture; transparent_surface = true; edit_panels = false; }
+                else if (row == 8) { choose_map_light(); return; }
                 scenery_brush = false; message("");
             }
             return;
@@ -813,7 +1385,7 @@ void click(int button, int x, int y)
                 const int py = (cursor_y-r.y)*panel_height/r.h-tiles_y;
                 const int index = py/light_cell;
                 if (py >= 0 && py < light_steps*light_cell && index < light_steps) {
-                    selected_light = index; scenery_brush = false; message("");
+                    selected_light = index; custom_light = NONE; scenery_brush = false; message("");
                 }
             }
             return;
@@ -831,12 +1403,18 @@ void click(int button, int x, int y)
             if (index < count) {
                 scenery_brush = side != 0;
                 (side ? selected_scenery : selected) = index;
+                if (!side) remove_texture = false;
                 message("");
             }
             return;
         }
         if ((!status.empty() && contains(footer_rect(), cursor_x, cursor_y)) ||
             !contains(Screen::instance()->view_rect(), cursor_x, cursor_y)) return;
+    }
+    if (edit_panels && !scenery_brush && button == SDL_BUTTON_LEFT) { edit_control_panel(); return; }
+    if (button == SDL_BUTTON_LEFT && (SDL_GetModState() & KMOD_SHIFT)) {
+        if (palette_cursor) start_height_drag();
+        return;
     }
     if (button == SDL_BUTTON_LEFT && (SDL_GetModState() & KMOD_CTRL)) {
         if (palette_cursor) start_drag();
@@ -854,7 +1432,7 @@ void draw_panel()
     const auto footer = footer_rect();
     for (int i = 0; i < 8; ++i) {
         const int w = i == 7 ? actions_rect().w : i == 2 ? footer.w : i == 3 ? light_width : i == 4 ? checkbox_rect().w : i >= 5 ? header_rect(i == 6).w : panel_width;
-        const int h = i == 7 ? 99 : i == 2 ? footer.h : i == 4 ? 99 : i >= 5 ? header_height : panel_height;
+        const int h = i == 7 ? 99 : i == 2 ? footer.h : i == 4 ? controls_height : i >= 5 ? header_height : panel_height;
         if (panels[i] && (panels[i]->w != w || panels[i]->h != h)) {
             SDL_FreeSurface(panels[i]); panels[i] = nullptr;
         }
@@ -897,7 +1475,7 @@ void draw_panel()
                 label(22, side == 5 ? "Light/Texture" : "Items");
             } else if (side == 3) {
                 for (int slot = 0; slot < light_steps; ++slot) {
-                    const bool chosen = slot == selected_light;
+                    const bool chosen = custom_light == NONE && slot == selected_light;
                     SDL_Rect r{3, tiles_y+slot*light_cell, light_width-6, light_cell-2};
                     SDL_FillRect(canvas, &r, SDL_MapRGB(canvas->format, chosen ? 255 : 55, chosen ? 182 : 59, chosen ? 74 : 64));
                     const int shade = surface_editor_objects::light_level(slot, 255);
@@ -905,13 +1483,27 @@ void draw_panel()
                     SDL_FillRect(canvas, &inner, SDL_MapRGB(canvas->format, shade, shade, shade));
                 }
             } else if (side == 4) {
-                for (int row = 0; row < 3; ++row) {
-                    const bool checked = row == 0 ? apply_texture : row == 1 ? apply_lighting : align_adjacent;
-                    SDL_Rect box{10, row*33+8, 17, 17};
+                for (int row = 0; row < 2; ++row) {
+                    SDL_Rect button{4, row*33+3, canvas->w-8, 27};
+                    SDL_FillRect(canvas, &button, SDL_MapRGB(canvas->format, 43,49,57));
+                }
+                label(22, std::string("Motion: ")+motion_names[texture_motion]);
+                label(55, fast_motion ? "Speed: Fast" : "Speed: Normal");
+                for (int row = 6; row < 9; ++row) {
+                    SDL_Rect button{4, row*33+3, canvas->w-8, 27};
+                    SDL_FillRect(canvas, &button, SDL_MapRGB(canvas->format,
+                        row == 7 && remove_texture ? 110 : 43, 49, 57));
+                }
+                label(220, transparent_surface ? "Surface: Transparent" : "Surface: Solid");
+                label(253, remove_texture ? "Remove texture: On" : "Remove texture");
+                label(286, custom_light == NONE ? "Map light: Choose ID" : "Map light: " + std::to_string(custom_light));
+                for (int row = 0; row < 4; ++row) {
+                    const bool checked = row == 0 ? apply_texture : row == 1 ? apply_lighting : row == 2 ? align_adjacent : edit_panels;
+                    SDL_Rect box{10, (row+2)*33+8, 17, 17};
                     SDL_FillRect(canvas, &box, SDL_MapRGB(canvas->format, 175, 180, 185));
                     SDL_Rect inside{box.x+2, box.y+2, 13, 13};
                     SDL_FillRect(canvas, &inside, SDL_MapRGB(canvas->format, checked ? 255 : 20, checked ? 182 : 23, checked ? 74 : 27));
-                    draw_text(canvas, row == 0 ? "Texture" : row == 1 ? "Lighting" : "Align adjacent", 36, row*33+22,
+                    draw_text(canvas, row == 0 ? "Texture" : row == 1 ? "Lighting" : row == 2 ? "Align adjacent" : "Edit panels", 36, (row+2)*33+22,
                         SDL_MapRGB(canvas->format, 225,229,232), font.Info, font.Style);
                 }
             } else {
@@ -1017,7 +1609,9 @@ void draw_target(SDL_Surface* pixels)
         hit.part == Part::transparent ? "Transparent wall" : "No surface";
     char label[120];
     if (erasing) snprintf(label, sizeof(label), "%s", name);
-    else snprintf(label, sizeof(label), "%s %d", name, hit.index);
+    else if (hit.index < 0 && hit.line >= 0)
+        snprintf(label, sizeof(label), "%s (line %d)", hit.part == Part::transparent ? "Empty opening" : "Untextured wall", hit.line);
+    else snprintf(label, sizeof(label), "%s%s %d", remove_texture ? "Remove: " : "", name, hit.index);
     DisplayText(x+14, y+4, label);
 }
 
@@ -1034,4 +1628,6 @@ void surface_editor_scroll(int direction) { surface_editor::scroll(direction); }
 void surface_editor_click(int button, int x, int y) { surface_editor::click(button, x, y); }
 void surface_editor_undo(bool redo) { surface_editor::history(redo); }
 void surface_editor_save(bool save_as) { surface_editor::save(save_as); }
+void surface_editor_use_door() { surface_editor::use_door(); }
+
 #endif

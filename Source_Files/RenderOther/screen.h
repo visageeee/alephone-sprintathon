@@ -197,6 +197,7 @@ bool surface_editor_palette_cursor();
 void surface_editor_begin();
 void surface_editor_end();
 void surface_editor_toggle_cursor();
+void surface_editor_use_door();
 void surface_editor_motion(int x, int y);
 void surface_editor_scroll(int direction);
 void surface_editor_release();

@@ -379,6 +379,7 @@ render_object_data *RenderPlaceObjsClass::build_render_object(
 				render_object->rectangle.WorldTop = shape_information->world_top;
 				render_object->rectangle.Position = object->location;
 				render_object->casts_character_shadow = (GET_OBJECT_OWNER(object) == _object_is_monster);
+                render_object->flight_monster_index = render_object->casts_character_shadow ? object->permutation : NONE;
 				render_object->is_scenery = (GET_OBJECT_OWNER(object) == _object_is_scenery);
                 render_object->scenery_object_index = render_object->is_scenery ?
                     static_cast<int16>(object - ObjectList.data()) : NONE;

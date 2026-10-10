@@ -3725,7 +3725,7 @@ static key_binding_map default_key_bindings = {
 };
 
 static const char *shell_action_name[NUMBER_OF_SHELL_KEYS] = {
-	"Inventory Left", "Inventory Right", "Switch Player View", "Volume Up", "Volume Down", "Zoom Map In", "Zoom Map Out", "Toggle FPS", "Chat/Console", "Network Stats", "Screenshot Mode", "Drop Flare"
+	"Inventory Left", "Inventory Right", "Switch Player View", "Volume Up", "Volume Down", "Zoom Map In", "Zoom Map Out", "Toggle FPS", "Chat/Console", "Network Stats", "Screenshot Mode", "Drop Flare", "Visual Mode"
 };
 
 static key_binding_map default_shell_key_bindings = {
@@ -3753,6 +3753,7 @@ static key_binding_map default_shell_key_bindings = {
 	} },
 	{ 10, { SDL_SCANCODE_G } }, // Screenshot Mode; Shift+F9 also works.
 	{ 11, { SDL_SCANCODE_F } }, // Drop Flare.
+	{ _key_visual_mode, { SDL_SCANCODE_UNKNOWN } }, // Shift+F8 remains available.
 };
 
 static const char* hotkey_action_name[NUMBER_OF_HOTKEYS] = {
@@ -4770,8 +4771,10 @@ static placeable *build_embedded_controls(
 		{false, "Turn Right", embedded_game_binding, 3},
 		{false, "Look Up", embedded_game_binding, 8},
 		{false, "Look Down", embedded_game_binding, 9},
-		{false, "Screenshot Mode", embedded_shell_binding, 10},
-		{false, "Drop Flare", embedded_shell_binding, 11}
+		{false, "Drop Flare", embedded_shell_binding, 11},
+        {true, "Camera", embedded_game_binding, 0},
+        {false, "Screenshot Mode", embedded_shell_binding, _key_screenshot_mode},
+        {false, "Visual Mode", embedded_shell_binding, _key_visual_mode}
 	};
 	vertical_placer *game = new vertical_placer;
 	game->center_vertically();
@@ -5005,7 +5008,7 @@ static void controls_dialog(void *arg)
 	
 	tab_placer* tabs = new tab_placer();
 	
-	std::vector<std::string> labels = { "AIM", "MOVE", "ACTIONS", "HOTKEYS", "INTERFACE", "OTHER" };
+	std::vector<std::string> labels = { "AIM", "MOVE", "ACTIONS", "HOTKEYS", "INTERFACE", "OTHER", "CAMERA" };
 	w_tab *tab_w = new w_tab(labels, tabs);
 	
 	placer->dual_add(tab_w, d);
@@ -5292,7 +5295,7 @@ static void controls_dialog(void *arg)
 	interface_table->dual_add(new w_label("Mouse"), d);
 	interface_table->dual_add(new w_label("Controller"), d);
 	
-	std::vector<int> interface_keys = { 19, 105, 106, -1, 103, 104, -1, 100, 101, -1, 102, 107, 109, -1, 110, -1, -2 };
+	std::vector<int> interface_keys = { 19, 105, 106, -1, 103, 104, -1, 100, 101, -1, 102, 107, 109, -1, -2 };
 	for (auto it = interface_keys.begin(); it != interface_keys.end(); ++it) {
 		if (*it == -2) {
 			interface_table->dual_add(new w_label("Exit Game"), d);
@@ -5414,6 +5417,19 @@ static void controls_dialog(void *arg)
 	tabs->add(hotkeys, true);
 	tabs->add(iface, true);
 	tabs->add(other, true);
+    vertical_placer* camera = new vertical_placer();
+    table_placer* camera_table = new table_placer(4, get_theme_space(ITEM_WIDGET), true);
+    camera_table->add(new w_spacer(), true);
+    camera_table->dual_add(new w_label("Keyboard"), d);
+    camera_table->dual_add(new w_label("Mouse"), d);
+    camera_table->dual_add(new w_label("Controller"), d);
+    for (int action : {_key_screenshot_mode, _key_visual_mode}) {
+        camera_table->dual_add(new w_label(shell_action_name[action]), d);
+        auto range = shell_key_w.equal_range(action);
+        for (auto it = range.first; it != range.second; ++it) camera_table->dual_add(it->second, d);
+    }
+    camera->add(camera_table, true);
+    tabs->add(camera, true);
 	placer->add(tabs, true);
 	
 	placer->add(new w_spacer(), true);
@@ -6274,7 +6290,7 @@ static const char *binding_action_name[NUM_KEYS] = {
 };
 static const char *binding_shell_action_name[NUMBER_OF_SHELL_KEYS] = {
 	"inventory-left", "inventory-right", "switch-player-view", "volume-up", "volume-down",
-	"map-zoom-in", "map-zoom-out", "fps", "chat", "net-stats", "screenshot-mode", "drop-flare"
+	"map-zoom-in", "map-zoom-out", "fps", "chat", "net-stats", "screenshot-mode", "drop-flare", "visual-mode"
 };
 static const char *binding_hotkey_action_name[NUMBER_OF_HOTKEYS] = {
 	"hotkey-1", "hotkey-2", "hotkey-3", "hotkey-4", "hotkey-5", "hotkey-6", "hotkey-7", "hotkey-8", "hotkey-9", "hotkey-10", "hotkey-11", "hotkey-12"

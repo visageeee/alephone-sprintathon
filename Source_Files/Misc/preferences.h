@@ -234,6 +234,7 @@ enum {
 	_key_show_scores,
 	_key_screenshot_mode,
 	_key_drop_flare,
+	_key_visual_mode,
 	NUMBER_OF_SHELL_KEYS
 };
 

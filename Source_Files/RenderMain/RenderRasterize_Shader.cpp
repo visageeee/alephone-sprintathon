@@ -1094,8 +1094,11 @@ static void sprintathon_collect_fog_cone(short index, float z, const float *rgb)
 {
     if (!graphics_preferences->ceiling_fog_cones || index < 0 ||
         size_t(index) >= ObjectList.size()) return;
-    const object_data *object = get_object_data(index);
-    if (!SLOT_IS_USED(object) || object->polygon == NONE) return;
+    // Render caches can outlive objects deleted while the editor is paused.
+    // get_object_data asserts on unused slots, so inspect the slot first.
+    const object_data *object = &ObjectList[index];
+    if (!SLOT_IS_USED(object) || GET_OBJECT_OWNER(object) != _object_is_scenery ||
+        object->polygon == NONE) return;
     const polygon_data *polygon = get_polygon_data(object->polygon);
     // Ceiling scenery uses its ceiling anchor, not the sprite's apparent size.
     if (std::abs(int(object->location.z) - polygon->ceiling_height) > WORLD_ONE/4) return;
@@ -1815,7 +1818,7 @@ static void sprintathon_floor_pool_weapon_tint(const view_data *camera, float rg
     for(const auto& cone:sprintathon_floor_cones) {
         if(count==4)break;
         if(cone.object_index<0 || size_t(cone.object_index)>=ObjectList.size())continue;
-        const auto* object=get_object_data(cone.object_index);
+        const auto* object=&ObjectList[cone.object_index];
         if(!SLOT_IS_USED(object) || GET_OBJECT_OWNER(object)!=_object_is_scenery ||
            object->polygon!=camera->origin_polygon_index)continue;
         const float height=cone.z-polygon->floor_height;
@@ -2409,7 +2412,7 @@ static void sprintathon_draw_fog_coronas(const view_data *camera)
     if(graphics_preferences->bright_scenery_lights && graphics_preferences->fog_scenery_coronas) {
         for(const auto& light:sprintathon_texture_lights) {
             if(!light.scenery || light.scenery_object_index<0 || size_t(light.scenery_object_index)>=ObjectList.size())continue;
-            const auto* object=get_object_data(light.scenery_object_index);
+            const auto* object=&ObjectList[light.scenery_object_index];
             if(!SLOT_IS_USED(object) || GET_OBJECT_OWNER(object)!=_object_is_scenery)continue;
             add(1,light.scenery_object_index,object->polygon,light.x,light.y,light.z,
                 light.r,light.g,light.b,WORLD_ONE*0.45f);
@@ -3530,7 +3533,9 @@ static const Shader::UniformName sprintathon_pool_colors[4] = {
 static void sprintathon_set_floor_cone_pools(Shader *shader,
     const polygon_data *polygon, const horizontal_surface_data *surface, bool ceiling)
 {
-    if(!shader || ceiling || surface->is_media || !polygon ||
+    // Liquid tops receive the same pool at their own surface height.
+    // Keep ceilings and the underside of liquids excluded.
+    if(!shader || !surface || ceiling || !polygon ||
        !graphics_preferences->ceiling_fog_cones || !graphics_preferences->projectile_lights_per_pixel ||
        graphics_preferences->ceiling_fog_cone_strength == 0) return;
     const auto fog=OGL_GetCurrFogData();
@@ -3541,7 +3546,7 @@ static void sprintathon_set_floor_cone_pools(Shader *shader,
     for(const auto& cone:sprintathon_floor_cones) {
         if(count==4)break;
         if(cone.object_index<0 || size_t(cone.object_index)>=ObjectList.size())continue;
-        const auto* object=get_object_data(cone.object_index);
+        const auto* object=&ObjectList[cone.object_index];
         if(!SLOT_IS_USED(object) || GET_OBJECT_OWNER(object)!=_object_is_scenery ||
            object->polygon==NONE || get_polygon_data(object->polygon)!=polygon)continue;
         const float height=cone.z-surface->height;
@@ -4584,6 +4589,15 @@ if (!view->mimic_sw_perspective)
 		}
 	}
 
+    if (object->flight_monster_index != NONE) {
+        const float bank = sprintathon_flight_bank(object->flight_monster_index,
+            float(yaw*0.017453292519943295));
+        const float center = (rect.WorldTop+rect.WorldBottom)*rect.Scale*0.5f;
+        glTranslatef(0, 0, center);
+        glRotatef(bank, 1, 0, 0);
+        glTranslatef(0, 0, -center);
+    }
+
 	float texCoords[2][2];
 
 	if(rect.flip_vertical) {
@@ -4642,12 +4656,17 @@ if (!view->mimic_sw_perspective)
 	glVertexPointer(3, GL_FLOAT, 0, vertex_array);
 	glTexCoordPointer(2, GL_FLOAT, 0, texcoord_array);
 
+    float dodge_motion[3] = {0, 0, 0};
+    const bool dodge_blur = object->flight_monster_index != NONE &&
+        sprintathon_flight_dodge_motion(object->flight_monster_index, dodge_motion);
     if (renderStep == kDiffuse && !sprintathon_shaft_source.active &&
-        !flame && graphics_preferences->projectile_motion_blur &&
+        !flame && (graphics_preferences->projectile_motion_blur || dodge_blur) &&
         rect.transfer_mode == _textured_transfer)
     {
         float motion[3];
-        bool moving = sprintathon_projectile_blur_motion(object->projectile_index, motion);
+        bool moving = dodge_blur;
+        if (dodge_blur) std::copy(dodge_motion, dodge_motion+3, motion);
+        else moving = sprintathon_projectile_blur_motion(object->projectile_index, motion);
         if (!moving && object->projectile_index == NONE) {
             const float *velocity = object->projectile_trail_motion;
             const float speed = std::sqrt(velocity[0]*velocity[0] +

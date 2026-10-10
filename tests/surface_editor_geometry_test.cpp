@@ -134,5 +134,17 @@ int main()
     assert(!texture_drag_coordinates({0,0,5,1,0,0},true,0,0,0,0,0,0,100,u,v));
     assert(!texture_drag_coordinates({0,0,5,0,1,0},false,10,0,0,10,10,10,100,u,v));
     assert(!texture_drag_coordinates({0,0,5,-1,0,0},false,10,0,0,10,10,10,100,u,v));
+    // Height drag: dead zone, both directions, exact accumulated tenths,
+    // preserved off-grid origins, gap bounds and signed coordinate limits.
+    assert(drag_height(0,9,1024,-32768,32767)==0);
+    assert(drag_height(0,-9,1024,-32768,32767)==0);
+    assert(drag_height(0,10,1024,-32768,32767)==102);
+    assert(drag_height(0,-10,1024,-32768,32767)==-102);
+    assert(drag_height(0,100,1024,-32768,32767)==1024);
+    assert(drag_height(37,100,1024,-32768,32767)==1061);
+    assert(drag_height(0,1000,1024,-1000,999)==922);
+    assert(drag_height(0,-1000,1024,-999,1000)==-922);
+    assert(drag_height(32700,100,1024,-32768,32767)==32700);
+    assert(drag_height(-32700,-100,1024,-32768,32767)==-32700);
     std::cout << "Surface, cursor, scenery-picking and saved-reference checks passed\n";
 }

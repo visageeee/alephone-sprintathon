@@ -1453,8 +1453,9 @@ static void process_game_key(const SDL_Event &event)
 		!Console::instance()->input_active())
 	{
 		const SDL_Scancode screenshot_key = event.key.keysym.scancode;
-		const bool editor_toggle = screenshot_key == SDL_SCANCODE_F8 &&
-			(event.key.keysym.mod & KMOD_SHIFT);
+		const bool editor_toggle = (screenshot_key == SDL_SCANCODE_F8 &&
+            (event.key.keysym.mod & KMOD_SHIFT)) ||
+            input_preferences->shell_key_bindings[_key_visual_mode].count(screenshot_key);
 		if (surface_editor_active()) {
 			if (event.key.repeat) return;
 			if (editor_toggle || screenshot_key == SDL_SCANCODE_ESCAPE) {
@@ -1462,6 +1463,8 @@ static void process_game_key(const SDL_Event &event)
 				SDL_SetRelativeMouseMode(SDL_FALSE);
 				resume_game();
 				screen_printf("Editor closed.");
+			} else if (screenshot_key == SDL_SCANCODE_E && !(event.key.keysym.mod & (KMOD_CTRL | KMOD_GUI | KMOD_ALT))) {
+				surface_editor_use_door();
 			} else if (screenshot_key == SDL_SCANCODE_TAB) {
 				surface_editor_toggle_cursor();
 			} else if (event.key.keysym.mod & (KMOD_CTRL | KMOD_GUI)) {
@@ -1699,6 +1702,20 @@ static void process_event(const SDL_Event &event)
 		}
 		break;
 	case SDL_MOUSEWHEEL:
+        if (get_game_state() == _game_in_progress && !Console::instance()->input_active() && event.wheel.y) {
+            bool up = event.wheel.y > 0;
+#if SDL_VERSION_ATLEAST(2,0,4)
+            if (event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) up = !up;
+#endif
+            const auto code = static_cast<SDL_Scancode>(up ? AO_SCANCODE_MOUSESCROLL_UP : AO_SCANCODE_MOUSESCROLL_DOWN);
+            if (input_preferences->shell_key_bindings[_key_visual_mode].count(code)) {
+                SDL_Event key = {};
+                key.type = SDL_KEYDOWN;
+                key.key.keysym.scancode = code;
+                process_game_key(key);
+                break;
+            }
+        }
 		if (get_game_state() == _game_in_progress)
 		{
 			if (surface_editor_active()) {
@@ -1733,6 +1750,15 @@ static void process_event(const SDL_Event &event)
 		}
 		break;
 	case SDL_MOUSEBUTTONDOWN:
+        if (get_game_state() == _game_in_progress && !Console::instance()->input_active() &&
+            input_preferences->shell_key_bindings[_key_visual_mode].count(
+                static_cast<SDL_Scancode>(AO_SCANCODE_BASE_MOUSE_BUTTON + event.button.button - 1))) {
+            SDL_Event key = {};
+            key.type = SDL_KEYDOWN;
+            key.key.keysym.scancode = static_cast<SDL_Scancode>(AO_SCANCODE_BASE_MOUSE_BUTTON + event.button.button - 1);
+            process_game_key(key);
+            break;
+        }
 		if (surface_editor_active()) {
 			surface_editor_click(event.button.button, event.button.x, event.button.y);
 			break;
@@ -1769,6 +1795,15 @@ static void process_event(const SDL_Event &event)
 		break;
 	
 	case SDL_CONTROLLERBUTTONDOWN:
+        if (get_game_state() == _game_in_progress && !Console::instance()->input_active() &&
+            input_preferences->shell_key_bindings[_key_visual_mode].count(
+                static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_BUTTON + event.cbutton.button))) {
+            SDL_Event key = {};
+            key.type = SDL_KEYDOWN;
+            key.key.keysym.scancode = static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_BUTTON + event.cbutton.button);
+            process_game_key(key);
+            break;
+        }
 		if (surface_editor_active()) break;
 		if (screenshot_mode_active()) {
 			const SDL_Scancode code = static_cast<SDL_Scancode>(

@@ -109,6 +109,7 @@ Jan 12, 2003 (Loren Petrich)
 #include "projectiles.h"
 #include "player.h"
 #include "preferences.h"
+#include "vbl.h"
 #include "platforms.h"
 #include "scenery.h"
 #include "SoundManager.h"
@@ -1963,6 +1964,119 @@ static void cause_shrapnel_damage(
 	}
 }
 
+// Experimental flight: no new saved state, random calls, or multiplayer changes.
+static bool sprintathon_organic_flight(const monster_data* monster, const monster_definition* definition)
+{
+    return input_preferences->sprintathon_enabled && !game_is_networked && !game_is_being_replayed() &&
+        (definition->flags & (_monster_flys | _monster_floats)) == _monster_flys &&
+        !MONSTER_IS_DYING(monster) && !MONSTER_IS_ATTACKING(monster) &&
+        monster->action != _monster_is_being_hit && !monster->external_velocity;
+}
+static double sprintathon_flight_wave(short index, int period, int offset = 0)
+{
+    const int phase = int((dynamic_world->tick_count % period + int(index)*37 + offset) % period);
+    return std::sin(6.283185307179586 * phase / period);
+}
+static const int sprintathon_dodge_ticks = std::max(1, 9*TICKS_PER_SECOND/10);
+static const int sprintathon_dodge_settle_ticks = std::max(1, 2*TICKS_PER_SECOND/5);
+struct SprintathonClearShot {
+    short object = NONE;
+    int requested = -1000, start = -1, cooldown = -1, direction = 1;
+    int motion_tick = -1000;
+    float motion[3] = {0, 0, 0};
+    float bank_axis_x = 0, bank_axis_y = 0;
+};
+static std::map<short, SprintathonClearShot> sprintathon_clear_shots;
+static bool sprintathon_small_flyer(const monster_data* monster, const monster_definition* definition)
+{
+    return input_preferences->sprintathon_enabled && !game_is_networked && !game_is_being_replayed() &&
+        (definition->flags & (_monster_flys | _monster_floats)) == _monster_flys &&
+        definition->radius < WORLD_ONE/2 && definition->height < 3*WORLD_ONE/2 && !MONSTER_IS_DYING(monster);
+}
+static void sprintathon_request_clear_shot(short index)
+{
+    const auto* monster = get_monster_data(index);
+    if (!sprintathon_small_flyer(monster, get_monster_definition(monster->type))) return;
+    get_monster_data(index)->attack_repetitions = 0; // finish this volley before repositioning
+    auto& dodge = sprintathon_clear_shots[index];
+    const int now = dynamic_world->tick_count;
+    if (dodge.object != monster->object_index || now < dodge.requested) dodge = SprintathonClearShot{};
+    if (now < dodge.cooldown) return;
+    dodge.object = monster->object_index; dodge.requested = now; dodge.start = -1;
+    dodge.bank_axis_x = dodge.bank_axis_y = 0;
+    dodge.cooldown = now + 2*TICKS_PER_SECOND;
+    dodge.direction = ((index + now/TICKS_PER_SECOND) & 1) ? 1 : -1;
+}
+
+bool sprintathon_flight_dodge_motion(short index, float* motion)
+{
+    const auto it = sprintathon_clear_shots.find(index);
+    if (it == sprintathon_clear_shots.end()) return false;
+    const auto* monster = get_monster_data(index);
+    const auto& dodge = it->second;
+    const int age = dynamic_world->tick_count-dodge.motion_tick;
+    if (age < 0 || age > 1 || dodge.object != monster->object_index ||
+        !sprintathon_small_flyer(monster, get_monster_definition(monster->type))) return false;
+    const float length = std::sqrt(dodge.motion[0]*dodge.motion[0]+dodge.motion[1]*dodge.motion[1]);
+    if (length < 1) return false;
+    const float exposure = std::min(3.0f, float(WORLD_ONE)/3/length);
+    for (int i=0; i<3; ++i) motion[i] = dodge.motion[i]*exposure;
+    return true;
+}
+
+struct SprintathonFlightBank {
+    int tick = -1;
+    short object = NONE;
+    float x = 0, y = 0, target_x = 0, target_y = 0;
+};
+static std::map<short, SprintathonFlightBank> sprintathon_flight_banks;
+float sprintathon_flight_bank(short index, float camera_yaw)
+{
+    // Large flyers keep their movement but remain visually level.
+    const auto* definition = get_monster_definition(get_monster_data(index)->type);
+    if (definition->radius >= WORLD_ONE/2 || definition->height >= 3*WORLD_ONE/2)
+        return 0;
+
+    // Play the dodge bank directly from its timeline. Attack transitions can
+    // clear the ordinary flight target while the dodge is still visible.
+    const auto* monster = get_monster_data(index);
+    const auto dodge_it = sprintathon_clear_shots.find(index);
+    if (sprintathon_small_flyer(monster, definition) &&
+        monster->action != _monster_is_being_hit && !monster->external_velocity &&
+        dodge_it != sprintathon_clear_shots.end()) {
+        const auto& dodge = dodge_it->second;
+        const int elapsed = dynamic_world->tick_count-dodge.start;
+        const int total = sprintathon_dodge_ticks+sprintathon_dodge_settle_ticks;
+        if (dodge.object == monster->object_index && dodge.start >= 0 &&
+            elapsed >= 0 && elapsed <= total &&
+            (dodge.bank_axis_x != 0 || dodge.bank_axis_y != 0)) {
+            const bool settling = elapsed >= sprintathon_dodge_ticks;
+            const float phase = settling ?
+                float(elapsed-sprintathon_dodge_ticks)/sprintathon_dodge_settle_ticks :
+                float(elapsed)/sprintathon_dodge_ticks;
+            const float wave = float(std::sin(3.141592653589793*phase));
+            const float tilt = (settling ? 10.0f : -32.0f)*wave*wave;
+            return tilt*(-std::sin(camera_yaw)*dodge.bank_axis_x +
+                std::cos(camera_yaw)*dodge.bank_axis_y);
+        }
+    }
+
+    const auto it = sprintathon_flight_banks.find(index);
+    if (it == sprintathon_flight_banks.end() || !input_preferences->sprintathon_enabled || game_is_networked)
+        return 0;
+    const auto& bank = it->second;
+    if (dynamic_world->tick_count-bank.tick < 0 || dynamic_world->tick_count-bank.tick > 1 || get_monster_data(index)->object_index != bank.object) return 0;
+    return -std::sin(camera_yaw)*bank.x + std::cos(camera_yaw)*bank.y;
+}
+
+static int sprintathon_flight_velocity(int error, int velocity, int limit)
+{
+    limit = std::max(1, limit);
+    const int target = std::max(-limit, std::min(limit, error / 10));
+    const int delta = target - velocity;
+    return velocity + (delta / 6 != 0 ? delta / 6 : (delta > 0 ? 1 : delta < 0 ? -1 : 0));
+}
+
 static void update_monster_vertical_physics_model(
 	short monster_index)
 {
@@ -1977,6 +2091,19 @@ static void update_monster_vertical_physics_model(
 	world_distance desired_height;
 	world_distance old_height= object->location.z;
 	bool above_ground, below_ground;
+    const bool organic_flight = sprintathon_organic_flight(monster, definition);
+    if (organic_flight || sprintathon_flight_banks.count(monster_index)) {
+        auto& bank = sprintathon_flight_banks[monster_index];
+        if (bank.object != monster->object_index || dynamic_world->tick_count-bank.tick != 1)
+            bank = SprintathonFlightBank{};
+        bank.object = monster->object_index; bank.tick = dynamic_world->tick_count;
+        float target_x = organic_flight ? bank.target_x : 0;
+        float target_y = organic_flight ? bank.target_y : 0;
+        float response = 0.18f;
+        bank.x += (target_x-bank.x)*response;
+        bank.y += (target_y-bank.y)*response;
+        bank.target_x = bank.target_y = 0;
+    }
 
 	if (media)
 	{
@@ -2004,6 +2131,11 @@ static void update_monster_vertical_physics_model(
 			break;
 		
 		case _monster_flys:
+            if (organic_flight) {
+                monster->vertical_velocity = sprintathon_flight_velocity(
+                    int(desired_height)-object->location.z, monster->vertical_velocity, definition->terminal_velocity);
+                break;
+            }
 			if (above_ground && !MONSTER_IS_ATTACKING(monster)) monster->vertical_velocity= FLOOR(monster->vertical_velocity-gravity, -definition->terminal_velocity);
 			if (below_ground) monster->vertical_velocity= CEILING(monster->vertical_velocity+gravity, definition->terminal_velocity);
 			break;
@@ -2036,6 +2168,7 @@ static void update_monster_vertical_physics_model(
 		
 		case _monster_flys:
 		default: // LP: added this case to handle "Aqualung" correctly
+            if (organic_flight) break; // damped steering settles without snapping to the moving goal
 			if (object->location.z<=desired_height && above_ground) monster->vertical_velocity>>= 1, object->location.z= desired_height;
 			if (object->location.z>=desired_height && below_ground) monster->vertical_velocity>>= 1, object->location.z= desired_height;
 			break;
@@ -2070,6 +2203,30 @@ static void update_monster_vertical_physics_model(
 	{
 		monster->desired_height= floor_height;
 	}
+
+    if (organic_flight) {
+        const int bottom = floor_height;
+        const int top = int(polygon->ceiling_height) - definition->height;
+        const int space = std::max(0, top-bottom);
+        bool close_target = false;
+        if (MONSTER_HAS_VALID_TARGET(monster)) {
+            const auto* target_object = get_object_data(get_monster_data(monster->target_index)->object_index);
+            const double dx = double(target_object->location.x)-object->location.x;
+            const double dy = double(target_object->location.y)-object->location.y;
+            close_target = dx*dx+dy*dy < double(2*WORLD_ONE)*(2*WORLD_ONE);
+        }
+        if (space > 0 && !close_target) {
+            const int clearance = std::min(space/2, WORLD_ONE/8);
+            const int cruise = bottom + std::min(space*2/5, 3*WORLD_ONE/2);
+            const int amplitude = std::min(space/10, WORLD_ONE/4);
+            const int base_height = MONSTER_HAS_VALID_TARGET(monster) ?
+                std::max(int(monster->desired_height), cruise) : cruise;
+            const int goal = base_height + int(amplitude*sprintathon_flight_wave(monster_index, 5*TICKS_PER_SECOND));
+            monster->desired_height = std::max(bottom+clearance, std::min(top-clearance, goal));
+        }
+        if ((object->location.z <= polygon->floor_height && monster->vertical_velocity < 0) ||
+            (object->location.z >= top && monster->vertical_velocity > 0)) monster->vertical_velocity = 0;
+    }
 
 	monster->sound_location= object->location;
 	monster->sound_polygon_index= object->polygon;
@@ -2812,6 +2969,21 @@ static void handle_moving_or_stationary_monster(
 	struct object_data *object= get_object_data(monster->object_index);
 	struct monster_definition *definition= get_monster_definition(monster->type);
 
+    const auto dodge_it = sprintathon_clear_shots.find(monster_index);
+    if (sprintathon_small_flyer(monster, definition) && dodge_it != sprintathon_clear_shots.end()) {
+        const auto& dodge = dodge_it->second;
+        const int now = dynamic_world->tick_count;
+        if (dodge.object == monster->object_index && now >= dodge.requested &&
+            now-dodge.requested < 2*TICKS_PER_SECOND &&
+            (dodge.start < 0 || now-dodge.start < sprintathon_dodge_ticks)) {
+            // Waiting-to-attack normally skips movement. A queued dodge must
+            // leave that state and complete before attempting another volley.
+            set_monster_action(monster_index, _monster_is_moving);
+            translate_monster(monster_index, definition->speed);
+            return;
+        }
+    }
+
 	if (monster->path==NONE && monster->mode!=_monster_locked && monster->action==_monster_is_stationary)
 	{
 		/* stationary, unlocked monsters without paths cannot move */
@@ -2833,6 +3005,9 @@ static void handle_moving_or_stationary_monster(
 			}
 		}
 		if (MONSTER_IS_BERSERK(monster)) distance_moved+= (distance_moved>>1);
+        if (sprintathon_organic_flight(monster, definition))
+            distance_moved = std::max(1, int(distance_moved *
+                (0.90 + 0.10*sprintathon_flight_wave(monster_index, 4*TICKS_PER_SECOND, 29))));
 		
 		if (monster->action!=_monster_is_waiting_to_attack_again)
 		{
@@ -3069,11 +3244,64 @@ static bool translate_monster(
 	short obstacle_index;
 	bool legal_move= false;
 
-	new_location= object->location;
-	translate_point2d(&new_location, distance, object->facing);
-
-	/* find out where we’re going and see if we could actually move there */
-	if ((obstacle_index= legal_monster_move(monster_index, object->facing, &new_location))==NONE)
+    angle travel_facing = object->facing;
+    float flight_sway = 0;
+    if (sprintathon_organic_flight(monster, definition)) {
+        const auto* room = get_polygon_data(object->polygon);
+        const int space = std::max(0, int(room->ceiling_height)-room->floor_height-definition->height);
+        const double openness = std::min(1.0, double(space)/WORLD_ONE);
+        flight_sway = float(0.32*openness*sprintathon_flight_wave(monster_index, 5*TICKS_PER_SECOND, 71));
+        auto dodge_it = sprintathon_clear_shots.find(monster_index);
+        if (sprintathon_small_flyer(monster, definition) && dodge_it != sprintathon_clear_shots.end()) {
+            auto& dodge = dodge_it->second;
+            const int now = dynamic_world->tick_count;
+            if (dodge.object == monster->object_index && now >= dodge.requested && now-dodge.requested < 2*TICKS_PER_SECOND) {
+                if (dodge.start < 0) dodge.start = now;
+                const int duration = sprintathon_dodge_ticks;
+                const int elapsed = now-dodge.start;
+                if (elapsed >= 0 && elapsed < duration) {
+                    const float pulse = float(std::sin(3.141592653589793*(elapsed+1)/(duration+1)));
+                    const angle sideways = NORMALIZE_ANGLE(object->facing+dodge.direction*QUARTER_CIRCLE);
+                    const world_distance step = std::max(1, int(std::min(float(WORLD_ONE)/8,
+                        std::max(float(WORLD_ONE)/24, float(distance)*2.5f))*pulse));
+                    const world_point3d before = object->location;
+                    world_point3d next = before;
+                    translate_point2d(&next, step, sideways);
+                    world_distance floor, ceiling;
+                    short supporting;
+                    keep_line_segment_out_of_walls(object->polygon, &object->location, &next,
+                        definition->radius, definition->height, &floor, &ceiling, &supporting);
+                    if (next.z < floor || int(next.z)+definition->height > ceiling ||
+                        legal_monster_move(monster_index, sideways, &next) != NONE) return false;
+                    const short old_polygon = object->polygon;
+                    if (translate_map_object(monster->object_index, &next, NONE)) monster_moved(monster_index, old_polygon);
+                    dodge.motion[0] = float(object->location.x)-before.x;
+                    dodge.motion[1] = float(object->location.y)-before.y;
+                    dodge.motion[2] = float(object->location.z)-before.z;
+                    dodge.motion_tick = now;
+                    const float moved = std::sqrt(dodge.motion[0]*dodge.motion[0]+dodge.motion[1]*dodge.motion[1]);
+                    if (moved < 1) return false;
+                    dodge.bank_axis_x = dodge.motion[0]/moved;
+                    dodge.bank_axis_y = dodge.motion[1]/moved;
+                    // Lateral dodging does not consume forward path distance or turn the sprite.
+                    return true;
+                }
+            }
+        }
+        travel_facing = NORMALIZE_ANGLE(object->facing + int(std::atan(flight_sway)*FULL_CIRCLE/6.283185307179586));
+    }
+    new_location = object->location;
+    translate_point2d(&new_location, distance, travel_facing);
+    obstacle_index = legal_monster_move(monster_index, travel_facing, &new_location);
+    // If the weave hits an obstacle, retry the original AI direction.
+    if (obstacle_index != NONE && travel_facing != object->facing) {
+        flight_sway = 0;
+        new_location = object->location;
+        translate_point2d(&new_location, distance, object->facing);
+        obstacle_index = legal_monster_move(monster_index, object->facing, &new_location);
+    }
+    /* Retain the normal terrain, platform and object movement checks. */
+    if (obstacle_index == NONE)
 	{
 		/* legal move: see if there is a platform that we have to open or wait for,
 			if not move, if so, wait */
@@ -3232,6 +3460,14 @@ static bool translate_monster(
 		}
 	}
 	
+    if (legal_move && flight_sway != 0) {
+        auto& bank = sprintathon_flight_banks[monster_index];
+        const float yaw = object->facing * (6.283185307179586f/FULL_CIRCLE);
+        // Six degrees at full sway, expressed in world axes for each viewer.
+        const float tilt = std::max(-6.0f, std::min(6.0f, -6.0f*flight_sway/0.32f));
+        bank.target_x = -std::sin(yaw)*tilt;
+        bank.target_y = std::cos(yaw)*tilt;
+    }
 	return legal_move;
 }
 
@@ -3343,6 +3579,9 @@ void advance_monster_path(
 	}
 }
 
+static bool sprintathon_hold_friendly_shot(short index, short polygon,
+    const world_point3d& origin, const world_point3d& vector, short projectile_type);
+
 static bool try_monster_attack(
 	short monster_index)
 {
@@ -3424,6 +3663,8 @@ static bool try_monster_attack(
 					/* make sure this is a valid projectile, that we don’t hit any walls and that whatever
 						we did hit is _hostile. */
 					polygon_index= position_monster_projectile(monster_index, monster->target_index, &definition->ranged_attack, &origin, &destination, &_vector, theta);
+                    if (sprintathon_hold_friendly_shot(monster_index, polygon_index, origin, _vector, definition->ranged_attack.type))
+                        return false;
 					if (preflight_projectile(&origin, polygon_index, &destination, definition->ranged_attack.error,
 						definition->ranged_attack.type, monster_index, monster->type, &obstruction_index))
 					{
@@ -3470,6 +3711,9 @@ static bool try_monster_attack(
 	{
 		/* we can’t attack (for whatever reason), halve ticks_since_attack so we try again soon */
 		monster->ticks_since_attack= 0;
+        if (new_action == _monster_is_attacking_far && obstruction_index != NONE &&
+            get_monster_attitude(monster_index, obstruction_index) == _friendly)
+            sprintathon_request_clear_shot(monster_index);
 			
 		if (obstruction_index!=NONE && get_monster_attitude(monster_index, obstruction_index)==_friendly &&
 			MONSTER_IS_PLAYER(get_monster_data(obstruction_index)))
@@ -3479,6 +3723,40 @@ static bool try_monster_attack(
 	}
 	
 	return new_action==NONE ? false : true;
+}
+
+// Recheck the actual firing direction at release, including each muzzle of
+// symmetric attacks. An ally may have entered the lane during the animation.
+static bool sprintathon_hold_friendly_shot(short index, short polygon,
+    const world_point3d& origin, const world_point3d& vector, short projectile_type)
+{
+    const auto* monster = get_monster_data(index);
+    const auto* definition = get_monster_definition(monster->type);
+    if (!sprintathon_small_flyer(monster, definition) || polygon == NONE) return false;
+    const auto* target = get_object_data(get_monster_data(monster->target_index)->object_index);
+    const double dx = double(target->location.x)-origin.x, dy = double(target->location.y)-origin.y;
+    const double length = std::sqrt(double(vector.x)*vector.x+double(vector.y)*vector.y);
+    if (length < 1) return false;
+    const double scale = std::sqrt(dx*dx+dy*dy)/length;
+    auto coordinate = [](double value) { return static_cast<world_distance>(std::max(-32768.0, std::min(32767.0, value))); };
+    world_point3d from = origin;
+    world_point3d to = {coordinate(origin.x+vector.x*scale), coordinate(origin.y+vector.y*scale), coordinate(origin.z+vector.z*scale)};
+    // Probe a small firing corridor rather than only its exact centerline.
+    const double margin = std::min(double(WORLD_ONE)/3, definition->radius/2.0 + std::sqrt(dx*dx+dy*dy)*0.04);
+    for (int probe : {0, -1, 1}) {
+        world_point3d ray_end = to;
+        ray_end.x = coordinate(to.x-probe*margin*vector.y/length);
+        ray_end.y = coordinate(to.y+probe*margin*vector.x/length);
+        short obstruction = NONE;
+        preflight_projectile(&from, polygon, &ray_end, 0, projectile_type, index, monster->type, &obstruction);
+        if (obstruction == NONE || obstruction == monster->target_index) continue;
+        const auto* blocker = get_monster_data(obstruction);
+        const auto* blocker_definition = get_monster_definition(blocker->type);
+        const bool ally = get_monster_attitude(index, obstruction) != _hostile ||
+            (definition->_class & blocker_definition->_class) != 0;
+        if (ally) { sprintathon_request_clear_shot(index); return true; }
+    }
+    return false;
 }
 
 static void execute_monster_attack(
@@ -3498,13 +3776,17 @@ static void execute_monster_attack(
 		world_point3d _vector;
 		
 		projectile_polygon_index= position_monster_projectile(monster_index, monster->target_index, attack, &origin, NULL, &_vector, object->facing);
-		if (projectile_polygon_index != NONE)
+		if (projectile_polygon_index != NONE &&
+            (monster->action != _monster_is_attacking_far ||
+             !sprintathon_hold_friendly_shot(monster_index, projectile_polygon_index, origin, _vector, attack->type)))
 			new_projectile(&origin, projectile_polygon_index, &_vector, attack->error, attack->type, monster_index, monster->type, monster->target_index, FIXED_ONE);
 		if (definition->flags&_monster_fires_symmetrically)
 		{
 			attack->dy= -attack->dy;
 			projectile_polygon_index= position_monster_projectile(monster_index, monster->target_index, attack, &origin, NULL, &_vector, object->facing);
-			if (projectile_polygon_index != NONE) 
+			if (projectile_polygon_index != NONE &&
+            (monster->action != _monster_is_attacking_far ||
+             !sprintathon_hold_friendly_shot(monster_index, projectile_polygon_index, origin, _vector, attack->type)))
 				new_projectile(&origin, projectile_polygon_index, &_vector, attack->error, attack->type, monster_index, monster->type, monster->target_index, FIXED_ONE);
 			attack->dy= -attack->dy;
 		}

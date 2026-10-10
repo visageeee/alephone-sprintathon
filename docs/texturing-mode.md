@@ -66,8 +66,8 @@ walls, and respects connected polygon spaces.
 
 The cursor names the targeted floor, ceiling, wall, lower split wall or
 transparent wall. Picking follows connected polygons and ignores creatures and
-scenery for surface painting. Existing texture offsets and animation/scrolling
-modes are retained; light assignments change only when Lighting is enabled.
+scenery for surface painting. Existing texture offsets are retained; animation/scrolling modes are retained
+when Motion is set to Keep; light assignments change only when Lighting is enabled.
 Painting a sky texture switches the transfer mode to
 landscape; painting an ordinary texture onto sky switches it back to normal.
 
@@ -120,3 +120,24 @@ for later Save clicks (and Ctrl+S) while editing this source level. Choosing the
 original source path updates that level in place instead of discarding the
 scenario's other levels. Fog toggles rendering in the editor only; the original
 fog preference is restored when leaving the editor and is not saved in the map.
+
+
+Hold **Shift + left-drag** on a floor or ceiling in free-cursor mode to change
+that polygon's floor or ceiling height. Up raises it, down lowers it; every ten
+screen pixels moves it **0.1 world unit**, rounded to the map's fixed-point
+precision. A whole drag is one undo/redo step and is included in Save/Save As.
+Floors and ceilings cannot cross, and occupied spaces cannot be crushed.
+Moving platforms retain their platform-controlled heights and cannot be dragged.
+Adjoining walls and collision heights are refreshed; newly exposed boundaries
+receive sides that can be painted. Undo restores the original sides as well as
+height. Floor/ceiling-relative saved scenery stays attached to its surface.
+
+Below the texture list, click **Motion** to cycle through Keep, Still, Scroll X,
+Scroll Y, Scroll -X, Scroll -Y, and Wobble. Click **Speed** to switch between
+Normal and Fast. Select the effect, then paint a surface with **Texture** enabled;
+lighting-only painting leaves its motion unchanged. Keep preserves the target's
+existing effect; Still removes it. Landscapes retain their sky mode. The engine
+stores a single effect per surface, so scrolling and wobble are alternatives.
+Right-click samples the texture's motion and speed along with its other settings.
+Animated textures preview while gameplay stays paused. Motion edits share the
+regular undo/redo and saving behaviour.

@@ -1441,7 +1441,11 @@ static void update_screenshot_camera()
 	const float next_y = screenshot_y + speed * (sinf(yaw) * forward + cosf(yaw) * strafe);
 	world_point2d destination = {static_cast<world_distance>(next_x),
 		static_cast<world_distance>(next_y)};
-	const short polygon = world_point_to_polygon_index(&destination);
+	// Follow map connectivity from our current room. A global XY lookup can
+	// choose an unrelated overlapping polygon (bridges and 5D spaces).
+	world_point2d start = {static_cast<world_distance>(screenshot_x),
+		static_cast<world_distance>(screenshot_y)};
+	const short polygon = find_new_object_polygon(&start, &destination, screenshot_polygon);
 	if (polygon != NONE) {
 		screenshot_x = next_x;
 		screenshot_y = next_y;
@@ -1474,6 +1478,8 @@ void render_screen(short ticks_elapsed)
 	// Make whatever changes are necessary to the world_view structure based on whichever player is frontmost
 	world_view->ticks_elapsed = ticks_elapsed;
 	world_view->tick_count = dynamic_world->tick_count;
+	if (surface_editor_active())
+		world_view->tick_count += (machine_tick_count()-surface_editor::animation_started)*TICKS_PER_SECOND/MACHINE_TICKS_PER_SECOND;
 	world_view->shading_mode = current_player->infravision_duration ? _shading_infravision : _shading_normal;
 
 	update_world_view_camera();

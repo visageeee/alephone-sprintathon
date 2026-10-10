@@ -3,6 +3,7 @@
 #define SPRINTATHON_SURFACE_EDITOR_GEOMETRY_H
 
 #include <cmath>
+#include <algorithm>
 #include <limits>
 #include <vector>
 #include <utility>
@@ -14,7 +15,18 @@ struct Hit {
     int index = -1; // polygon for horizontal surfaces, side for walls
     int polygon = -1;
     double distance = 0;
+    int line = -1; // boundary for an empty transparent surface
 };
+// Ten pixels per 0.1 world unit. Round the total delta once (WORLD_ONE is
+// binary fixed point), so ten steps equal exactly one world unit. Clamp in
+// step space, retaining the original height's offset from the 0.1 grid.
+inline int drag_height(int original, int pixels_up, int world_one, int low, int high)
+{
+    const int min_step = int(std::ceil(double(low-original)*10/world_one));
+    const int max_step = int(std::floor(double(high-original)*10/world_one));
+    const int steps = std::max(min_step, std::min(max_step, pixels_up/10));
+    return original+int(std::lround(double(steps)*world_one/10));
+}
 struct Ray { double x, y, z, dx, dy, dz; };
 
 // Project onto the original surface plane even when the pointer leaves its
@@ -66,6 +78,7 @@ struct Edge {
     double x, y, end_x, end_y;
     int neighbor = -1, side = -1;
     bool split = false, transparent = false, full = false;
+    int line = -1;
 };
 struct Room {
     double floor, ceiling;
@@ -76,7 +89,7 @@ struct Room {
 // the map. This also distinguishes overlapping Marathon spaces correctly.
 template<class GetRoom>
 Hit trace(const Ray& ray, int polygon, GetRoom room_at, bool through_transparent,
-    std::vector<std::pair<int, double>>* visited = nullptr)
+    std::vector<std::pair<int, double>>* visited = nullptr, bool empty_transparent = false)
 {
     double entered = -1e-7;
     for (int step = 0; polygon >= 0 && step < 1024; ++step) {
@@ -105,14 +118,13 @@ Hit trace(const Ray& ray, int polygon, GetRoom room_at, bool through_transparent
         if (!wall) return {};
         const double z = ray.z + wall_t * ray.dz;
         if (wall->neighbor < 0 || wall->full)
-            return wall->side < 0 ? Hit{} : Hit{Part::primary, wall->side, polygon, wall_t};
+            return {Part::primary, wall->side, polygon, wall_t, wall->line};
         const Room adjacent = room_at(wall->neighbor);
         if (z >= adjacent.ceiling || z <= adjacent.floor) {
-            if (wall->side < 0) return {};
-            return {z <= adjacent.floor && wall->split ? Part::secondary : Part::primary, wall->side, polygon, wall_t};
+            return {z <= adjacent.floor && wall->split ? Part::secondary : Part::primary, wall->side, polygon, wall_t, wall->line};
         }
-        if (wall->transparent && !through_transparent)
-            return {Part::transparent, wall->side, polygon, wall_t};
+        if ((wall->transparent || empty_transparent) && !through_transparent)
+            return {Part::transparent, wall->side, polygon, wall_t, wall->line};
         entered = wall_t;
         polygon = wall->neighbor;
     }

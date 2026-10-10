@@ -50,6 +50,7 @@ struct render_object_data
 	
 	struct rectangle_definition rectangle;
 	
+	int16 flight_monster_index; // identity for cosmetic flight banking
 	bool casts_character_shadow; // only monster-owned objects, including players
 	bool is_scenery; // limits bright sprite light sources to scenery
 	int16 scenery_object_index; // stable identity for individual scenery emitters
