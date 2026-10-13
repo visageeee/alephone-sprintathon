@@ -25,6 +25,7 @@
 #include "preferences.h"
 #include "fades.h"
 #include "screen.h"
+#include "SprintathonRenderResolution.h"
 
 #ifdef HAVE_OPENGL
 
@@ -52,11 +53,15 @@ Rasterizer_Shader_Class::~Rasterizer_Shader_Class() = default;
 void Rasterizer_Shader_Class::SetView(view_data& view) {
 	OGL_SetView(view);
 	
-	if (view.screen_width != view_width || view.screen_height != view_height) {
+	const int render_width = SprintathonRenderPixels(view.screen_width);
+	const int render_height = SprintathonRenderPixels(view.screen_height);
+	if (!swapper || view.screen_width != view_width || view.screen_height != view_height ||
+		swapper->current_contents()._w != static_cast<GLuint>(render_width) ||
+		swapper->current_contents()._h != static_cast<GLuint>(render_height)) {
 		view_width = view.screen_width;
 		view_height = view.screen_height;
 		swapper.reset();
-		swapper.reset(new FBOSwapper(view_width * MainScreenPixelScale(), view_height * MainScreenPixelScale(), false));
+		swapper.reset(new FBOSwapper(render_width, render_height, false));
 	}
 	
 	float aspect = view.screen_width / float(view.screen_height);
@@ -156,7 +161,19 @@ void Rasterizer_Shader_Class::End()
 		s->enable();
 		s->setFloat(Shader::U_GammaAdjust, gamma_adj);
 	}
+	// Apply the upscale filter only during presentation, leaving bloom and
+	// other intermediate passes with their original sampling settings.
+	glActiveTextureARB(GL_TEXTURE0_ARB);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, swapper->current_contents().texID);
+	GLint old_min_filter, old_mag_filter;
+	glGetTexParameteriv(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, &old_min_filter);
+	glGetTexParameteriv(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, &old_mag_filter);
+	const GLint upscale_filter = graphics_preferences->sprintathon_nearest_upscale ? GL_NEAREST : GL_LINEAR;
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, upscale_filter);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, upscale_filter);
 	swapper->draw();
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, old_min_filter);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, old_mag_filter);
 	Shader::disable();
 	
 	SetForeground();

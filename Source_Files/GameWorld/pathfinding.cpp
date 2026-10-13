@@ -70,13 +70,15 @@ we should cut corners instead of blindly following map geometry (i.e., separate 
 
 /* ---------- structures */
 
-struct path_definition /* 256 bytes */
+struct path_definition
 {
 	/* NONE is an empty path */
 	short current_step;
 	short step_count;
 	
 	world_point2d points[MAXIMUM_POINTS_PER_PATH];
+    // Transient route topology, including both sides of boundary waypoints.
+    short before[MAXIMUM_POINTS_PER_PATH], after[MAXIMUM_POINTS_PER_PATH];
 };
 
 /* ---------- globals */
@@ -238,13 +240,20 @@ short new_path(
 			path->current_step= 0;
 
 			/* if we reached our destination (and it’s not out-of-range), add it */
-			if (reached_destination && --step_count<MAXIMUM_POINTS_PER_PATH) path->points[step_count]= *destination_point;
+			if (reached_destination && --step_count<MAXIMUM_POINTS_PER_PATH) {
+                path->points[step_count]= *destination_point;
+                path->before[step_count]= path->after[step_count]= destination_polygon_index;
+            }
 			
 			/* add all the points up to but not including the source (if we have room) */
 			last_polygon_index= reverse_flood_map();
 			while ((polygon_index= reverse_flood_map())!=NONE)
 			{
-				if (--step_count<MAXIMUM_POINTS_PER_PATH) calculate_midpoint_of_shared_line(last_polygon_index, polygon_index, minimum_separation, path->points+step_count);
+				if (--step_count<MAXIMUM_POINTS_PER_PATH) {
+                    calculate_midpoint_of_shared_line(last_polygon_index, polygon_index, minimum_separation, path->points+step_count);
+                    path->before[step_count]= polygon_index;
+                    path->after[step_count]= last_polygon_index;
+                }
 //				if (polygon_index!=source_polygon_index&&--step_count<MAXIMUM_POINTS_PER_PATH) find_center_of_polygon(polygon_index, path->points+step_count);
 				last_polygon_index= polygon_index;
 			}
@@ -319,6 +328,24 @@ bool move_along_path(
 	}
 	
 	return end_of_path;
+}
+
+// The stock step is always available as fallback. Checking farthest-first
+// avoids letting an unnecessary near-waypoint block a safe later shortcut.
+bool move_along_path_with_lookahead(short path_index, world_point2d* point,
+    bool (*clear)(const world_point2d*, short, short, void*), void* context)
+{
+    if (move_along_path(path_index, point)) return true;
+    path_definition& path = paths[path_index];
+    const int end = path.current_step+12 < path.step_count ? path.current_step+12 : path.step_count;
+    for (int step = end-1; step >= path.current_step; --step) {
+        if (clear(path.points+step, path.before[step], path.after[step], context)) {
+            *point = path.points[step];
+            path.current_step = step+1;
+            break;
+        }
+    }
+    return false;
 }
 
 void delete_path(

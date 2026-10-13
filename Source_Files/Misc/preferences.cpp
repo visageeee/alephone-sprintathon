@@ -150,6 +150,8 @@ static bool ethernet_active(void);
 static std::string get_name_from_system(void);
 
 // LP: getting rid of the (void *) mechanism as inelegant and non-type-safe
+std::vector<std::string> build_resolution_labels();
+
 static void default_graphics_preferences(graphics_preferences_data *preferences);
 static bool validate_graphics_preferences(graphics_preferences_data *preferences);
 static void default_network_preferences(network_preferences_data *preferences);
@@ -627,6 +629,32 @@ void handle_preferences(bool in_game)
 #endif
 	graphics_display->dual_add(graphics_renderer_w->label("Rendering System"), d);
 	graphics_display->dual_add(graphics_renderer_w, d);
+	w_select_popup *graphics_resolution_w = new w_select_popup();
+	graphics_resolution_w->set_labels(build_resolution_labels());
+	graphics_resolution_w->set_selection(
+		graphics_preferences->screen_mode.auto_resolution ? 0 :
+		Screen::instance()->FindMode(graphics_preferences->screen_mode.width,
+			graphics_preferences->screen_mode.height) + 1);
+	graphics_display->dual_add(graphics_resolution_w->label("Display Resolution"), d);
+	graphics_display->dual_add(graphics_resolution_w, d);
+	static const char *render_scale_labels[] = {"50%", "67%", "75%", "85%", "100% (Native)", nullptr};
+	const int render_scale_values[] = {50, 67, 75, 85, 100};
+	int render_scale_index = 4;
+	for (int i = 0; i < 5; ++i)
+		if (render_scale_values[i] == graphics_preferences->sprintathon_render_scale)
+			render_scale_index = i;
+	w_select *graphics_render_scale_w = new w_select(render_scale_index, render_scale_labels);
+	graphics_display->dual_add(graphics_render_scale_w->label("3D Render Scale (OpenGL)"), d);
+	graphics_display->dual_add(graphics_render_scale_w, d);
+	static const char *upscale_labels[] = {"Smooth", "Nearest (pixelated)", nullptr};
+	w_select *graphics_upscale_w = new w_select(
+		graphics_preferences->sprintathon_nearest_upscale, upscale_labels);
+	graphics_display->dual_add(graphics_upscale_w->label("3D Upscaling"), d);
+	graphics_display->dual_add(graphics_upscale_w, d);
+#ifndef HAVE_OPENGL
+	graphics_render_scale_w->set_enabled(false);
+	graphics_upscale_w->set_enabled(false);
+#endif
 	w_toggle *graphics_windowed_w = new w_toggle(
 		!graphics_preferences->screen_mode.fullscreen);
 	graphics_display->dual_add(graphics_windowed_w->label("Windowed Mode"), d);
@@ -792,6 +820,11 @@ void handle_preferences(bool in_game)
 		embedded_hud_scale_labels);
 	graphics_hud->dual_add(graphics_hud_scale_w->label("HUD Size"), d);
 	graphics_hud->dual_add(graphics_hud_scale_w, d);
+	w_toggle *graphics_tracker_compass_w = new w_toggle(
+		graphics_preferences->sprintathon_tracker_compass);
+	graphics_hud->dual_add(
+		graphics_tracker_compass_w->label("Tracker compass (Sprintathon HUD)"), d);
+	graphics_hud->dual_add(graphics_tracker_compass_w, d);
 	w_select *graphics_terminal_scale_w = new w_select(
 		graphics_preferences->screen_mode.term_scale_level,
 		embedded_terminal_scale_labels);
@@ -1723,6 +1756,22 @@ void handle_preferences(bool in_game)
 		player_preferences->solo_profile = profile;
 	}
 	bool embedded_graphics_changed = false;
+	const int display_resolution = graphics_resolution_w->get_selection();
+	auto& display_mode = graphics_preferences->screen_mode;
+	const bool automatic_resolution = display_resolution == 0;
+	embedded_graphics_changed |= display_mode.auto_resolution != automatic_resolution;
+	display_mode.auto_resolution = automatic_resolution;
+	if (!automatic_resolution)
+	{
+		const int width = Screen::instance()->ModeWidth(display_resolution - 1);
+		const int height = Screen::instance()->ModeHeight(display_resolution - 1);
+		embedded_graphics_changed |= display_mode.width != width || display_mode.height != height;
+		display_mode.width = width;
+		display_mode.height = height;
+	}
+	graphics_preferences->sprintathon_render_scale =
+		render_scale_values[graphics_render_scale_w->get_selection()];
+	graphics_preferences->sprintathon_nearest_upscale = graphics_upscale_w->get_selection();
 	const bool embedded_fullscreen = !graphics_windowed_w->get_selection();
 	embedded_graphics_changed |=
 		embedded_fullscreen != graphics_preferences->screen_mode.fullscreen;
@@ -1879,6 +1928,10 @@ void handle_preferences(bool in_game)
 	embedded_graphics_changed |= embedded_hud_scale !=
 		graphics_preferences->screen_mode.hud_scale_level;
 	graphics_preferences->screen_mode.hud_scale_level = embedded_hud_scale;
+	const bool embedded_tracker_compass = graphics_tracker_compass_w->get_selection() != 0;
+	embedded_graphics_changed |= embedded_tracker_compass !=
+		graphics_preferences->sprintathon_tracker_compass;
+	graphics_preferences->sprintathon_tracker_compass = embedded_tracker_compass;
 	const short embedded_terminal_scale = static_cast<short>(
 		graphics_terminal_scale_w->get_selection());
 	embedded_graphics_changed |= embedded_terminal_scale !=
@@ -6108,6 +6161,9 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("scmode_auto_resolution", graphics_preferences->screen_mode.auto_resolution);
 	root.put_attr("scmode_high_dpi", graphics_preferences->screen_mode.high_dpi);
 	root.put_attr("scmode_hud", graphics_preferences->screen_mode.hud);
+	root.put_attr("sprintathon_render_scale", graphics_preferences->sprintathon_render_scale);
+	root.put_attr("sprintathon_nearest_upscale", graphics_preferences->sprintathon_nearest_upscale);
+	root.put_attr("sprintathon_tracker_compass", graphics_preferences->sprintathon_tracker_compass);
 	root.put_attr("scmode_hud_scale", graphics_preferences->screen_mode.hud_scale_level);
 	root.put_attr("scmode_term_scale", graphics_preferences->screen_mode.term_scale_level);
 	root.put_attr("scmode_translucent_map", graphics_preferences->screen_mode.translucent_map);
@@ -6747,6 +6803,9 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->screen_mode.auto_resolution = true;
 	preferences->screen_mode.high_dpi = true;
 	preferences->screen_mode.hud = true;
+	preferences->sprintathon_render_scale = 100;
+	preferences->sprintathon_nearest_upscale = false;
+	preferences->sprintathon_tracker_compass = false;
 	preferences->screen_mode.hud_scale_level = 0;
 	preferences->screen_mode.term_scale_level = 2;
 	preferences->screen_mode.translucent_map = false;
@@ -7296,6 +7355,10 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("scmode_auto_resolution", graphics_preferences->screen_mode.auto_resolution);
 	root.read_attr("scmode_high_dpi", graphics_preferences->screen_mode.high_dpi);
 	root.read_attr("scmode_hud", graphics_preferences->screen_mode.hud);
+	root.read_attr("sprintathon_render_scale", graphics_preferences->sprintathon_render_scale);
+	graphics_preferences->sprintathon_render_scale = std::max(50, std::min(100, graphics_preferences->sprintathon_render_scale));
+	root.read_attr("sprintathon_nearest_upscale", graphics_preferences->sprintathon_nearest_upscale);
+	root.read_attr("sprintathon_tracker_compass", graphics_preferences->sprintathon_tracker_compass);
 	root.read_attr("scmode_hud_scale", graphics_preferences->screen_mode.hud_scale_level);
 	root.read_attr("scmode_term_scale", graphics_preferences->screen_mode.term_scale_level);
 	root.read_attr("scmode_translucent_map", graphics_preferences->screen_mode.translucent_map);

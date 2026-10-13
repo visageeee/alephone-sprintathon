@@ -13,8 +13,8 @@ local white = {0.92, 1.00, 0.92, 1.00}
 local dim = {0.34, 0.58, 0.36, 1.00}
 local green = {0.15, 1.00, 0.22, 1.00}
 local light_green = {0.62, 1.00, 0.66, 1.00}
-local dark_green = {0.005, 0.025, 0.008, 0.94}
-local badge_green = {0.01, 0.075, 0.025, 0.86}
+local dark_green = {0.005, 0.025, 0.008, 0.34}
+local badge_green = {0.01, 0.075, 0.025, 0.36}
 local black = {0.00, 0.00, 0.00, 0.76}
 local red = {0.68, 0.18, 0.14, 1.00}
 local blue = {0.18, 0.58, 0.68, 1.00}
@@ -188,10 +188,37 @@ local function draw_vertical_meter(x, y, width, height, fraction,
   end
 end
 
+-- Map north is negative Y (270 degrees); tracker up is player-forward.
+local function draw_tracker_compass(cx, cy, radius)
+  if not Player.tracker_compass then return end
+  local rr = radius + 8 * scale
+  local heading = Player.direction
+  local dot = math.max(1, 1.3 * scale)
+  local compass_green = {0.20, 0.38, 0.22, 0.75}
+  for degree = 0, 358, 2 do
+    local a = math.rad(degree)
+    Screen.fill_rect(cx + math.cos(a) * rr - dot / 2,
+      cy + math.sin(a) * rr - dot / 2, dot, dot, compass_green)
+  end
+  -- North is distinguished by its longer, thicker tick, not a text label.
+  for bearing = 0, 330, 30 do
+    local a = math.rad(bearing - heading - 90)
+    local north = bearing == 270
+    local color = compass_green
+    local thickness = north and dot * 2 or dot
+    local length = north and 6 or 3
+    for offset = 0, length, 1 do
+      local r = rr + offset * scale
+      Screen.fill_rect(cx + math.cos(a) * r - thickness / 2,
+        cy + math.sin(a) * r - thickness / 2, thickness, thickness, color)
+    end
+  end
+end
+
 local function draw_tracker(x, y, size)
   local cx = x + size / 2
   local cy = y + size / 2
-  local radius = size * 0.47
+  local radius = size * (Player.tracker_compass and 0.33 or 0.47)
 
   -- Build a genuinely circular translucent face instead of putting the
   -- tracker inside a square panel.
@@ -227,6 +254,8 @@ local function draw_tracker(x, y, size)
     4 * scale, 13 * scale, green)
   Screen.fill_rect(cx - 5 * scale, cy - 7 * scale,
     10 * scale, 3 * scale, green)
+
+  draw_tracker_compass(cx, cy, radius)
 
   local sensor = Player.motion_sensor
   if sensor and sensor.active then

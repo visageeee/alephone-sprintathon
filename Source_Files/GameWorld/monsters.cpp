@@ -264,6 +264,7 @@ static bool sprintathon_ground_ai(const monster_data*, const monster_definition*
 static void execute_monster_attack(short monster_index);
 static void kill_monster(short monster_index);
 static bool translate_monster(short monster_index, world_distance distance);
+static void sprintathon_float_coast(short monster_index);
 static bool try_monster_attack(short monster_index);
 			
 int32 monster_pathfinding_cost_function(short source_polygon_index, short line_index,
@@ -660,6 +661,9 @@ void move_monsters(
 			}
 		}
 		
+		if (SLOT_IS_USED(monster) && !MONSTER_IS_PLAYER(monster) && MONSTER_IS_ACTIVE(monster))
+			sprintathon_float_coast(monster_index);
+
 		/* WARNING: a large number of unusual things could have happened here, including the monster
 			being dead, his slot being free, and his object having been removed from the map; in other
 			words, it’s probably not a good idea to do any postprocessing here */
@@ -2664,6 +2668,54 @@ float sprintathon_flight_bank(short index, float camera_yaw)
     return -std::sin(camera_yaw)*bank.x + std::cos(camera_yaw)*bank.y;
 }
 
+// Transient single-player motion only; no map/save format or random-stream changes.
+struct SprintathonFloatMotion {
+    short object = NONE;
+    int tick = -1, request_tick = -1, ledge_until = -1;
+    double speed = 0, heading = 0, goal = 0, vz = 0;
+    int floor = 0;
+    int climb_floor = 0, climb_goal = 0, climb_until = -1;
+};
+static std::map<short, SprintathonFloatMotion> sprintathon_float_motion;
+static bool sprintathon_soft_float(const monster_data* monster, const monster_definition* definition)
+{
+    return input_preferences->sprintathon_enabled && input_preferences->sprintathon_enhanced_enemy_ai &&
+        !game_is_networked && !game_is_being_replayed() &&
+        (definition->flags & (_monster_flys | _monster_floats)) == _monster_floats &&
+        !MONSTER_IS_DYING(monster) && monster->action != _monster_is_being_hit &&
+        !monster->external_velocity;
+}
+
+static void sprintathon_float_coast(short index)
+{
+    auto it = sprintathon_float_motion.find(index);
+    if (it == sprintathon_float_motion.end()) return;
+    auto* monster = get_monster_data(index);
+    auto* definition = get_monster_definition(monster->type);
+    if (!sprintathon_soft_float(monster, definition)) {
+        sprintathon_float_motion.erase(it);
+        return;
+    }
+    auto& motion = it->second;
+    if (motion.object != monster->object_index || motion.tick != dynamic_world->tick_count ||
+        motion.request_tick == dynamic_world->tick_count) return;
+    motion.speed *= 0.80;
+    if (motion.speed < 1) { motion.speed = 0; return; }
+    auto* object = get_object_data(monster->object_index);
+    world_point3d next = object->location;
+    const angle heading = NORMALIZE_ANGLE(int(motion.heading));
+    translate_point2d(&next, world_distance(motion.speed), heading);
+    world_distance floor, ceiling;
+    short supporting;
+    keep_line_segment_out_of_walls(object->polygon, &object->location, &next,
+        0, definition->height, &floor, &ceiling, &supporting);
+    if (next.z < floor || int(next.z)+definition->height > ceiling ||
+        legal_monster_move(index, heading, &next) != NONE) { motion.speed = 0; return; }
+    const short previous = object->polygon;
+    if (translate_map_object(monster->object_index, &next, NONE)) monster_moved(index, previous);
+    // Coasting never consumes the path: it may happen during a firing animation.
+}
+
 static int sprintathon_flight_velocity(int error, int velocity, int limit)
 {
     limit = std::max(1, limit);
@@ -2687,6 +2739,8 @@ static void update_monster_vertical_physics_model(
 	world_distance old_height= object->location.z;
 	bool above_ground, below_ground;
     const bool organic_flight = sprintathon_organic_flight(monster, definition);
+    const bool soft_float = sprintathon_soft_float(monster, definition);
+    if (!soft_float) sprintathon_float_motion.erase(monster_index);
     if (organic_flight || sprintathon_flight_banks.count(monster_index)) {
         auto& bank = sprintathon_flight_banks[monster_index];
         if (bank.object != monster->object_index || dynamic_world->tick_count-bank.tick != 1)
@@ -2714,6 +2768,34 @@ static void update_monster_vertical_physics_model(
 		}
 	}
 	desired_height= (monster->desired_height==NONE||MONSTER_IS_DYING(monster)) ? polygon->floor_height : monster->desired_height;
+    if (soft_float) {
+        auto& motion = sprintathon_float_motion[monster_index];
+        const int now = dynamic_world->tick_count;
+        if (motion.object != monster->object_index || motion.tick != now-1) {
+            motion = SprintathonFloatMotion{};
+            motion.object = monster->object_index;
+            motion.heading = object->facing;
+            motion.goal = object->location.z;
+            motion.floor = floor_height;
+            motion.vz = monster->vertical_velocity;
+        }
+        motion.tick = now;
+        if (int(floor_height) < motion.floor - WORLD_ONE/16)
+            motion.ledge_until = now + TICKS_PER_SECOND/3;
+        motion.floor = floor_height;
+        const int top = std::max(int(polygon->floor_height), int(polygon->ceiling_height)-definition->height);
+        int target = std::max(int(floor_height), int(desired_height));
+        // Keep an explicit terrain climb through pauses to fire. The normal
+        // desired_height is reset to the current floor each tick.
+        if (floor_height >= motion.climb_floor) motion.climb_until = -1;
+        const bool climbing = now < motion.climb_until;
+        if (climbing) target = std::max(target, motion.climb_goal);
+        // Rise more promptly; retain the slow delayed descent over drops.
+        if (now >= motion.ledge_until || target > motion.goal)
+            motion.goal += (target-motion.goal)*(climbing ? 0.18 : 0.09);
+        motion.goal = std::max(double(polygon->floor_height), std::min(double(top), motion.goal));
+        desired_height = world_distance(motion.goal);
+    }
 	above_ground= object->location.z>desired_height;
 	below_ground= object->location.z<desired_height;
 
@@ -2736,6 +2818,14 @@ static void update_monster_vertical_physics_model(
 			break;
 
 		case _monster_floats:
+            if (soft_float) {
+                auto& motion = sprintathon_float_motion[monster_index];
+                const double limit = std::max(1, int(definition->terminal_velocity));
+                const double target = std::max(-limit, std::min(limit, (motion.goal-object->location.z)*0.10));
+                motion.vz += (target-motion.vz)*0.14;
+                monster->vertical_velocity = world_distance(std::round(motion.vz));
+                break;
+            }
 			if (above_ground && !MONSTER_IS_ATTACKING(monster)) monster->vertical_velocity= FLOOR(monster->vertical_velocity-gravity, -definition->terminal_velocity);
 			if (below_ground) monster->vertical_velocity= CEILING(monster->vertical_velocity+gravity, definition->terminal_velocity);
 			break;
@@ -2757,6 +2847,7 @@ static void update_monster_vertical_physics_model(
 	{
 		case 0:
 		case _monster_floats:
+            if (soft_float) break;
 			if (object->location.z<=desired_height && monster->vertical_velocity<0) monster->vertical_velocity= 0, object->location.z= desired_height;
 			if (object->location.z>=desired_height && monster->vertical_velocity>0 && below_ground) monster->vertical_velocity= 0, object->location.z= desired_height;
 			break;
@@ -2823,6 +2914,14 @@ static void update_monster_vertical_physics_model(
             (object->location.z >= top && monster->vertical_velocity > 0)) monster->vertical_velocity = 0;
     }
 
+    if (soft_float) {
+        auto& motion = sprintathon_float_motion[monster_index];
+        if ((object->location.z <= floor_height && motion.vz < 0) ||
+            (int(object->location.z)+definition->height >= polygon->ceiling_height && motion.vz > 0)) {
+            motion.vz = 0;
+            monster->vertical_velocity = 0;
+        }
+    }
 	monster->sound_location= object->location;
 	monster->sound_polygon_index= object->polygon;
 	monster->sound_location.z+= definition->height - (definition->height>>1);
@@ -3924,8 +4023,38 @@ static bool translate_monster(
         }
         travel_facing = NORMALIZE_ANGLE(object->facing + int(std::atan(flight_sway)*FULL_CIRCLE/6.283185307179586));
     }
+    if (sprintathon_soft_float(monster, definition)) {
+        auto it = sprintathon_float_motion.find(monster_index);
+        if (it != sprintathon_float_motion.end()) {
+            auto& motion = it->second;
+            motion.request_tick = dynamic_world->tick_count;
+            // Tiny broad sway, and shortest-arc heading response across north.
+            const bool climbing = dynamic_world->tick_count < motion.climb_until;
+            const double target = object->facing + (climbing ? 0.0 : 0.025*FULL_CIRCLE*
+                sprintathon_flight_wave(monster_index, 7*TICKS_PER_SECOND, 113));
+            double turn = std::fmod(target-motion.heading+1.5*FULL_CIRCLE, double(FULL_CIRCLE))-HALF_CIRCLE;
+            motion.heading = std::fmod(motion.heading+turn*(climbing ? 0.20 : 0.10)+FULL_CIRCLE, double(FULL_CIRCLE));
+            motion.speed += (distance-motion.speed)*0.12;
+            distance = world_distance(std::max(1.0, motion.speed));
+            travel_facing = NORMALIZE_ANGLE(int(motion.heading));
+        }
+    }
     new_location = object->location;
     translate_point2d(&new_location, distance, travel_facing);
+    if (sprintathon_soft_float(monster, definition)) {
+        world_distance floor, ceiling;
+        short supporting;
+        keep_line_segment_out_of_walls(object->polygon, &object->location, &new_location,
+            0, definition->height, &floor, &ceiling, &supporting);
+        if (new_location.z < floor || int(new_location.z)+definition->height > ceiling) {
+            sprintathon_float_motion[monster_index].speed *= 0.5;
+            // Run the original direction below so the terrain probe can request
+            // the height needed to climb a ledge.
+            new_location = object->location;
+            travel_facing = object->facing;
+            translate_point2d(&new_location, distance, travel_facing);
+        }
+    }
     obstacle_index = legal_monster_move(monster_index, travel_facing, &new_location);
     // If the weave hits an obstacle, retry the original AI direction.
     if (obstacle_index != NONE && travel_facing != object->facing) {
@@ -4095,6 +4224,8 @@ static bool translate_monster(
 		}
 	}
 	
+    if (!legal_move && sprintathon_soft_float(monster, definition))
+        sprintathon_float_motion[monster_index].speed *= 0.5;
     if (legal_move && flight_sway != 0) {
         auto& bank = sprintathon_flight_banks[monster_index];
         const float yaw = object->facing * (6.283185307179586f/FULL_CIRCLE);
@@ -4157,6 +4288,134 @@ static bool attempt_evasive_manouvers(
 	return successful;
 }
 
+// A shortcut is a swept cylinder through connected polygons, not a sight ray.
+static double sprintathon_point_segment_distance2(double px, double py,
+    double ax, double ay, double bx, double by)
+{
+    const double dx = bx-ax, dy = by-ay;
+    const double length2 = dx*dx+dy*dy;
+    const double t = length2 > 0 ? std::max(0.0, std::min(1.0,
+        ((px-ax)*dx+(py-ay)*dy)/length2)) : 0;
+    const double x = px-ax-t*dx, y = py-ay-t*dy;
+    return x*x+y*y;
+}
+static double sprintathon_segment_clearance2(const world_point2d& a, const world_point2d& b,
+    const world_point2d& c, const world_point2d& d)
+{
+    const double rx = double(b.x)-a.x, ry = double(b.y)-a.y;
+    const double sx = double(d.x)-c.x, sy = double(d.y)-c.y;
+    const double qx = double(c.x)-a.x, qy = double(c.y)-a.y;
+    const double cross = rx*sy-ry*sx;
+    if (std::abs(cross) > 0.0001) {
+        const double t = (qx*sy-qy*sx)/cross, u = (qx*ry-qy*rx)/cross;
+        if (t >= 0 && t <= 1 && u >= 0 && u <= 1) return 0;
+    }
+    return std::min(std::min(
+        sprintathon_point_segment_distance2(a.x,a.y,c.x,c.y,d.x,d.y),
+        sprintathon_point_segment_distance2(b.x,b.y,c.x,c.y,d.x,d.y)), std::min(
+        sprintathon_point_segment_distance2(c.x,c.y,a.x,a.y,b.x,b.y),
+        sprintathon_point_segment_distance2(d.x,d.y,a.x,a.y,b.x,b.y)));
+}
+static bool sprintathon_shortcut_room(const polygon_data* room)
+{
+    switch (room->type) {
+        case _polygon_is_platform: case _polygon_is_zone_border:
+        case _polygon_is_monster_impassable: case _polygon_is_teleporter:
+        case _polygon_is_minor_ouch: case _polygon_is_major_ouch: return false;
+        default: return true;
+    }
+}
+struct SprintathonShortcutContext {
+    object_data* object;
+    monster_definition* definition;
+    world_distance radius, height;
+};
+static bool sprintathon_shortcut_portal(short from, short edge,
+    const SprintathonShortcutContext& context)
+{
+    const auto* line = get_line_data(edge);
+    if (LINE_IS_SOLID(line)) return false;
+    const short adjacent = find_adjacent_polygon(from, edge);
+    if (adjacent == NONE || adjacent == from) return false;
+    const auto* a = get_polygon_data(from);
+    const auto* b = get_polygon_data(adjacent);
+    if (!sprintathon_shortcut_room(b) || b->media_index != a->media_index) return false;
+    const int bottom = std::max(a->floor_height,b->floor_height);
+    const int top = std::min(a->ceiling_height,b->ceiling_height);
+    if (top-bottom < context.height || line->length < 2*context.radius) return false;
+    if (context.definition->flags & (_monster_flys | _monster_floats)) {
+        // Vertical manoeuvres retain the original waypoints and terrain probes.
+        return context.object->location.z >= bottom &&
+            int(context.object->location.z)+context.height <= top;
+    }
+    const int rise = int(b->floor_height)-a->floor_height;
+    return rise >= std::max<int>(-WORLD_ONE/4, context.definition->minimum_ledge_delta) &&
+        rise <= std::min<int>(WORLD_ONE/4, context.definition->maximum_ledge_delta);
+}
+static bool sprintathon_clear_shortcut(const world_point2d* goal,
+    short expected_before, short expected_after, void* data)
+{
+    const auto& context = *static_cast<SprintathonShortcutContext*>(data);
+    world_point2d start = {context.object->location.x,context.object->location.y};
+    world_point2d destination = *goal;
+    const double dx = double(goal->x)-start.x, dy = double(goal->y)-start.y;
+    if (dx*dx+dy*dy > double(12*WORLD_ONE)*(12*WORLD_ONE)) return false;
+    short polygon = context.object->polygon;
+    short visited[64];
+    int used = 0;
+    bool arrived = false;
+    const double clearance = context.radius+WORLD_ONE/64;
+    for (int count = 0; count < 32; ++count) {
+        for (int i = 0; i < count; ++i) if (visited[i] == polygon) return false;
+        visited[count] = polygon;
+        used = count+1;
+        const auto* room = get_polygon_data(polygon);
+        if (!sprintathon_shortcut_room(room) ||
+            int(room->ceiling_height)-room->floor_height < context.height) return false;
+        // Check the entire body's clearance from every blocking edge, including
+        // corners the center ray would miss. Conservative rejection is safe.
+        for (int i = 0; i < room->vertex_count; ++i) {
+            const short edge = room->line_indexes[i];
+            if (sprintathon_shortcut_portal(polygon, edge, context)) continue;
+            const auto* line = get_line_data(edge);
+            const auto& a = get_endpoint_data(line->endpoint_indexes[0])->vertex;
+            const auto& b = get_endpoint_data(line->endpoint_indexes[1])->vertex;
+            if (sprintathon_segment_clearance2(start,*goal,a,b) < clearance*clearance) return false;
+        }
+        const short edge = find_line_crossed_leaving_polygon(polygon, &start, &destination);
+        if (edge == NONE) {
+            // XY coincidence in a different overlapping room is not arrival.
+            arrived = polygon == expected_before || polygon == expected_after;
+            break;
+        }
+        if (!sprintathon_shortcut_portal(polygon, edge, context)) return false;
+        polygon = find_adjacent_polygon(polygon, edge);
+    }
+    if (!arrived) return false;
+    // The body can graze a side room without its center entering it. Explore
+    // those adjacent slivers too, so an inset wall cannot be cut through.
+    for (int i = 0; i < used; ++i) {
+        const short current = visited[i];
+        const auto* room = get_polygon_data(current);
+        for (int n = 0; n < room->vertex_count; ++n) {
+            const short edge = room->line_indexes[n];
+            const auto* line = get_line_data(edge);
+            const auto& a = get_endpoint_data(line->endpoint_indexes[0])->vertex;
+            const auto& b = get_endpoint_data(line->endpoint_indexes[1])->vertex;
+            if (sprintathon_segment_clearance2(start,*goal,a,b) >= clearance*clearance) continue;
+            if (!sprintathon_shortcut_portal(current, edge, context)) return false;
+            const short adjacent = find_adjacent_polygon(current, edge);
+            bool found = false;
+            for (int j = 0; j < used; ++j) if (visited[j] == adjacent) found = true;
+            if (!found) {
+                if (used == 64) return false;
+                visited[used++] = adjacent;
+            }
+        }
+    }
+    return true;
+}
+
 void advance_monster_path(
 	short monster_index)
 {
@@ -4176,7 +4435,19 @@ void advance_monster_path(
 	}
 	else
 	{
-		done= move_along_path(monster->path, &path_goal);
+        const auto* definition = get_monster_definition(monster->type);
+        if (input_preferences->sprintathon_enabled && input_preferences->sprintathon_enhanced_enemy_ai &&
+            !game_is_networked && !game_is_being_replayed() &&
+            !(definition->flags & _monster_uses_sniper_ledges)) {
+            SprintathonShortcutContext context;
+            context.object = object;
+            context.definition = get_monster_definition(monster->type);
+            get_monster_dimensions(monster_index, &context.radius, &context.height);
+            done = move_along_path_with_lookahead(monster->path, &path_goal,
+                sprintathon_clear_shortcut, &context);
+        } else {
+            done = move_along_path(monster->path, &path_goal);
+        }
 		if (done)
 		monster->path= NONE;
 	}
@@ -4638,6 +4909,16 @@ static short find_obstructing_terrain_feature(
 					object->location.z+definition->height>polygon->ceiling_height)
 				{
 					monster->desired_height= polygon->floor_height;
+                    if (sprintathon_soft_float(monster, definition) &&
+                        polygon->floor_height > get_polygon_data(object->polygon)->floor_height) {
+                        auto& motion = sprintathon_float_motion[monster_index];
+                        motion.climb_floor = polygon->floor_height;
+                        // A little clearance prevents damped motion from
+                        // asymptotically stopping just below the step's lip.
+                        motion.climb_goal = std::min(int(polygon->ceiling_height)-definition->height,
+                            int(polygon->floor_height)+WORLD_ONE/32);
+                        motion.climb_until = dynamic_world->tick_count + 4*TICKS_PER_SECOND;
+                    }
 					feature_type= _flying_or_floating_transition;
 					*feature_index= 0;
 				}

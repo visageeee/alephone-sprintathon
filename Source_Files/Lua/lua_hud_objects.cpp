@@ -49,6 +49,7 @@ LUA_HUD_OBJECTS.CPP
 #include "collection_definition.h"
 #include "FileHandler.h"
 #include "Crosshairs.h"
+#include "preferences.h"
 #include "OGL_Textures.h"
 #include "OGL_Setup.h"
 
@@ -2061,6 +2062,12 @@ static int Lua_HUDPlayer_Get_Energy(lua_State *L)
 	return 1;
 }
 
+static int Lua_HUDPlayer_Get_TrackerCompass(lua_State *L)
+{
+    lua_pushboolean(L, graphics_preferences->sprintathon_tracker_compass);
+    return 1;
+}
+
 static int Lua_HUDPlayer_Get_Direction(lua_State *L)
 {
 	double angle = FIXED_INTEGERAL_PART(current_player->variables.direction) * AngleConvert;
@@ -2194,6 +2201,7 @@ const luaL_Reg Lua_HUDPlayer_Get[] = {
 {"dead", Lua_HUDPlayer_Get_Dead},
 {"direction", Lua_HUDPlayer_Get_Direction},
 {"yaw", Lua_HUDPlayer_Get_Direction},
+{"tracker_compass", Lua_HUDPlayer_Get_TrackerCompass},
 {"elevation", Lua_HUDPlayer_Get_Elevation},
 {"pitch", Lua_HUDPlayer_Get_Elevation},
 {"velocity", Lua_HUDPlayer_Get_Velocity},

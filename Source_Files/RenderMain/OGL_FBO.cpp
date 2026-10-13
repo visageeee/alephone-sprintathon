@@ -124,6 +124,7 @@ void FBO::draw_full(bool blend) {
 }
 
 FBO::~FBO() {
+	glDeleteTextures(1, &texID);
 	glDeleteFramebuffersEXT(1, &_fbo);
 	glDeleteRenderbuffersEXT(1, &_depthBuffer);
 }

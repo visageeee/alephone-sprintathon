@@ -30,6 +30,7 @@
 #include "OGL_Shader.h"
 #include "ChaseCam.h"
 #include "preferences.h"
+#include "SprintathonRenderResolution.h"
 #include "screen.h"
 #include "map.h"
 #include "SoundManager.h"
@@ -2608,8 +2609,8 @@ void RenderRasterize_Shader::render_tree() {
 	s->setFloat(Shader::U_Time, view->tick_count);
 	s->setFloat(Shader::U_LogicalWidth, view->screen_width);
 	s->setFloat(Shader::U_LogicalHeight, view->screen_height);
-	s->setFloat(Shader::U_PixelWidth, view->screen_width * MainScreenPixelScale());
-	s->setFloat(Shader::U_PixelHeight, view->screen_height * MainScreenPixelScale());
+	s->setFloat(Shader::U_PixelWidth, SprintathonRenderPixels(view->screen_width));
+	s->setFloat(Shader::U_PixelHeight, SprintathonRenderPixels(view->screen_height));
 	if (blur.get()) {
 		s = Shader::get(Shader::S_InvincibleBloom);
 		s->enable();
@@ -2754,9 +2755,9 @@ void RenderRasterize_Shader::render_tree() {
     gpu_profile.pass(1);
 
 	const GLsizei framebuffer_width =
-		view->screen_width * MainScreenPixelScale();
+		SprintathonRenderPixels(view->screen_width);
 	const GLsizei framebuffer_height =
-		view->screen_height * MainScreenPixelScale();
+		SprintathonRenderPixels(view->screen_height);
 	GLuint scene_depth = 0;
 	GLuint ambient_occlusion_color = 0;
 	const OGL_ConfigureData& ogl_config = Get_OGL_ConfigureData();
@@ -2877,9 +2878,9 @@ void RenderRasterize_Shader::render_tree() {
 				underwater->setFloat(Shader::U_Time,
 					sprintathon_underwater_phase(media->type));
 				underwater->setFloat(Shader::U_PixelWidth,
-					view->screen_width * MainScreenPixelScale());
+					SprintathonRenderPixels(view->screen_width));
 				underwater->setFloat(Shader::U_PixelHeight,
-					view->screen_height * MainScreenPixelScale());
+					SprintathonRenderPixels(view->screen_height));
 				RasPtr->swapper->filter(false);
 				Shader::disable();
 
@@ -3109,8 +3110,8 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
               BUILD_COLLECTION(_collection_weapons_in_hand, 1))))
 		{
 			setup_invisibility_refraction(s,
-				static_cast<GLsizei>(view->screen_width * MainScreenPixelScale()),
-				static_cast<GLsizei>(view->screen_height * MainScreenPixelScale()),
+				static_cast<GLsizei>(SprintathonRenderPixels(view->screen_width)),
+				static_cast<GLsizei>(SprintathonRenderPixels(view->screen_height)),
 				visibility);
 		}
 		else if (renderStep == kDiffuse)
@@ -3318,9 +3319,9 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 	const float ripple_phase = sprintathon_liquid_ripple_phase(mediaType);
 	s->setFloat(Shader::U_Time, ripple_phase);
 	s->setFloat(Shader::U_PixelWidth,
-		view->screen_width * MainScreenPixelScale());
+		SprintathonRenderPixels(view->screen_width));
 	s->setFloat(Shader::U_PixelHeight,
-		view->screen_height * MainScreenPixelScale());
+		SprintathonRenderPixels(view->screen_height));
 	s->setFloat(Shader::U_MediaRipple,
 		mediaType != NONE && config.AnimatedMediaRipples ?
 			(static_cast<float>(config.AnimatedMediaRippleStrength) + 1.0f) *
@@ -3341,9 +3342,9 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 		static GLsizei media_scene_width = 0;
 		static GLsizei media_scene_height = 0;
 		const GLsizei width = static_cast<GLsizei>(
-			view->screen_width * MainScreenPixelScale());
+			SprintathonRenderPixels(view->screen_width));
 		const GLsizei height = static_cast<GLsizei>(
-			view->screen_height * MainScreenPixelScale());
+			SprintathonRenderPixels(view->screen_height));
 
 		glActiveTextureARB(GL_TEXTURE2_ARB);
 		if (!media_scene_texture)
@@ -4515,8 +4516,8 @@ void RenderRasterize_Shader::_render_node_object_helper(render_object_data *obje
 
 		RenderModel(rect, collection, clut, weaponFlare, selfLuminosity,
 			renderStep,
-			static_cast<GLsizei>(view->screen_width * MainScreenPixelScale()),
-			static_cast<GLsizei>(view->screen_height * MainScreenPixelScale()));
+			static_cast<GLsizei>(SprintathonRenderPixels(view->screen_width)),
+			static_cast<GLsizei>(SprintathonRenderPixels(view->screen_height)));
 		glPopMatrix();
 		return;
 	}

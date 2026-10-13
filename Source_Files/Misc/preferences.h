@@ -87,6 +87,9 @@ enum {
 
 struct graphics_preferences_data
 {
+    int sprintathon_render_scale; // percentage of native 3D resolution
+    bool sprintathon_nearest_upscale;
+    bool sprintathon_tracker_compass;
 	struct screen_mode_data screen_mode;
 	// LP change: added OpenGL support
 	OGL_ConfigureData OGL_Configure;
