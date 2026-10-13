@@ -1,0 +1,108 @@
+name: Sprintathon - build all binaries
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/build-windows
+        with:
+          platform: x64
+          configurations: Release
+          vcpkg_installed_folder: installed-x64-windows
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location VisualStudio
+          ./dist-windows.ps1 -x64 $true -a1 $true -m1 $false -m2 $false -m3 $false -output_path windows-build-archives
+          Pop-Location
+          $archives = @(Get-ChildItem VisualStudio/windows-build-archives/Sprintathon-*-Win.zip)
+          if ($archives.Count -ne 1) { throw 'Expected exactly one Sprintathon Windows package' }
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          Copy-Item $archives[0].FullName release-assets/Sprintathon-Windows-x86_64.zip
+      - uses: actions/upload-artifact@v6
+        with:
+          name: sprintathon-release-windows
+          path: release-assets/Sprintathon-Windows-x86_64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  macos:
+    name: macOS universal
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/build-mac-osx
+        with:
+          xcode_targets: Aleph One
+      - name: Verify and package macOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          app='Xcode/build/Release/Sprintathon.app'
+          test -d "$app"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
+          lipo "$app/Contents/MacOS/$executable" -verify_arch x86_64 arm64
+          mkdir -p "$app/Contents/Resources/snd" release-assets
+          cp snd/*.ogg "$app/Contents/Resources/snd/"
+          codesign --force --deep --sign - --timestamp=none "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          ditto -c -k --sequesterRsrc --keepParent "$app" release-assets/Sprintathon-macOS-universal.zip
+      - uses: actions/upload-artifact@v6
+        with:
+          name: sprintathon-release-macos
+          path: release-assets/Sprintathon-macOS-universal.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  linux:
+    name: Linux x86_64 Flatpak
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Install Flatpak tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          # Flatpak's build sandbox needs user namespaces on this ephemeral runner.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+      - name: Build and bundle the checked-out source
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Keep all outputs outside the type:dir source tree to avoid recursive copying.
+          flatpak-builder --user --assumeyes --disable-rofiles-fuse --force-clean \
+            --install-deps-from=flathub --default-branch=stable \
+            --state-dir="$RUNNER_TEMP/flatpak-state" --repo="$RUNNER_TEMP/flatpak-repo" \
+            "$RUNNER_TEMP/flatpak-build" flatpak/io.github.visageeee.Sprintathon.yml
+          test -x "$RUNNER_TEMP/flatpak-build/files/bin/sprintathon-engine"
+          mkdir -p release-assets
+          flatpak build-bundle --arch=x86_64 \
+            --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
+            "$RUNNER_TEMP/flatpak-repo" release-assets/Sprintathon-Linux-x86_64.flatpak \
+            io.github.visageeee.Sprintathon stable
+      - uses: actions/upload-artifact@v6
+        with:
+          name: sprintathon-release-linux
+          path: release-assets/Sprintathon-Linux-x86_64.flatpak
+          if-no-files-found: error
+          retention-days: 30

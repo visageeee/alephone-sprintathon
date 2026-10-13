@@ -78,6 +78,7 @@ running backwards shouldn’t mean doom in a fistfight
 #include "player.h"
 #include "interface.h"
 #include "monsters.h"
+#include "scenery.h"
 #include "preferences.h"
 #include "projectiles.h"
 
@@ -93,6 +94,9 @@ running backwards shouldn’t mean doom in a fistfight
 #include <string.h>
 #include <cstdlib>
 #include <algorithm>
+#include <cmath>
+#include <vector>
+#include "vbl.h"
 
 /* ---------- constants */
 
@@ -110,6 +114,90 @@ running backwards shouldn’t mean doom in a fistfight
 
 /* needed for set_player_position -SB */
 /*static*/ struct physics_constants *get_physics_constants_for_model(short physics_model, uint32 action_flags);
+// Preserve tangential movement at character contact instead of cancelling XY.
+// Only the player moves here; heavy character yielding remains in push_character.
+static bool sprintathon_slide_player(short player_index, short blocker,
+    world_point3d& next, world_distance height, world_distance& floor,
+    world_distance& ceiling, short& supporting, world_distance& ledge)
+{
+    const auto* player = get_player_data(player_index);
+    if (!input_preferences->sprintathon_enabled || !input_preferences->sprintathon_enhanced_enemy_ai ||
+        game_is_networked || game_is_being_replayed() || PLAYER_IS_DEAD(player) || blocker == NONE)
+        return false;
+    const auto* obstacle = get_object_data(blocker);
+    if (GET_OBJECT_OWNER(obstacle) != _object_is_monster ||
+        MONSTER_IS_PLAYER(get_monster_data(obstacle->permutation))) return false;
+    const auto* monster = get_monster_data(player->monster_index);
+    const auto* body = get_object_data(monster->object_index);
+    double vx = double(next.x)-body->location.x, vy = double(next.y)-body->location.y;
+    const double limit = std::sqrt(vx*vx+vy*vy);
+    if (limit < 1) return false;
+    world_distance radius, collision_height;
+    get_monster_dimensions(player->monster_index, &radius, &collision_height);
+    struct Contact { double nx, ny, clearance; };
+    std::vector<Contact> contacts;
+    std::vector<short> nearby;
+    possible_intersecting_monsters(&nearby, LOCAL_INTERSECTING_MONSTER_BUFFER_SIZE, body->polygon, true);
+    for (short index : nearby) {
+        if (index == monster->object_index) continue;
+        const auto* peer = get_object_data(index);
+        world_distance peer_radius, peer_height;
+        if (GET_OBJECT_OWNER(peer) == _object_is_monster)
+            get_monster_dimensions(peer->permutation, &peer_radius, &peer_height);
+        else if (GET_OBJECT_OWNER(peer) == _object_is_scenery)
+            get_scenery_dimensions(peer->permutation, &peer_radius, &peer_height);
+        else continue;
+        if (next.z+collision_height <= peer->location.z || next.z >= int(peer->location.z)+peer_height) continue;
+        double nx = double(body->location.x)-peer->location.x;
+        double ny = double(body->location.y)-peer->location.y;
+        double distance = std::sqrt(nx*nx+ny*ny);
+        const double separation = int(radius)+peer_radius;
+        if (distance > separation+limit+2) continue;
+        if (distance < 1) { nx = monster->object_index < index ? 1 : -1; ny = 0; distance = 1; }
+        nx /= distance; ny /= distance;
+        const double clearance = distance < separation ?
+            std::min(limit*0.1, (separation-distance)*0.2+1) : separation-distance+1;
+        contacts.push_back({nx, ny, clearance});
+        if (index == blocker) {
+            const double tangent = -vx*ny+vy*nx;
+            // Keep intentional sideways input. Direct pressure gets only a
+            // small passing bias, rather than a full-speed automatic dodge.
+            if (std::abs(tangent) < limit*0.2) {
+                const int side = tangent < -0.01 ? -1 : tangent > 0.01 ? 1 :
+                    ((obstacle->permutation & 1) ? 1 : -1);
+                const double extra = side*limit*0.2-tangent;
+                vx -= ny*extra; vy += nx*extra;
+            }
+        }
+    }
+    for (int pass = 0; pass < 8; ++pass) {
+        bool changed = false;
+        for (const auto& c : contacts) {
+            const double into = c.clearance-(vx*c.nx+vy*c.ny);
+            if (into > 0.01) { vx += c.nx*into; vy += c.ny*into; changed = true; }
+        }
+        const double length = std::sqrt(vx*vx+vy*vy);
+        if (length > limit) { vx *= limit/length; vy *= limit/length; }
+        if (!changed) break;
+    }
+    const double x = body->location.x+vx, y = body->location.y+vy;
+    if (x < INT16_MIN || x > INT16_MAX || y < INT16_MIN || y > INT16_MAX) return false;
+    world_point3d candidate = next;
+    candidate.x = static_cast<world_distance>(std::round(x));
+    candidate.y = static_cast<world_distance>(std::round(y));
+    world_distance new_floor = floor, new_ceiling = ceiling, new_ledge = ledge;
+    short new_supporting = supporting;
+    keep_line_segment_out_of_walls(body->polygon, &get_object_data(monster->object_index)->location,
+        &candidate, WORLD_ONE/3, height, &new_floor, &new_ceiling, &new_supporting, &new_ledge);
+    // Wall clipping can push a slide back into a character: check again.
+    world_distance object_floor = INT16_MIN;
+    if (legal_player_move(player->monster_index, &candidate, &object_floor) != NONE ||
+        (candidate.x == body->location.x && candidate.y == body->location.y)) return false;
+    next = candidate; floor = new_floor; ceiling = new_ceiling;
+    supporting = new_supporting; ledge = new_ledge;
+    return true;
+}
+
 /*static*/ void instantiate_physics_variables(struct physics_constants *constants, struct physics_variables *variables, short player_index, bool first_time, bool take_action);
 static void physics_update(struct physics_constants *constants, struct physics_variables *variables, struct player_data *player, uint32 action_flags);
 
@@ -514,6 +602,78 @@ uint32 process_aim_input(uint32 action_flags, fixed_yaw_pitch delta)
 	return constants;
 }
 
+// Cosmetic-free, single-player pushing; no saved or network simulation state.
+static void sprintathon_push_character(short player_index, short obstruction,
+    const world_point3d& attempted, const physics_variables* variables, bool active)
+{
+    struct Pressure {
+        short object = NONE, player_object = NONE;
+        int tick = -1, ticks = 0, side = 1;
+    };
+    static Pressure pressure[MAXIMUM_NUMBER_OF_PLAYERS];
+    auto& state = pressure[player_index];
+    const auto* player = get_player_data(player_index);
+    const auto* player_monster = get_monster_data(player->monster_index);
+    const auto* body = get_object_data(player_monster->object_index);
+    if (!active || !input_preferences->sprintathon_enabled ||
+        !input_preferences->sprintathon_enhanced_enemy_ai || game_is_networked ||
+        game_is_being_replayed() || PLAYER_IS_DEAD(player) || obstruction == NONE ||
+        (!variables->velocity && !variables->perpendicular_velocity)) {
+        state = Pressure{};
+        return;
+    }
+    auto* object = get_object_data(obstruction);
+    if (GET_OBJECT_OWNER(object) != _object_is_monster) { state = Pressure{}; return; }
+    auto* target = get_monster_data(object->permutation);
+    if (MONSTER_IS_PLAYER(target) || MONSTER_IS_DYING(target)) { state = Pressure{}; return; }
+    const double dx = double(attempted.x)-body->location.x;
+    const double dy = double(attempted.y)-body->location.y;
+    const double distance = std::sqrt(dx*dx+dy*dy);
+    if (distance < 1) { state = Pressure{}; return; }
+    const int now = dynamic_world->tick_count;
+    if (state.object != obstruction || state.player_object != player_monster->object_index ||
+        now-state.tick != 1) {
+        // Do not accumulate pressure or move a character twice in the same tick.
+        if (state.object == obstruction && state.player_object == player_monster->object_index && state.tick == now) return;
+        state = Pressure{};
+        state.object = obstruction;
+        state.player_object = player_monster->object_index;
+        const double cross = dx*(double(object->location.y)-body->location.y)-
+            dy*(double(object->location.x)-body->location.x);
+        state.side = cross < 0 ? -1 : cross > 0 ? 1 : ((object->permutation & 1) ? 1 : -1);
+    }
+    state.tick = now;
+    state.ticks = std::min(state.ticks+1, 6*TICKS_PER_SECOND);
+    world_distance radius, height;
+    get_monster_dimensions(object->permutation, &radius, &height);
+    const double mass = std::max(0.75, std::min(3.0,
+        (double(radius)/(WORLD_ONE/3.0))*(double(height)/WORLD_ONE)));
+    const double ramp = std::min(1.0, state.ticks/(2.5*TICKS_PER_SECOND*std::sqrt(mass)));
+    const double ease = ramp*ramp*(3.0-2.0*ramp);
+    const double step = std::min(distance, (WORLD_ONE/1024.0 + WORLD_ONE/32.0*ease)/std::sqrt(mass));
+    // Gradually yield to one side, allowing the player to pass without phasing.
+    const double sideways = state.side*1.5*ease;
+    const double scale = step/(distance*std::sqrt(1+sideways*sideways));
+    world_point3d next = object->location;
+    const int x = int(next.x)+int(std::lround((dx-dy*sideways)*scale));
+    const int y = int(next.y)+int(std::lround((dy+dx*sideways)*scale));
+    if (x < INT16_MIN || x > INT16_MAX || y < INT16_MIN || y > INT16_MAX) return;
+    next.x = x; next.y = y;
+    world_distance floor = get_polygon_data(object->polygon)->floor_height;
+    world_distance ceiling = get_polygon_data(object->polygon)->ceiling_height;
+    short supporting = object->polygon;
+    keep_line_segment_out_of_walls(object->polygon, &object->location, &next,
+        0, height, &floor, &ceiling, &supporting);
+    // Do not push characters into steps, low ceilings, or off ledges.
+    if (next.z < floor || int(next.z)+height > ceiling ||
+        (floor < get_polygon_data(object->polygon)->floor_height-WORLD_ONE/8)) return;
+    world_distance object_floor = INT16_MIN;
+    if (legal_player_move(object->permutation, &next, &object_floor) != NONE) return;
+    const short old_polygon = object->polygon;
+    if (translate_map_object(target->object_index, &next, NONE))
+        monster_moved(object->permutation, old_polygon);
+}
+
 /*static*/ void instantiate_physics_variables(
 	struct physics_constants *constants,
 	struct physics_variables *variables,
@@ -558,6 +718,24 @@ uint32 process_aim_input(uint32 action_flags, fixed_yaw_pitch delta)
 	object_floor= INT16_MIN;
 	{
 		short obstruction_index= legal_player_move(player->monster_index, &new_location, &object_floor);
+        sprintathon_push_character(player_index, obstruction_index, new_location, variables,
+            take_action && !first_time);
+        if (obstruction_index != NONE && take_action && !first_time) {
+            object_floor = INT16_MIN;
+            obstruction_index = legal_player_move(player->monster_index, &new_location, &object_floor);
+        }
+        if (obstruction_index != NONE && take_action && !first_time &&
+            sprintathon_slide_player(player_index, obstruction_index, new_location,
+                FIXED_TO_WORLD(variables->actual_height), adjusted_floor_height, adjusted_ceiling_height,
+                player->supporting_polygon_index, blocked_ledge_height)) {
+            // Preserve contact activation even when we successfully slide past.
+            bump_monster(player->monster_index, get_object_data(obstruction_index)->permutation);
+            obstruction_index = NONE;
+            object_floor = INT16_MIN;
+            legal_player_move(player->monster_index, &new_location, &object_floor);
+            variables->ledge_height = blocked_ledge_height;
+            clipped = true; // copy corrected XY back to the fixed-point state
+        }
 		
 		if (obstruction_index!=NONE)
 		{

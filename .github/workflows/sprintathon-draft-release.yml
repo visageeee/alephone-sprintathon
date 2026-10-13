@@ -1,0 +1,52 @@
+name: Sprintathon - build and prepare draft release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'New release tag, for example sprintathon-20261013'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sprintathon-draft-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate release target
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bash .github/scripts/sprintathon-draft-release.sh check
+
+  binaries:
+    needs: validate
+    uses: ./.github/workflows/sprintathon-build-binaries.yml
+
+  draft:
+    name: Assemble draft release
+    needs: binaries
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: sprintathon-release-*
+          merge-multiple: true
+          path: release-assets
+      - name: Create or update draft
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bash .github/scripts/sprintathon-draft-release.sh upload
