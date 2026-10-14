@@ -259,6 +259,12 @@ static bool clear_line_of_sight(short viewer_index, short target_index, bool ful
 
 static void handle_moving_or_stationary_monster(short monster_index);
 static bool sprintathon_flock_move(short index, bool* moved);
+static double sprintathon_approach_curve(short index, double remaining, angle heading);
+struct SprintathonCurveWaypoint {
+    short object;
+    world_point2d point;
+};
+static std::map<short, SprintathonCurveWaypoint> sprintathon_curve_waypoints;
 static void sprintathon_reset_flock();
 static bool sprintathon_ground_ai(const monster_data*, const monster_definition*);
 static void execute_monster_attack(short monster_index);
@@ -2501,6 +2507,15 @@ static bool sprintathon_flock_move(short index, bool* moved)
     const double approach = distance > preferred*1.25 ? 1.0 :
         (distance < preferred*0.65 && !engaged) ? -0.65 : 0.0;
     double fx = ux*approach, fy = uy*approach;
+    if (approach > 0 && clear) {
+        // Bend only the approach component; firing-lane and separation forces
+        // below retain priority. Stop curving before the desired firing range.
+        const double turn = sprintathon_approach_curve(index,
+            std::max(0.0, distance-preferred*1.25), arctangent(int(tx), int(ty)));
+        const double tangent = std::tan(turn);
+        fx += -uy*tangent;
+        fy += ux*tangent;
+    }
     if (!clear) {
         fx += -uy*steering.side*0.75;
         fy += ux*steering.side*0.75;
@@ -3977,7 +3992,32 @@ static bool translate_monster(
 	short obstacle_index;
 	bool legal_move= false;
 
-    angle travel_facing = object->facing;
+    angle route_facing = object->facing;
+    double approach_turn = 0;
+    const auto route = sprintathon_curve_waypoints.find(monster_index);
+    if (input_preferences->sprintathon_enabled && input_preferences->sprintathon_enhanced_enemy_ai &&
+        !game_is_networked && !game_is_being_replayed() &&
+        !MONSTER_IS_DYING(monster) && !MONSTER_IS_ATTACKING(monster) &&
+        monster->action != _monster_is_being_hit && !monster->external_velocity &&
+        route != sprintathon_curve_waypoints.end() && route->second.object == monster->object_index) {
+        world_point2d goal = route->second.point;
+        // Refresh a direct pursuit goal as the target moves within this room.
+        if (monster->path == NONE && MONSTER_HAS_VALID_TARGET(monster)) {
+            const auto* target = get_object_data(get_monster_data(monster->target_index)->object_index);
+            if (target->polygon == object->polygon) {
+                goal.x = target->location.x; goal.y = target->location.y;
+            }
+        }
+        route_facing = arctangent(int(goal.x)-object->location.x, int(goal.y)-object->location.y);
+        const int remaining = distance2d(&goal, &object->location);
+        // Account for real progress toward the waypoint, not distance travelled
+        // sideways along the arc. This prevents early waypoint completion.
+        monster->path_segment_length = remaining;
+        approach_turn = sprintathon_approach_curve(monster_index, remaining, route_facing);
+    }
+    const angle approach_facing = NORMALIZE_ANGLE(route_facing+
+        int(approach_turn*FULL_CIRCLE/6.283185307179586));
+    angle travel_facing = approach_facing;
     float flight_sway = 0;
     if (sprintathon_organic_flight(monster, definition)) {
         const auto* room = get_polygon_data(object->polygon);
@@ -4021,7 +4061,7 @@ static bool translate_monster(
                 }
             }
         }
-        travel_facing = NORMALIZE_ANGLE(object->facing + int(std::atan(flight_sway)*FULL_CIRCLE/6.283185307179586));
+        travel_facing = NORMALIZE_ANGLE(approach_facing + int(std::atan(flight_sway)*FULL_CIRCLE/6.283185307179586));
     }
     if (sprintathon_soft_float(monster, definition)) {
         auto it = sprintathon_float_motion.find(monster_index);
@@ -4030,7 +4070,7 @@ static bool translate_monster(
             motion.request_tick = dynamic_world->tick_count;
             // Tiny broad sway, and shortest-arc heading response across north.
             const bool climbing = dynamic_world->tick_count < motion.climb_until;
-            const double target = object->facing + (climbing ? 0.0 : 0.025*FULL_CIRCLE*
+            const double target = approach_facing + (climbing ? 0.0 : 0.025*FULL_CIRCLE*
                 sprintathon_flight_wave(monster_index, 7*TICKS_PER_SECOND, 113));
             double turn = std::fmod(target-motion.heading+1.5*FULL_CIRCLE, double(FULL_CIRCLE))-HALF_CIRCLE;
             motion.heading = std::fmod(motion.heading+turn*(climbing ? 0.20 : 0.10)+FULL_CIRCLE, double(FULL_CIRCLE));
@@ -4051,7 +4091,7 @@ static bool translate_monster(
             // Run the original direction below so the terrain probe can request
             // the height needed to climb a ledge.
             new_location = object->location;
-            travel_facing = object->facing;
+            travel_facing = route_facing;
             translate_point2d(&new_location, distance, travel_facing);
         }
     }
@@ -4060,8 +4100,8 @@ static bool translate_monster(
     if (obstacle_index != NONE && travel_facing != object->facing) {
         flight_sway = 0;
         new_location = object->location;
-        translate_point2d(&new_location, distance, object->facing);
-        obstacle_index = legal_monster_move(monster_index, object->facing, &new_location);
+        translate_point2d(&new_location, distance, route_facing);
+        obstacle_index = legal_monster_move(monster_index, route_facing, &new_location);
     }
     /* Retain the normal terrain, platform and object movement checks. */
     if (obstacle_index == NONE)
@@ -4416,6 +4456,77 @@ static bool sprintathon_clear_shortcut(const world_point2d* goal,
     return true;
 }
 
+struct SprintathonApproachArc {
+    short object = NONE, target = NONE;
+    int tick = -1, level = -1;
+    double bias = 0, turn = 0;
+};
+static std::map<short, SprintathonApproachArc> sprintathon_approach_arcs;
+static double sprintathon_approach_curve(short index, double remaining, angle heading)
+{
+    auto* monster = get_monster_data(index);
+    auto* definition = get_monster_definition(monster->type);
+    if (!input_preferences->sprintathon_enabled || !input_preferences->sprintathon_enhanced_enemy_ai ||
+        game_is_networked || game_is_being_replayed() || MONSTER_IS_DYING(monster) ||
+        monster->external_velocity || monster->action == _monster_is_being_hit ||
+        (definition->flags & _monster_uses_sniper_ledges)) return 0;
+    auto* object = get_object_data(monster->object_index);
+    auto& arc = sprintathon_approach_arcs[index];
+    const int now = dynamic_world->tick_count;
+    if (arc.object != monster->object_index || arc.target != monster->target_index ||
+        arc.level != dynamic_world->current_level_number || now < arc.tick || now-arc.tick > 2*TICKS_PER_SECOND) {
+        arc = SprintathonApproachArc{};
+        arc.object = monster->object_index; arc.target = monster->target_index;
+        arc.level = dynamic_world->current_level_number;
+        // Stable variation without consuming the simulation's random stream.
+        uint32 seed = uint32(index+1)*0x9e3779b9u ^ uint32(arc.object+1)*0x85ebca6bu ^
+            uint32(arc.target+2)*0xc2b2ae35u ^ uint32(arc.level+1);
+        seed ^= seed >> 16;
+        arc.bias = ((seed & 1) ? 1.0 : -1.0)*(0.65+0.35*((seed >> 8)&255)/255.0);
+    }
+    const int elapsed = arc.tick < 0 ? 1 : std::max(0,std::min(4,now-arc.tick));
+    arc.tick = now;
+    const bool airborne = definition->flags & (_monster_flys | _monster_floats);
+    double fade = std::max(0.0,std::min(1.0,(remaining-WORLD_ONE/2)/(2.0*WORLD_ONE)));
+    if (MONSTER_HAS_VALID_TARGET(monster) && definition->melee_attack.type != NONE) {
+        const auto* target = get_object_data(get_monster_data(monster->target_index)->object_index);
+        const double dx = double(target->location.x)-object->location.x;
+        const double dy = double(target->location.y)-object->location.y;
+        fade *= std::max(0.0,std::min(1.0,
+            (std::sqrt(dx*dx+dy*dy)-definition->melee_attack.range-WORLD_ONE/4)/WORLD_ONE));
+    }
+    const auto climbing = sprintathon_float_motion.find(index);
+    if (climbing != sprintathon_float_motion.end() && now < climbing->second.climb_until) fade = 0;
+    const double wanted = arc.bias*(airborne ? 0.30 : 0.20)*fade;
+    arc.turn += (wanted-arc.turn)*(1-std::pow(0.85,elapsed));
+    if (fade == 0) arc.turn = 0;
+    if (std::abs(arc.turn) < 0.001) return 0;
+
+    // Look ahead with the same body-width/topology checks as path straightening.
+    // In tight areas yield immediately; ease back in once there is room again.
+    world_point3d probe = object->location;
+    const angle direction = NORMALIZE_ANGLE(heading+int(arc.turn*FULL_CIRCLE/6.283185307179586));
+    translate_point2d(&probe, world_distance(std::min(remaining, 0.75*WORLD_ONE)), direction);
+    short polygon = object->polygon;
+    bool arrived = false;
+    for (int i = 0; i < 32; ++i) {
+        const short line = find_line_crossed_leaving_polygon(polygon, &object->location, &probe);
+        if (line == NONE) { arrived = true; break; }
+        polygon = find_adjacent_polygon(polygon,line);
+        if (polygon == NONE) break;
+    }
+    SprintathonShortcutContext context;
+    context.object = object; context.definition = definition;
+    get_monster_dimensions(index, &context.radius, &context.height);
+    world_point2d point = {probe.x,probe.y};
+    if (!arrived || !sprintathon_clear_shortcut(&point,polygon,polygon,&context) ||
+        legal_monster_move(index,direction,&probe) != NONE) {
+        arc.turn = 0;
+        return 0;
+    }
+    return arc.turn;
+}
+
 void advance_monster_path(
 	short monster_index)
 {
@@ -4423,6 +4534,7 @@ void advance_monster_path(
 	struct object_data *object= get_object_data(monster->object_index);
 	world_point2d path_goal;
 	bool done= true;
+    sprintathon_curve_waypoints.erase(monster_index);
 
 	if (monster->path==NONE)
 	{
@@ -4479,6 +4591,9 @@ void advance_monster_path(
 	}
 	else
 	{
+        if (input_preferences->sprintathon_enabled && input_preferences->sprintathon_enhanced_enemy_ai &&
+            !game_is_networked && !game_is_being_replayed())
+            sprintathon_curve_waypoints[monster_index] = {monster->object_index, path_goal};
 		/* point ourselves at this new point in the path */
 		object->facing= arctangent(path_goal.x-object->location.x, path_goal.y-object->location.y);
 		monster->path_segment_length= distance2d(&path_goal, &object->location);
