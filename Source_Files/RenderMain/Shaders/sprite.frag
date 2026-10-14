@@ -29,20 +29,42 @@ float getFogFactor(float distance) {
 uniform vec4 projectileBlurVector;
 uniform vec4 projectileBlurBounds;
 
+// Clip the sampling interval, retaining the original sample lattice and
+// normalization. The final bounds check guards floating-point edge cases.
+bool sprintathonBlurAxis(float uv, float direction, float low, float high,
+                          inout float first, inout float last) {
+    if (direction == 0.0) return uv >= low && uv <= high;
+    float a = (low - uv) / direction;
+    float b = (high - uv) / direction;
+    first = max(first, min(a, b));
+    last = min(last, max(a, b));
+    return first <= last;
+}
+
 vec4 projectileSpriteColor(vec2 uv) {
     if (projectileBlurVector.z <= 0.0) return texture2D(texture0, uv);
     vec3 rgb = vec3(0.0);
     float alpha = 0.0;
-    float weights = 0.0;
+
     // Integrate the sprite along its motion instead of drawing distinct copies.
     // Alpha-weighted color avoids dark rims around transparent sprite pixels.
     float samples = clamp(projectileBlurVector.w, 16.0, 48.0);
-    for (int i = 0; i < 48; ++i) {
-        if (float(i) >= samples) break;
+    float count = ceil(samples);
+    float weights = count - count * count / (2.0 * samples);
+    float first = 0.0, last = 1.0;
+    if (!sprintathonBlurAxis(uv.x, projectileBlurVector.x,
+            projectileBlurBounds.x, projectileBlurBounds.z, first, last) ||
+        !sprintathonBlurAxis(uv.y, projectileBlurVector.y,
+            projectileBlurBounds.y, projectileBlurBounds.w, first, last))
+        return vec4(0.0);
+    // Include an extra sample at either end to make clipping conservative.
+    int beginSample = int(max(0.0, floor(first * samples - 0.5) - 1.0));
+    float endSample = min(count, ceil(last * samples - 0.5) + 2.0);
+    for (int i = beginSample; i < 48; ++i) {
+        if (float(i) >= endSample) break;
         float t = (float(i) + 0.5) / samples;
         float weight = 1.0 - t;
         vec2 point = uv + projectileBlurVector.xy * t;
-        weights += weight;
         if (point.x >= projectileBlurBounds.x && point.y >= projectileBlurBounds.y &&
             point.x <= projectileBlurBounds.z && point.y <= projectileBlurBounds.w) {
             vec4 sampleColor = texture2D(texture0, point);
@@ -76,6 +98,10 @@ vec4 flameSpriteColor(vec2 uv) {
 }
 
 void main (void) {
+	vec4 color = flameRipple.x > 0.0 ? flameSpriteColor(gl_TexCoord[0].xy) : projectileSpriteColor(gl_TexCoord[0].xy);
+    // Preserve the existing fixed-function alpha test and depth behavior.
+    // A zero-alpha texel cannot contribute, including the flame refraction path.
+    if (color.a <= 0.0) { gl_FragColor = vec4(0.0); return; }
 	float mlFactor = clamp(selfLuminosity + flare - classicDepth, 0.0, 1.0);
 	// more realistic: replace classicDepth with (length(viewDir)/8192.0)
 	vec3 intensity;
@@ -87,7 +113,6 @@ void main (void) {
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)
 #endif
-	vec4 color = flameRipple.x > 0.0 ? flameSpriteColor(gl_TexCoord[0].xy) : projectileSpriteColor(gl_TexCoord[0].xy);
 	float fogFactor = getFogFactor(length(viewDir));
 	if (mediaFogEnabled > 0.0) {
 		float heightFog = clamp((mediaFogTop - worldZ) / mediaFogSoftness, 0.0, 1.0);

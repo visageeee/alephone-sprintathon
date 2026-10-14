@@ -153,6 +153,7 @@ public:
 		U_SprintathonSurfaceLightCount,
         U_SprintathonLiquidLightSettings,
 		U_SprintathonAllSceneryCount,
+        U_SprintathonSceneryFirst,
 		U_SprintathonDistantSurfaceDetail,
 		U_LiquidEdge0,
 		U_LiquidEdge1,
@@ -196,6 +197,9 @@ public:
 		S_LandscapeSphereBloom,
 		S_LandscapeSphereInfravision,
 		S_LandscapeLightShaftsComposite,
+		S_VolumeFog,
+		S_VolumeFogComposite,
+		S_ShaftOcclusion,
 		NUMBER_OF_SHADER_TYPES
 	};
 private:
@@ -215,7 +219,8 @@ private:
 	float _cached_vectors[NUMBER_OF_UNIFORM_LOCATIONS][4];
 
 	GLint getUniformLocation(UniformName name) { 
-		if (_uniform_locations[name] == -1) {
+		// -2 means unqueried; -1 is a cached absent/optimized-out uniform.
+		if (_uniform_locations[name] == -2) {
 			_uniform_locations[name] = glGetUniformLocationARB(_programObj, _uniform_names[name]);
 		}
 		return _uniform_locations[name];
@@ -225,6 +230,7 @@ public:
 
 	static Shader* get(ShaderType type) { return &_shaders[type]; }
 	static void loadAll();
+    static void warmup(void (*progress)() = nullptr);
 	static void unloadAll();
 	
 	Shader() : _programObj(0), _passes(-1), _loaded(false) {}

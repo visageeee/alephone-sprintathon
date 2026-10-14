@@ -273,6 +273,7 @@ struct OGL_ConfigureData
 	int16 LandscapeLightShaftElevation;
 	bool AnamorphicLensFlares;
 	int16 AnamorphicLensFlareStrength;
+	int16 LensFlareStyle; // 0 anamorphic, 2 halo (legacy style 1 removed)
 	bool AnimatedMediaRipples;
 	int16 AnimatedMediaOpacity;
 	int16 AnimatedMediaRippleStrength;

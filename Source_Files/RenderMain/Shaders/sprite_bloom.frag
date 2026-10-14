@@ -47,6 +47,9 @@ vec4 flameSpriteColor(vec2 uv) {
 
 void main (void) {
 	vec4 color = flameRipple.x > 0.0 ? flameSpriteColor(gl_TexCoord[0].xy) : texture2D(texture0, gl_TexCoord[0].xy);
+    // Preserve the existing fixed-function alpha test and depth behavior.
+    // A zero-alpha texel cannot contribute, including the flame refraction path.
+    if (color.a <= 0.0) { gl_FragColor = vec4(0.0); return; }
 	vec3 intensity = clamp(vertexColor.rgb + sprintathonLightColor.rgb, glow, 1.0);
 	//intensity = intensity * clamp(2.0 - length(viewDir)/8192.0, 0.0, 1.0);
 	intensity = clamp(intensity * bloomScale + bloomShift, 0.0, 1.0);

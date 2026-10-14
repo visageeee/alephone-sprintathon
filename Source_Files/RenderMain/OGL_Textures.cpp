@@ -99,6 +99,7 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 #include "OGL_Setup.h"
 #include "OGL_Render.h"
 #include "OGL_Textures.h"
+#include "SprintathonStartupTiming.h"
 #include "screen.h"
 
 #include <cstdlib>
@@ -436,6 +437,8 @@ void TextureState::Reset()
 	{
 		sgActiveTextureStates.remove(this);
 		gGLTxStats.inUse--;
+        if (SprintathonStartupTiming::get().active())
+            ++SprintathonStartupTiming::get().evictions;
 		glDeleteTextures(NUMBER_OF_TEXTURES,IDs);
 	}
 	IsUsed = IsGlowing = IsBumped = IsUpscaled = TexGened[Normal] = TexGened[Glowing] = TexGened[Bump] = false;
@@ -686,11 +689,10 @@ void OGL_StopTextures()
 
 void OGL_FrameTickTextures()
 {
-	std::list<TextureState*>::iterator i;
-	
-	for (i=sgActiveTextureStates.begin() ; i!= sgActiveTextureStates.end() ; i++) {
-		(*i)->FrameTick();
-	}
+    for (auto i=sgActiveTextureStates.begin();i!=sgActiveTextureStates.end();) {
+        TextureState* state=*i++;
+        state->FrameTick();
+    }
 }
 
 // Find an OpenGL-friendly color table from a Marathon shading table
@@ -1593,6 +1595,7 @@ uint32 *TextureManager::Shrink(uint32 *Buffer)
 void TextureManager::PlaceTexture(const ImageDescriptor *Image, bool normal_map)
 {
     PreloadStageTimer timer(texture_place_ms);
+    SprintathonStartupWork startup_upload(false);
 
 	bool mipmapsLoaded = false;
 	bool texture_upscaled = false;

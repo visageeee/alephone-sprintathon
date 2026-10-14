@@ -23,6 +23,7 @@
 #include <iostream>
 
 #include "OGL_Shader.h"
+#include "SprintathonStartupTiming.h"
 #include "FileHandler.h"
 #include "OGL_Setup.h"
 #include "InfoTree.h"
@@ -171,6 +172,7 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"sprintathonSurfaceLightCount",
     "sprintathonLiquidLightSettings",
 	"sprintathonAllSceneryCount",
+    "sprintathonSceneryFirst",
 	"sprintathonDistantSurfaceDetail",
 	"liquidEdge0",
 	"liquidEdge1",
@@ -213,7 +215,10 @@ const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] =
 	"landscape_sphere",
 	"landscape_sphere_bloom",
 	"landscape_sphere_infravision",
-	"landscape_light_shafts_composite"
+	"landscape_light_shafts_composite",
+	"volume_fog",
+	"volume_fog_composite",
+    "shaft_occlusion"
 };
 
 
@@ -340,6 +345,25 @@ void Shader::loadAll() {
 	}
 }
 
+void Shader::warmup(void (*progress)()) {
+    loadAll();
+    const auto& config=Get_OGL_ConfigureData();
+    for (int i=0;i<NUMBER_OF_SHADER_TYPES;++i) {
+        const std::string name=_shader_names[i];
+        if ((name.find("bloom")!=std::string::npos || name=="blur") &&
+            !TEST_FLAG(config.Flags,OGL_Flag_Blur)) continue;
+        if (name.find("bump")!=std::string::npos && !TEST_FLAG(config.Flags,OGL_Flag_BumpMap)) continue;
+        if (name.find("ambient_occlusion")!=std::string::npos && !config.AmbientOcclusion) continue;
+        if ((name.find("landscape_light_shafts")!=std::string::npos || name=="shaft_occlusion") && !config.LandscapeLightShafts) continue;
+        if (name=="anamorphic_lens_flare" && !config.AnamorphicLensFlares) continue;
+        if (name=="underwater_ripple" && !config.UnderwaterDistortion) continue;
+        if (name=="fog_haze" && !config.DeepFogHaze) continue;
+        if (!_shaders[i]._loaded) _shaders[i].init();
+        if (progress) progress();
+    }
+    disable();
+}
+
 void Shader::unloadAll() {
 	for (int i = 0; i < _shaders.size(); ++i) 
 	{
@@ -374,8 +398,9 @@ Shader::Shader(const std::string& name, FileSpecifier& vert, FileSpecifier& frag
 }
 
 void Shader::init() {
+    SprintathonStartupWork timing(true);
 
-	std::fill_n(_uniform_locations, static_cast<int>(NUMBER_OF_UNIFORM_LOCATIONS), -1);
+	std::fill_n(_uniform_locations, static_cast<int>(NUMBER_OF_UNIFORM_LOCATIONS), -2);
 	std::fill_n(_cached_floats, static_cast<int>(NUMBER_OF_UNIFORM_LOCATIONS), 0.0);
 	std::fill_n(&_cached_vectors[0][0], 4 * static_cast<int>(NUMBER_OF_UNIFORM_LOCATIONS), -1e30f);
 
@@ -751,6 +776,212 @@ void main(void) {
 }
 )";
 
+
+	defaultVertexPrograms["volume_fog"] = defaultVertexPrograms["underwater_ripple"];
+	defaultFragmentPrograms["volume_fog"] = R"VF(
+uniform sampler2DRect texture2;
+uniform sampler2DRect texture3;
+uniform vec4 vfProjection;
+uniform mat4 vfViewRotation;
+uniform vec4 vfCamera;
+uniform vec4 vfSettings;
+uniform vec4 vfLights[4];
+uniform vec4 vfColors[4];
+uniform float vfStrength;
+uniform float vfDebug;
+uniform float vfStartRoom;
+uniform float fogMode;
+vec4 roomData(float room, float column) { return texture2DRect(texture3,vec2(column+0.5,room+0.5)); }
+float hash(vec3 p) { p=fract(p*0.1031); p+=dot(p,p.yzx+33.33); return fract((p.x+p.y)*p.z); }
+float vfNoise(vec3 p) {
+ vec3 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+ return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+ mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
+}
+// Piecewise-linear interpolation on a convex polygon's triangle fan.
+// Adjacent polygons share both endpoint heights, so their fields agree
+// everywhere along a portal, regardless of other neighbouring floors.
+float fogLayer(vec2 p,float room,float edgeCount) {
+ vec3 center=roomData(room,17.0).xyz;
+ vec3 a=roomData(room,9.0).xyz;
+ for(int edge=0;edge<8;++edge) {
+  if(float(edge)>=edgeCount) break;
+  float next=float(edge)+1.0;
+  if(next>=edgeCount) next=0.0;
+  vec3 b=roomData(room,9.0+next).xyz;
+  vec2 u=a.xy-center.xy,v=b.xy-center.xy,q=p-center.xy;
+  float determinant=u.x*v.y-u.y*v.x;
+  if(abs(determinant)>0.0000001) {
+   float wa=(q.x*v.y-q.y*v.x)/determinant;
+   float wb=(u.x*q.y-u.y*q.x)/determinant;
+   if(wa>=-0.0001 && wb>=-0.0001 && wa+wb<=1.0001)
+    return center.z+(a.z-center.z)*wa+(b.z-center.z)*wb;
+  }
+  a=b;
+ }
+ return center.z;
+}
+// A convex polygon may have several collinear edges leading to different
+// neighbours (e.g. a stairway beside one large polygon). Plane distance alone
+// cannot select that portal: the crossing must lie on its finite segment.
+bool fogHitsEdge(vec2 hit,float room,int edge,float edgeCount) {
+ float next=float(edge)+1.0;
+ if(next>=edgeCount) next=0.0;
+ vec2 a=roomData(room,9.0+float(edge)).xy;
+ vec2 b=roomData(room,9.0+next).xy;
+ vec2 span=b-a;
+ float lengthSquared=dot(span,span);
+ float along=dot(hit-a,span);
+ float tolerance=0.00001*sqrt(lengthSquared);
+ return along>=-tolerance && along<=lengthSquared+tolerance;
+}
+bool fogLightVisible(vec3 start,vec3 finish,float room,float targetRoom) {
+ vec3 direction=finish-start;float t=0.0;
+ for(int hop=0;hop<16;++hop) {
+  if(abs(room-targetRoom)<0.25) return true;
+  vec4 bounds=roomData(room,0.0);
+  float exitDistance=1.0,nextRoom=-1.0;
+  if(direction.z>0.00001) exitDistance=min(exitDistance,(bounds.y-start.z)/direction.z);
+  if(direction.z< -0.00001) exitDistance=min(exitDistance,(bounds.x-start.z)/direction.z);
+  for(int edge=0;edge<8;++edge) {
+   if(float(edge)>=bounds.w) break;
+   vec4 plane=roomData(room,float(edge)+1.0);
+   float denominator=dot(plane.xy,direction.xy);
+   if(denominator< -0.00001) {
+    float hit=-(dot(plane.xy,start.xy)+plane.z)/denominator;
+    if(hit>t+0.00001 && hit<exitDistance &&
+       fogHitsEdge((start+direction*hit).xy,room,edge,bounds.w)) {exitDistance=hit;nextRoom=plane.w;}
+   }
+  }
+  if(nextRoom<0.0) return false;
+  vec4 nextBounds=roomData(nextRoom,0.0);
+  float z=start.z+exitDistance*direction.z;
+  if(z<nextBounds.x || z>nextBounds.y) return false;
+  room=nextRoom;t=exitDistance;
+ }
+ return false;
+}
+void main() {
+ vec2 uv=gl_TexCoord[0].xy;
+ vec3 eye=normalize(vec3((uv*2.0-1.0+vfProjection.zw)/vfProjection.xy,-1.0));
+ vec3 ray=normalize((vfViewRotation*vec4(eye,0.0)).xyz);
+ float depth=texture2DRect(texture2,uv*vfSettings.xy).r;
+ float viewZ=abs(vfCamera.w/(depth*2.0-1.0+vfSettings.z));
+ float endDistance=min(viewZ/max(-eye.z,0.001)/1024.0,32.0);
+ vec3 origin=vfCamera.xyz;
+ float room=vfStartRoom,t=0.0,trans=1.0;
+ vec3 scatter=vec3(0.0);
+ vec3 diagnostic=vec3(1.0); // white: traversal limit reached
+ float extinction=fogMode<0.5 ? 1024.0/max(1.0,gl_Fog.end-gl_Fog.start) : gl_Fog.density*1024.0;
+ extinction=max(0.0,extinction)*3.0*vfStrength;
+ for(int segment=0;segment<128;++segment) {
+  vec4 bounds=roomData(room,0.0); // floor, ceiling, local layer, edge count
+  vec3 entry=origin+ray*(t+0.0001);
+  if(entry.z<bounds.x-0.001 || entry.z>bounds.y+0.001) {diagnostic=vec3(1,0,0);break;}
+  float exitDistance=endDistance,nextRoom=-1.0;
+  if(ray.z>0.00001) exitDistance=min(exitDistance,(bounds.y-origin.z)/ray.z);
+  if(ray.z< -0.00001) exitDistance=min(exitDistance,(bounds.x-origin.z)/ray.z);
+  bool inside=true;
+  for(int edge=0;edge<8;++edge) {
+   if(float(edge)>=bounds.w) break;
+   vec4 plane=roomData(room,float(edge)+1.0);
+   if(dot(plane.xy,entry.xy)+plane.z< -0.001) inside=false;
+   float denominator=dot(plane.xy,ray.xy);
+   if(denominator< -0.00001) {
+    float hit=-(dot(plane.xy,origin.xy)+plane.z)/denominator;
+    if(hit>t+0.00001 && hit<exitDistance &&
+       fogHitsEdge((origin+ray*hit).xy,room,edge,bounds.w)) {exitDistance=hit;nextRoom=plane.w;}
+   }
+  }
+  if(!inside) {diagnostic=vec3(1,0,1);break;}
+  // Fixed ray cells shared across polygon boundaries: splitting a room into
+  // extra polygons no longer changes the noise sample positions.
+  float firstCell=floor(t*2.0)*0.5;
+  for(int sampleIndex=0;sampleIndex<65;++sampleIndex) {
+   // Do not finish sampling a large polygon once this ray is opaque.
+   if(trans<0.02) break;
+   float cell=firstCell+float(sampleIndex)*0.5;
+   if(cell>=exitDistance) break;
+   float ds=max(0.0,min(exitDistance,cell+0.5)-max(t,cell));
+   float sampleDistance=cell+0.25;
+   vec3 p=origin+ray*sampleDistance;
+   vec3 wind=vec3(vfSettings.w*0.035,vfSettings.w*0.019,0.0);
+   // Broad, slow domain warping: one existing noise lookup, no extra pass.
+   // Sample in world space so camera movement cannot drag the pattern.
+   vec3 fogCoord=p*0.32-wind;
+   vec3 bend=sin(vec3(fogCoord.y*0.65+fogCoord.z*0.35,
+                      fogCoord.z*0.55+fogCoord.x*0.45,
+                      fogCoord.x*0.40-fogCoord.y*0.50)+
+                 vfSettings.w*vec3(0.18,-0.14,0.11));
+   float cloud=vfNoise(fogCoord+bend*vec3(0.75,0.65,0.24));
+   // The noise uses fixed ray cells, but the height lookup must stay inside
+   // this segment when a cell straddles a portal or a narrow stair tread.
+   float layerDistance=clamp(sampleDistance,t,max(t,exitDistance));
+   vec3 layerPoint=origin+ray*layerDistance;
+   float layer=fogLayer(layerPoint.xy,room,bounds.w);
+   float heightLayer=exp(-max(0.0,layerPoint.z-layer)*1.1);
+   float density=(0.10+0.90*heightLayer)*mix(0.04,1.50,smoothstep(0.38,0.64,cloud));
+   density*=smoothstep(max(0.0,gl_Fog.start/1024.0),max(0.0,gl_Fog.start/1024.0)+0.25,sampleDistance);
+   density*=1.0-smoothstep(24.0,32.0,sampleDistance);
+   vec3 light=gl_Fog.color.rgb;
+   for(int l=0;l<4;++l) {
+    float falloff=max(0.0,1.0-length(p-vfLights[l].xyz)/max(0.001,vfLights[l].w));
+    vec3 lightSample=origin+ray*clamp(sampleDistance,t+0.00001,max(t+0.00001,exitDistance-0.00001));
+    if(vfColors[l].w>=0.0 && falloff>0.0 && fogLightVisible(lightSample,vfLights[l].xyz,room,vfColors[l].w))
+     light+=vfColors[l].rgb*falloff*falloff*2.0;
+   }
+   // An additional local bank over the map's baseline distance fog.
+   float absorption=1.0-exp(-density*ds*extinction);
+   scatter+=trans*absorption*light;
+   trans*=1.0-absorption;
+  }
+  t=exitDistance;
+  if(t>=endDistance-0.0001) {diagnostic=vec3(0,1,0);break;}
+  if(trans<0.02) {diagnostic=vec3(0,1,1);break;}
+  if(nextRoom<0.0) {
+   vec3 endPoint=origin+ray*t;
+   bool horizontal=abs(endPoint.z-bounds.x)<0.001 || abs(endPoint.z-bounds.y)<0.001;
+   diagnostic=horizontal ? vec3(1,0,0) : vec3(1,1,0);
+   break;
+  }
+  room=nextRoom;
+ }
+ gl_FragColor=vfDebug>0.5 ? vec4(diagnostic,0.0) : vec4(scatter,trans);
+}
+)VF";
+
+	defaultVertexPrograms["volume_fog_composite"] = defaultVertexPrograms["underwater_ripple"];
+	defaultFragmentPrograms["volume_fog_composite"] = R"VF(
+uniform sampler2DRect texture0;
+uniform sampler2DRect texture1;
+uniform sampler2DRect texture2;
+uniform vec4 vfSize;
+uniform vec4 vfDepth;
+uniform float vfDebug;
+float eyeDepth(float z) {return abs(vfDepth.y/(z*2.0-1.0+vfDepth.x));}
+void main() {
+ vec2 uv=gl_TexCoord[0].xy,p=uv*vfSize.xy;
+ if(vfDebug>0.5) {
+  gl_FragColor=vec4(texture2DRect(texture1,uv*vfSize.zw).rgb,1.0);
+  return;
+ }
+ vec4 scene=texture2DRect(texture0,p);
+ float reference=eyeDepth(texture2DRect(texture2,p).r);
+ vec2 low=uv*vfSize.zw-0.5,base=floor(low),f=fract(low);
+ vec4 fog=vec4(0.0);float total=0.0;
+ for(int y=0;y<2;++y) for(int x=0;x<2;++x) {
+  vec2 q=clamp(base+vec2(float(x),float(y))+0.5,vec2(0.5),vfSize.zw-0.5);
+  float d=eyeDepth(texture2DRect(texture2,q/vfSize.zw*vfSize.xy).r);
+  float weight=(x==0 ? 1.0-f.x:f.x)*(y==0 ? 1.0-f.y:f.y);
+  weight*=exp(-abs(d-reference)/max(8.0,reference*0.025));
+  fog+=texture2DRect(texture1,q)*weight;total+=weight;
+ }
+ if(total<0.00001) {gl_FragColor=scene;return;}
+ fog/=total;
+ gl_FragColor=vec4(scene.rgb*fog.a+fog.rgb,scene.a);
+}
+)VF";
+
 	defaultVertexPrograms["fog_haze"] =
 		defaultVertexPrograms["underwater_ripple"];
 defaultFragmentPrograms["fog_haze"] = R"(
@@ -1054,6 +1285,7 @@ uniform sampler2DRect texture2;
 uniform float pixelWidth;
 uniform float pixelHeight;
 uniform float bloomScale;
+uniform float pass; // selected lens flare style
 uniform float scalex;
 uniform float scaley;
 uniform float fogMode;
@@ -1075,10 +1307,44 @@ float fogVisibility(float distance) {
 	return 1.0;
 }
 
+
+// Sample the visible scene only: never clamp offscreen ghosts onto an edge.
+vec3 flareEmitter(vec2 q, vec2 dimensions) {
+    if (q.x < 0.5 || q.y < 0.5 || q.x > dimensions.x-0.5 || q.y > dimensions.y-0.5)
+        return vec3(0.0);
+    vec3 c = texture2DRect(texture0, q).rgb;
+    float depth = texture2DRect(texture2, q).r;
+    float peak = max(c.r, max(c.g, c.b));
+    float brightness = max(peak, dot(c, vec3(0.2126, 0.7152, 0.0722))*1.15);
+    float visible = smoothstep(0.55, 0.90, fogVisibility(viewDepth(depth)));
+    float facing = 1.0-smoothstep(0.08, 0.48, length(q/dimensions-vec2(0.5)));
+    return c*smoothstep(0.42, 0.88, brightness)*
+        (1.0-step(0.9995, depth))*visible*facing;
+}
+
+vec3 selectedFlare(vec2 p, vec2 dimensions) {
+    vec3 result=vec3(0.0);
+    float weights=0.0;
+    for (int i=0;i<32;++i) {
+        float n=float(i);
+        float r=sqrt((n+0.5)/32.0);
+        float a=n*2.39996323;
+        vec2 q=p+vec2(cos(a),sin(a))*r*pixelHeight*0.045;
+        float weight=exp(-r*r*3.0);
+        result+=flareEmitter(q,dimensions)*weight;
+        weights+=weight;
+    }
+    return result/max(weights,0.0001);
+}
+
 void main(void) {
 	vec2 p = gl_FragCoord.xy;
 	vec2 dimensions = vec2(pixelWidth, pixelHeight);
 	vec4 scene = texture2DRect(texture0, p);
+    if (pass > 0.5) {
+        gl_FragColor = vec4(scene.rgb + selectedFlare(p, dimensions)*bloomScale*2.2, scene.a);
+        return;
+    }
 	vec3 flare = vec3(0.0);
 	float totalWeight = 0.0;
 	// A broad horizontal convolution produces an anamorphic streak. Only very
@@ -1248,6 +1514,13 @@ void main(void) {
 	defaultFragmentPrograms["invisible_bloom"] =
         #include "Shaders/invisible_bloom.frag"
 		;
+
+    defaultVertexPrograms["shaft_occlusion"] =
+        #include "Shaders/shaft_occlusion.vert"
+        ;
+    defaultFragmentPrograms["shaft_occlusion"] =
+        #include "Shaders/shaft_occlusion.frag"
+        ;
 
 	defaultVertexPrograms["wall"] =
         #include "Shaders/wall.vert"

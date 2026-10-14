@@ -165,6 +165,7 @@ extern void OGL_ReportUpscaleCache(bool reset);
 #include "Logging.h"
 #include "screen.h"
 #include "OGL_Shader.h"
+#include "SprintathonStartupTiming.h"
 #include "collection_definition.h"
 
 #include <cmath>
@@ -600,6 +601,7 @@ bool OGL_StartRun(bool retain_sprites)
 	}
 
 	_OGL_IsActive = true;
+    SprintathonStartupTiming::get().begin();
 	OGL_StartProgress(count_replacement_collections() + CountSpriteTexturesToPreload() + 2);
 
 	// Set up some OpenGL stuff: these will be the defaults for this rendering context
@@ -652,6 +654,7 @@ bool OGL_StartRun(bool retain_sprites)
 	ModelRenderObject.Clear();
 	OGL_SetProgressMessage("compiling shaders");
 	SetupShaders();
+    Shader::warmup([] { OGL_ProgressCallback(0); });
 	OGL_ProgressCallback(1);
 
 	// Avoid lazy initial texture loading
@@ -660,6 +663,7 @@ bool OGL_StartRun(bool retain_sprites)
 	OGL_SetProgressMessage("finishing level");
 	OGL_ProgressCallback(1);
 	OGL_StopProgress();
+    SprintathonStartupTiming::get().ready();
 
 	// Success!
 	JustInited = true;
@@ -751,8 +755,7 @@ static bool IsSpriteCollection(short collection)
 
 static int CountSpriteTexturesToPreload()
 {
-	if (Get_OGL_ConfigureData().SpriteUpscaling == 0)
-		return 0;
+	// Preload original sprites too; upscaling is a quality choice, not a loading policy.
 
 	int count = 0;
 	for (short collection = 0; collection < MAXIMUM_COLLECTIONS; ++collection)
@@ -774,8 +777,7 @@ static int CountSpriteTexturesToPreload()
 
 static void PreloadSpriteTextures()
 {
-	if (Get_OGL_ConfigureData().SpriteUpscaling == 0)
-		return;
+	// Original and replacement animation frames can otherwise upload during play.
 
 	for (short collection = 0; collection < MAXIMUM_COLLECTIONS; ++collection)
 	{

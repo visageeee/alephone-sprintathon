@@ -1272,8 +1272,12 @@ void handle_preferences(bool in_game)
 		360, graphics_preferences->OGL_Configure.LandscapeLightShaftDirection);
 	w_degree_slider *ogl_landscape_light_shaft_elevation_w = new w_degree_slider(
 		91, graphics_preferences->OGL_Configure.LandscapeLightShaftElevation);
-	w_toggle *ogl_anamorphic_lens_flares_w = new w_toggle(
-		graphics_preferences->OGL_Configure.AnamorphicLensFlares);
+	static const char *lens_flare_labels[] = {
+        "Off", "Anamorphic", "Soft Halo", nullptr};
+    w_select *ogl_anamorphic_lens_flares_w = new w_select(
+        graphics_preferences->OGL_Configure.AnamorphicLensFlares ?
+        (graphics_preferences->OGL_Configure.LensFlareStyle == 2 ? 2 : 1) : 0,
+        lens_flare_labels);
 	w_percentage_slider *ogl_anamorphic_lens_flare_strength_w = new w_percentage_slider(
 		101, graphics_preferences->OGL_Configure.AnamorphicLensFlareStrength);
 	w_toggle *ogl_vsync_w = new w_toggle(graphics_preferences->OGL_Configure.WaitForVSync);
@@ -1325,7 +1329,7 @@ void handle_preferences(bool in_game)
 	ADD_LIGHT_FX_ROW("Shaft Length", ogl_landscape_light_shaft_length_w);
 	ADD_LIGHT_FX_ROW("Sun Direction", ogl_landscape_light_shaft_direction_w);
 	ADD_LIGHT_FX_ROW("Sun Elevation", ogl_landscape_light_shaft_elevation_w);
-	ADD_LIGHT_FX_ROW("Anamorphic Lens Flares", ogl_anamorphic_lens_flares_w);
+	ADD_LIGHT_FX_ROW("Lens Flare Style", ogl_anamorphic_lens_flares_w);
 	ADD_LIGHT_FX_ROW("Lens Flare Strength", ogl_anamorphic_lens_flare_strength_w);
 #undef ADD_LIGHT_FX_ROW
 	light_fx_page->add(light_fx, true);
@@ -1475,6 +1479,7 @@ void handle_preferences(bool in_game)
     w_percentage_slider *fog_corona_strength_w = new w_percentage_slider(101, graphics_preferences->fog_corona_strength);
 	w_toggle *ceiling_fog_cones_w = new w_toggle(graphics_preferences->ceiling_fog_cones);
     w_percentage_slider *ceiling_fog_cone_strength_w = new w_percentage_slider(101, graphics_preferences->ceiling_fog_cone_strength);
+	w_toggle *fog_volume_w = new w_toggle(graphics_preferences->sprintathon_volume_fog);
 	w_toggle *fog_haze_w = new w_toggle(graphics_preferences->OGL_Configure.DeepFogHaze);
 	w_percentage_slider *fog_drift_intensity_w = new w_percentage_slider(
 		201, graphics_preferences->OGL_Configure.DriftingFogIntensity);
@@ -1483,6 +1488,7 @@ void handle_preferences(bool in_game)
 	ADD_FOG_ROW("Media-relative Forced Fog", fog_media_w); ADD_FOG_ROW("Weather Preset", fog_weather_w);
 	ADD_FOG_ROW("Animated Density", fog_animated_w); ADD_FOG_ROW("Density Increases with Depth", fog_depth_w);
 	ADD_FOG_ROW("Black Fog", fog_black_w); ADD_FOG_ROW("Darken with Distance", fog_darken_w);
+	ADD_FOG_ROW("Volumetric Fog (Experimental)", fog_volume_w);
 	ADD_FOG_ROW("Deep Fog Haze", fog_haze_w);
     ADD_FOG_ROW("Ceiling Scenery Fog Cones", ceiling_fog_cones_w);
     ADD_FOG_ROW("Fog Cone Strength", ceiling_fog_cone_strength_w);
@@ -1534,7 +1540,7 @@ void handle_preferences(bool in_game)
 		 liquid_strength_w, liquid_wetness_w,
 		 fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
 		 fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w,
-		 fog_haze_w, fog_drift_intensity_w, texture_light_reach_w,
+		 fog_haze_w, fog_volume_w, fog_drift_intensity_w, texture_light_reach_w,
          liquid_caustics_w, liquid_fluorescence_w, liquid_caustic_strength_w, ceiling_fog_cones_w, ceiling_fog_cone_strength_w, fog_light_coronas_w,
          fog_projectile_coronas_w, fog_scenery_coronas_w, fog_corona_strength_w,
 		 scenery_light_reach_w, light_render_distance_w,
@@ -1549,6 +1555,7 @@ void handle_preferences(bool in_game)
 				return;
 
 			applying_graphics_preset = true;
+            fog_volume_w->set_selection(false);
 			const bool medium_or_better = preset >= 2;
 			const bool high_or_better = preset >= 3;
 			const bool total = preset == 4;
@@ -1654,7 +1661,7 @@ void handle_preferences(bool in_game)
 		model_quality_w, liquid_transparency_w, underwater_distortion_w,
 		liquid_ripples_w, liquid_caustics_w,
 		fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
-		fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w, fog_haze_w, ceiling_fog_cones_w, fog_light_coronas_w, fog_projectile_coronas_w, fog_scenery_coronas_w
+		fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w, fog_haze_w, fog_volume_w, ceiling_fog_cones_w, fog_light_coronas_w, fog_projectile_coronas_w, fog_scenery_coronas_w
 	};
 	for (w_select *widget : graphics_select_widgets)
 		widget->set_selection_changed_callback(custom_select_changed);
@@ -1860,7 +1867,10 @@ void handle_preferences(bool in_game)
 	graphics_preferences->OGL_Configure.LandscapeLightShaftElevation =
 		ogl_landscape_light_shaft_elevation_w->get_selection();
 	graphics_preferences->OGL_Configure.AnamorphicLensFlares =
-		ogl_anamorphic_lens_flares_w->get_selection();
+        ogl_anamorphic_lens_flares_w->get_selection() != 0;
+    if (ogl_anamorphic_lens_flares_w->get_selection() != 0)
+        graphics_preferences->OGL_Configure.LensFlareStyle =
+            ogl_anamorphic_lens_flares_w->get_selection() == 2 ? 2 : 0;
 	graphics_preferences->OGL_Configure.AnamorphicLensFlareStrength =
 		ogl_anamorphic_lens_flare_strength_w->get_selection();
 	graphics_preferences->OGL_Configure.WaitForVSync = ogl_vsync_w->get_selection();
@@ -1905,6 +1915,7 @@ void handle_preferences(bool in_game)
 	graphics_preferences->OGL_Configure.ForceFogDepthDensity = fog_depth_w->get_selection();
 	graphics_preferences->OGL_Configure.ForceFogBlack = fog_black_w->get_selection();
 	graphics_preferences->OGL_Configure.ForceFogDistanceDarkening = fog_darken_w->get_selection();
+	graphics_preferences->sprintathon_volume_fog = fog_volume_w->get_selection();
 	graphics_preferences->OGL_Configure.DeepFogHaze = fog_haze_w->get_selection();
     graphics_preferences->ceiling_fog_cones = ceiling_fog_cones_w->get_selection();
     graphics_preferences->liquid_caustics = liquid_caustics_w->get_selection();
@@ -6161,6 +6172,7 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("scmode_auto_resolution", graphics_preferences->screen_mode.auto_resolution);
 	root.put_attr("scmode_high_dpi", graphics_preferences->screen_mode.high_dpi);
 	root.put_attr("scmode_hud", graphics_preferences->screen_mode.hud);
+	root.put_attr("sprintathon_volume_fog", graphics_preferences->sprintathon_volume_fog);
 	root.put_attr("sprintathon_render_scale", graphics_preferences->sprintathon_render_scale);
 	root.put_attr("sprintathon_nearest_upscale", graphics_preferences->sprintathon_nearest_upscale);
 	root.put_attr("sprintathon_tracker_compass", graphics_preferences->sprintathon_tracker_compass);
@@ -6240,6 +6252,7 @@ InfoTree graphics_preferences_tree()
 		graphics_preferences->OGL_Configure.AnamorphicLensFlares);
 	root.put_attr("anamorphic_lens_flare_strength",
 		graphics_preferences->OGL_Configure.AnamorphicLensFlareStrength);
+	root.put_attr("lens_flare_style", graphics_preferences->OGL_Configure.LensFlareStyle);
 	root.put_attr("animated_media_ripples",
 		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
 	root.put_attr("underwater_distortion",
@@ -6803,6 +6816,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->screen_mode.auto_resolution = true;
 	preferences->screen_mode.high_dpi = true;
 	preferences->screen_mode.hud = true;
+	preferences->sprintathon_volume_fog = false;
 	preferences->sprintathon_render_scale = 100;
 	preferences->sprintathon_nearest_upscale = false;
 	preferences->sprintathon_tracker_compass = false;
@@ -7355,6 +7369,7 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("scmode_auto_resolution", graphics_preferences->screen_mode.auto_resolution);
 	root.read_attr("scmode_high_dpi", graphics_preferences->screen_mode.high_dpi);
 	root.read_attr("scmode_hud", graphics_preferences->screen_mode.hud);
+	root.read_attr("sprintathon_volume_fog", graphics_preferences->sprintathon_volume_fog);
 	root.read_attr("sprintathon_render_scale", graphics_preferences->sprintathon_render_scale);
 	graphics_preferences->sprintathon_render_scale = std::max(50, std::min(100, graphics_preferences->sprintathon_render_scale));
 	root.read_attr("sprintathon_nearest_upscale", graphics_preferences->sprintathon_nearest_upscale);
@@ -7457,6 +7472,11 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 		graphics_preferences->OGL_Configure.AnamorphicLensFlares);
 	root.read_attr_bounded<int16>("anamorphic_lens_flare_strength",
 		graphics_preferences->OGL_Configure.AnamorphicLensFlareStrength, 0, 100);
+	root.read_attr_bounded<int16>("lens_flare_style",
+		graphics_preferences->OGL_Configure.LensFlareStyle, 0, 2);
+    if (graphics_preferences->OGL_Configure.LensFlareStyle != 0 &&
+        graphics_preferences->OGL_Configure.LensFlareStyle != 2)
+        graphics_preferences->OGL_Configure.LensFlareStyle = 0;
 	root.read_attr("animated_media_ripples",
 		graphics_preferences->OGL_Configure.AnimatedMediaRipples);
 	root.read_attr("underwater_distortion",

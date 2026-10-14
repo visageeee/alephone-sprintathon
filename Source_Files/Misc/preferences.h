@@ -87,6 +87,7 @@ enum {
 
 struct graphics_preferences_data
 {
+    bool sprintathon_volume_fog;
     int sprintathon_render_scale; // percentage of native 3D resolution
     bool sprintathon_nearest_upscale;
     bool sprintathon_tracker_compass;

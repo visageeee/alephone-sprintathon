@@ -14,6 +14,7 @@ uniform float sprintathonSurfaceLightCount;
 uniform vec4 sprintathonLiquidLightSettings;
 uniform sampler2DRect texture3;
 uniform float sprintathonAllSceneryCount;
+uniform float sprintathonSceneryFirst;
 uniform float mediaFogEnabled;
 uniform float mediaFogTop;
 uniform float mediaFogSoftness;
@@ -553,7 +554,7 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
 }
 
 void sprintathonApplyAllScenery(inout vec3 intensity) {
-    for (float i = 0.0; i < sprintathonAllSceneryCount; i += 1.0) {
+    for (float i = sprintathonSceneryFirst; i < sprintathonAllSceneryCount; i += 1.0) {
         if (all(greaterThanEqual(intensity, vec3(1.0)))) break;
         vec2 coordinate = vec2(mod(i, 128.0) * 2.0 + 0.5, floor(i / 128.0) + 0.5);
         vec4 position = texture2DRect(texture3, coordinate);

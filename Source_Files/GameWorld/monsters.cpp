@@ -259,6 +259,14 @@ static bool clear_line_of_sight(short viewer_index, short target_index, bool ful
 
 static void handle_moving_or_stationary_monster(short monster_index);
 static bool sprintathon_flock_move(short index, bool* moved);
+static bool sprintathon_recover_ground_overlap(short index);
+static bool sprintathon_spring_body(short index);
+static bool sprintathon_spring_pair(short first, short second);
+static world_distance sprintathon_spring_separation(world_distance separation);
+static void sprintathon_update_body_springs();
+static void sprintathon_queue_body_push(short source,short target,double x,double y,int hops);
+static void sprintathon_begin_character_contact(short index);
+static void sprintathon_end_character_contact(short index);
 static double sprintathon_approach_curve(short index, double remaining, angle heading);
 struct SprintathonCurveWaypoint {
     short object;
@@ -477,6 +485,7 @@ void move_monsters(
 	void)
 {
 	sprintathon_move_corpses();
+    sprintathon_update_body_springs();
 	struct monster_data *monster;
 	bool monster_got_time= false;
 	bool monster_built_path= (dynamic_world->tick_count&3) ? true : false;
@@ -488,6 +497,8 @@ void move_monsters(
 		{
 			struct object_data *object= get_object_data(monster->object_index);
 			
+            sprintathon_begin_character_contact(monster_index);
+            const bool recovering_overlap = sprintathon_recover_ground_overlap(monster_index);
 			if (MONSTER_IS_ACTIVE(monster))
 			{
 				if (!OBJECT_IS_INVISIBLE(object))
@@ -544,7 +555,7 @@ void move_monsters(
 					/* if this monster needs a path, generate one (unless we’ve already generated a
 						path this frame in which case we’ll wait until next frame, UNLESS the monster
 						has no path in which case it needs one regardless) */
-					if (MONSTER_NEEDS_PATH(monster) && !MONSTER_IS_DYING(monster) && !MONSTER_IS_ATTACKING(monster) &&
+					if (!recovering_overlap && MONSTER_NEEDS_PATH(monster) && !MONSTER_IS_DYING(monster) && !MONSTER_IS_ATTACKING(monster) &&
 						((!monster_built_path && monster_index>dynamic_world->last_monster_index_to_build_path) || monster->path==NONE))
 					{
 						generate_new_path_for_monster(monster_index);
@@ -566,7 +577,7 @@ void move_monsters(
 							case _monster_is_waiting_to_attack_again:
 							case _monster_is_stationary:
 							case _monster_is_moving:
-								handle_moving_or_stationary_monster(monster_index);
+								if (!recovering_overlap) handle_moving_or_stationary_monster(monster_index);
 								break;
 							
 							case _monster_is_attacking_close:
@@ -669,6 +680,7 @@ void move_monsters(
 		
 		if (SLOT_IS_USED(monster) && !MONSTER_IS_PLAYER(monster) && MONSTER_IS_ACTIVE(monster))
 			sprintathon_float_coast(monster_index);
+        sprintathon_end_character_contact(monster_index);
 
 		/* WARNING: a large number of unusual things could have happened here, including the monster
 			being dead, his slot being free, and his object having been removed from the map; in other
@@ -1426,6 +1438,9 @@ short legal_player_move(
 			world_point3d *obstacle_location= &obstacle->location;
 
 			world_distance separation= radius+obstacle_radius;
+            if (GET_OBJECT_OWNER(obstacle)==_object_is_monster &&
+                sprintathon_spring_pair(monster_index,obstacle->permutation))
+                separation=sprintathon_spring_separation(separation);
 			int32 separation_squared= separation*separation;
 
 			world_distance new_dx= obstacle_location->x-new_location->x;
@@ -1512,7 +1527,10 @@ short legal_monster_move(
 				world_distance dx= obstacle_location->x-new_location->x;
 				world_distance dy= obstacle_location->y-new_location->y;
 				
-				if (GET_OBJECT_OWNER(obstacle)!=_object_is_scenery && obstacle->permutation>monster_index && !MONSTER_IS_PLAYER(get_monster_data(obstacle->permutation))) separation= (separation>>1) + (separation>>2);
+                if (GET_OBJECT_OWNER(obstacle)==_object_is_monster &&
+                    sprintathon_spring_pair(monster_index,obstacle->permutation))
+                    separation=sprintathon_spring_separation(separation);
+                else if (GET_OBJECT_OWNER(obstacle)!=_object_is_scenery && obstacle->permutation>monster_index && !MONSTER_IS_PLAYER(get_monster_data(obstacle->permutation))) separation= (separation>>1) + (separation>>2);
 				if (dx>-separation && dx<separation && dy>-separation && dy<separation)
 				{
 					/* we intersect sloppily; get arctan to be sure */
@@ -2025,6 +2043,7 @@ static bool sprintathon_small_flyer(const monster_data* monster, const monster_d
 struct SprintathonGroundSteering {
     short object = NONE;
     int tick = -1000, side = 1, until = -1, cooldown = -1, fan_until = -1, fan_check = -1;
+    int body_repath = -1;
 };
 static std::map<short, SprintathonGroundSteering> sprintathon_ground_steering;
 static bool sprintathon_ground_ai(const monster_data* monster, const monster_definition* definition)
@@ -2096,6 +2115,429 @@ static bool sprintathon_ground_corridor(object_data* object, world_point3d* next
     }
     return false;
 }
+// Soft outer shells are only for ground-enemy pairs. World/scenery clearance
+// and player movement retain their existing dimensions.
+struct SprintathonBodySpring {
+    short object = NONE;
+    int push_hops = -1;
+    double vx = 0, vy = 0, rx = 0, ry = 0, fx = 0, fy = 0;
+};
+static std::map<short, SprintathonBodySpring> sprintathon_body_springs;
+
+static bool sprintathon_spring_body(short index)
+{
+    const auto* monster = get_monster_data(index);
+    const auto* definition = get_monster_definition(monster->type);
+    if (!sprintathon_ground_ai(monster, definition) ||
+        monster->external_velocity || monster->vertical_velocity ||
+        monster->action == _monster_is_being_hit ||
+        monster->action == _monster_is_teleporting_in ||
+        monster->action == _monster_is_teleporting_out) return false;
+    const auto* object = get_object_data(monster->object_index);
+    const auto* polygon = get_polygon_data(object->polygon);
+    return !OBJECT_IS_INVISIBLE(object) && polygon->type != _polygon_is_platform &&
+        std::abs(int(object->location.z)-polygon->floor_height) <= WORLD_ONE/16;
+}
+
+static bool sprintathon_spring_pair(short first, short second)
+{
+    if (first == second || !sprintathon_spring_body(first) || !sprintathon_spring_body(second))
+        return false;
+    // Do not separate melee opponents while they are trying to land a hit.
+    for (int i = 0; i < 2; ++i) {
+        const short a = i ? second : first, b = i ? first : second;
+        const auto* monster = get_monster_data(a);
+        const auto* definition = get_monster_definition(monster->type);
+        if (monster->target_index != b || definition->melee_attack.type == NONE) continue;
+        const auto* object = get_object_data(monster->object_index);
+        const auto* peer = get_object_data(get_monster_data(b)->object_index);
+        const double dx = double(object->location.x)-peer->location.x;
+        const double dy = double(object->location.y)-peer->location.y;
+        world_distance r,h,pr,ph;
+        get_monster_dimensions(a,&r,&h);get_monster_dimensions(b,&pr,&ph);
+        const double reach = std::max(int(r)+pr, int(definition->melee_attack.range))+WORLD_ONE/16;
+        if (dx*dx+dy*dy <= reach*reach) return false;
+    }
+    return true;
+}
+
+static world_distance sprintathon_spring_separation(world_distance separation)
+{
+    // Round up: never permit more than twenty percent compression.
+    return world_distance((int(separation)*4+4)/5);
+}
+
+struct SprintathonBodyPush {
+    short source, target, source_object, target_object;
+    int tick, hops;
+    double x,y;
+};
+static std::vector<SprintathonBodyPush> sprintathon_body_pushes;
+
+static void sprintathon_queue_body_push(short source,short target,double x,double y,int hops)
+{
+    if (hops>3 || !sprintathon_spring_pair(source,target)) return;
+    const auto* a=get_object_data(get_monster_data(source)->object_index);
+    const auto* b=get_object_data(get_monster_data(target)->object_index);
+    world_distance ar,ah,br,bh;
+    get_monster_dimensions(source,&ar,&ah);get_monster_dimensions(target,&br,&bh);
+    if (a->location.z+ah<=b->location.z || a->location.z>=int(b->location.z)+bh) return;
+    world_point2d from={a->location.x,a->location.y},to={b->location.x,b->location.y};
+    if (line_is_obstructed(a->polygon,&from,b->polygon,&to)) return;
+    const double length=std::hypot(x,y);
+    if (length<0.01) return;
+    const double dx=double(b->location.x)-a->location.x;
+    const double dy=double(b->location.y)-a->location.y;
+    // Forward pressure only. A side scrape or an escape must not pull a peer.
+    if (x*dx+y*dy<=0) return;
+    const double amount=std::min(double(WORLD_ONE)/256,length)*std::pow(0.85,hops);
+    x=x/length*amount;y=y/length*amount;
+    const int now=dynamic_world->tick_count;
+    for (auto& push:sprintathon_body_pushes) {
+        if (push.tick==now && push.source==source && push.target==target) {
+            // Collision probes must not multiply force during the same tick.
+            if (std::hypot(x,y)>std::hypot(push.x,push.y)) {
+                push.x=x;push.y=y;push.hops=hops;
+            }
+            return;
+        }
+    }
+    if (sprintathon_body_pushes.size()>=size_t(MAXIMUM_MONSTERS_PER_MAP)*2) return;
+    sprintathon_body_pushes.push_back({source,target,get_monster_data(source)->object_index,
+        get_monster_data(target)->object_index,now,hops,x,y});
+}
+
+static void sprintathon_update_body_springs()
+{
+    // Snapshot forces before any character moves; no recursive push chains.
+    std::map<short, SprintathonBodySpring> next;
+    for (short i=0;i<MAXIMUM_MONSTERS_PER_MAP;++i) {
+        const auto* monster=monsters+i;
+        if (!SLOT_IS_USED(monster) || !sprintathon_spring_body(i)) continue;
+        auto old=sprintathon_body_springs.find(i);
+        SprintathonBodySpring state;
+        if (old!=sprintathon_body_springs.end() && old->second.object==monster->object_index)
+            state=old->second;
+        state.object=monster->object_index;state.fx=state.fy=0;state.push_hops=-1;
+        next[i]=state;
+    }
+    sprintathon_body_springs.swap(next);
+    for (auto& entry:sprintathon_body_springs) {
+        const short i=entry.first;
+        const auto* object=get_object_data(entry.second.object);
+        world_distance r,h;
+        get_monster_dimensions(i,&r,&h);
+        std::vector<short> nearby;
+        possible_intersecting_monsters(&nearby,LOCAL_INTERSECTING_MONSTER_BUFFER_SIZE,object->polygon,true);
+        for (short id:nearby) {
+            const auto* body=get_object_data(id);
+            if (GET_OBJECT_OWNER(body)!=_object_is_monster || body->permutation<=i) continue;
+            auto peer=sprintathon_body_springs.find(body->permutation);
+            if (peer==sprintathon_body_springs.end() || !sprintathon_spring_pair(i,body->permutation)) continue;
+            world_distance pr,ph;get_monster_dimensions(body->permutation,&pr,&ph);
+            if (object->location.z+h<=body->location.z || object->location.z>=int(body->location.z)+ph) continue;
+            double dx=double(object->location.x)-body->location.x;
+            double dy=double(object->location.y)-body->location.y;
+            const double distance=std::sqrt(dx*dx+dy*dy);
+            const double compression=double(r)+pr-distance;
+            if (compression<=0) continue;
+            world_point2d from={object->location.x,object->location.y};
+            world_point2d to={body->location.x,body->location.y};
+            if (line_is_obstructed(object->polygon,&from,body->polygon,&to)) continue;
+            if (distance<1) { dx=1;dy=0; }
+            else { dx/=distance;dy/=distance; }
+            const double force=std::min(double(WORLD_ONE)/256,compression*0.20);
+            entry.second.fx+=dx*force;entry.second.fy+=dy*force;
+            peer->second.fx-=dx*force;peer->second.fy-=dy*force;
+        }
+    }
+    // Consume last tick's intentions together, independent of update order.
+    for (const auto& push:sprintathon_body_pushes) {
+        if (push.tick!=dynamic_world->tick_count-1) continue;
+        auto source=sprintathon_body_springs.find(push.source);
+        auto target=sprintathon_body_springs.find(push.target);
+        if (source==sprintathon_body_springs.end() || target==sprintathon_body_springs.end() ||
+            source->second.object!=push.source_object || target->second.object!=push.target_object ||
+            !sprintathon_spring_pair(push.source,push.target)) continue;
+        auto& state=target->second;
+        state.fx+=push.x;state.fy+=push.y;
+        state.push_hops=std::max(state.push_hops,push.hops);
+    }
+    sprintathon_body_pushes.clear();
+    for (auto& entry:sprintathon_body_springs) {
+        auto& state=entry.second;
+        state.vx=state.vx*0.55+state.fx*0.45;
+        state.vy=state.vy*0.55+state.fy*0.45;
+        const double speed=std::hypot(state.vx,state.vy);
+        const double cap=double(WORLD_ONE)/256;
+        if (speed>cap) { state.vx*=cap/speed;state.vy*=cap/speed; }
+    }
+}
+
+static void sprintathon_apply_body_spring(short index)
+{
+    auto it=sprintathon_body_springs.find(index);
+    if (it==sprintathon_body_springs.end() || !sprintathon_spring_body(index)) return;
+    auto& state=it->second;
+    auto* monster=get_monster_data(index);
+    auto* object=get_object_data(monster->object_index);
+    if (state.object!=monster->object_index) return;
+    const auto* definition=get_monster_definition(monster->type);
+    state.rx+=state.vx;state.ry+=state.vy;
+    const int dx=int(std::trunc(state.rx)),dy=int(std::trunc(state.ry));
+    if (!dx && !dy) return;
+    const int x=int(object->location.x)+dx,y=int(object->location.y)+dy;
+    if (x < -32768 || x > 32767 || y < -32768 || y > 32767) {
+        state.vx=state.vy=state.rx=state.ry=0;return;
+    }
+    world_point3d next={world_distance(x),world_distance(y),object->location.z};
+    world_distance floor=get_polygon_data(object->polygon)->floor_height;
+    world_distance ceiling=get_polygon_data(object->polygon)->ceiling_height;
+    short supporting=object->polygon;
+    bool valid=sprintathon_ground_corridor(object,&next,definition);
+    if (valid) {
+        keep_line_segment_out_of_walls(object->polygon,&object->location,&next,
+            std::min<world_distance>(definition->maximum_ledge_delta,WORLD_ONE/4),
+            definition->height,&floor,&ceiling,&supporting);
+        valid=sprintathon_ground_corridor(object,&next,definition) &&
+            int(next.z)+definition->height<=ceiling;
+    }
+    world_distance object_floor=INT16_MIN;
+    const short blocker=valid ? legal_player_move(index,&next,&object_floor) : NONE;
+    if (!valid || blocker!=NONE) {
+        if (valid && blocker!=NONE && state.push_hops>=0 &&
+            GET_OBJECT_OWNER(get_object_data(blocker))==_object_is_monster)
+            sprintathon_queue_body_push(index,get_object_data(blocker)->permutation,
+                state.vx,state.vy,state.push_hops+1);
+        // No stored impulse against walls: remove blocked velocity immediately.
+        state.vx=state.vy=state.rx=state.ry=0;return;
+    }
+    state.rx-=dx;state.ry-=dy;
+    const short old_polygon=object->polygon;
+    if (translate_map_object(monster->object_index,&next,NONE)) monster_moved(index,old_polygon);
+}
+
+struct SprintathonOverlapRecovery {
+    short object = NONE, peer = NONE;
+    int tick = -1, hold_until = -1;
+    double nx = 0, ny = 0;
+};
+static std::map<short, SprintathonOverlapRecovery> sprintathon_overlap_recovery;
+
+// Navigation headings are temporary movement intent during the monster update.
+// Body contact must not turn that intent into a spinning displayed character.
+struct SprintathonContactFacing {
+    short object = NONE;
+    angle heading = 0, shown = 0;
+    int tick = -1;
+    bool touching = false;
+};
+static std::map<short, SprintathonContactFacing> sprintathon_contact_facing;
+
+static bool sprintathon_contact_enabled(const monster_data* monster)
+{
+    return input_preferences->sprintathon_enabled && input_preferences->sprintathon_enhanced_enemy_ai &&
+        !game_is_networked && !game_is_being_replayed() &&
+        !MONSTER_IS_PLAYER(monster) && !MONSTER_IS_DYING(monster) &&
+        !MONSTER_IS_ATTACKING(monster) && !monster->external_velocity &&
+        monster->action != _monster_is_being_hit &&
+        monster->action != _monster_is_teleporting_in &&
+        monster->action != _monster_is_teleporting_out;
+}
+
+static bool sprintathon_near_character(short index)
+{
+    const auto* monster = get_monster_data(index);
+    const auto* object = get_object_data(monster->object_index);
+    world_distance radius, height;
+    get_monster_dimensions(index, &radius, &height);
+    const int margin = std::max(int(WORLD_ONE/16),
+        std::abs(int(get_monster_definition(monster->type)->speed))*2);
+    std::vector<short> nearby;
+    possible_intersecting_monsters(&nearby, LOCAL_INTERSECTING_MONSTER_BUFFER_SIZE, object->polygon, true);
+    for (short other : nearby) {
+        if (other == monster->object_index) continue;
+        const auto* body = get_object_data(other);
+        if (GET_OBJECT_OWNER(body) != _object_is_monster || OBJECT_IS_INVISIBLE(body)) continue;
+        const auto* peer = get_monster_data(body->permutation);
+        if (MONSTER_IS_DYING(peer)) continue;
+        world_distance r, h;
+        get_monster_dimensions(body->permutation, &r, &h);
+        if (object->location.z+height <= body->location.z ||
+            object->location.z >= int(body->location.z)+h) continue;
+        const double dx = double(object->location.x)-body->location.x;
+        const double dy = double(object->location.y)-body->location.y;
+        const double reach = int(radius)+r+margin;
+        if (dx*dx+dy*dy > reach*reach) continue;
+        world_point2d from = {object->location.x, object->location.y};
+        world_point2d to = {body->location.x, body->location.y};
+        if (!line_is_obstructed(object->polygon, &from, body->polygon, &to)) return true;
+    }
+    return false;
+}
+
+static void sprintathon_begin_character_contact(short index)
+{
+    auto* monster = get_monster_data(index);
+    auto* object = get_object_data(monster->object_index);
+    auto old = sprintathon_contact_facing.find(index);
+    // Restore movement intent before pathfinding/terrain probes use facing.
+    if (old != sprintathon_contact_facing.end() &&
+        old->second.object == monster->object_index &&
+        old->second.tick == dynamic_world->tick_count-1 &&
+        object->facing == old->second.shown)
+        object->facing = old->second.heading;
+    if (!sprintathon_contact_enabled(monster) || OBJECT_IS_INVISIBLE(object)) {
+        sprintathon_contact_facing.erase(index);
+        return;
+    }
+    const bool touching = sprintathon_near_character(index);
+    if (!touching && old == sprintathon_contact_facing.end()) return;
+    const angle shown = old != sprintathon_contact_facing.end() &&
+        old->second.object == monster->object_index &&
+        old->second.tick == dynamic_world->tick_count-1 ?
+        old->second.shown : object->facing;
+    auto& state = sprintathon_contact_facing[index];
+    state.object = monster->object_index;
+    state.heading = object->facing;
+    state.shown = shown;
+    state.tick = dynamic_world->tick_count;
+    state.touching = touching;
+}
+
+static void sprintathon_end_character_contact(short index)
+{
+    auto it = sprintathon_contact_facing.find(index);
+    if (it == sprintathon_contact_facing.end()) return;
+    auto* monster = monsters+index;
+    if (!SLOT_IS_USED(monster) || monster->object_index != it->second.object ||
+        !sprintathon_contact_enabled(monster)) {
+        sprintathon_contact_facing.erase(it);
+        return;
+    }
+    auto* object = get_object_data(monster->object_index);
+    auto& state = it->second;
+    state.heading = object->facing;
+    // Keep looking at the target rather than at alternating avoidance headings.
+    // Without a target, retain the pre-contact facing until there is room again.
+    angle desired = state.heading;
+    if (state.touching) {
+        desired = state.shown;
+        if (MONSTER_HAS_VALID_TARGET(monster)) {
+            const auto* target = get_object_data(get_monster_data(monster->target_index)->object_index);
+            const int dx = int(target->location.x)-object->location.x;
+            const int dy = int(target->location.y)-object->location.y;
+            if (dx || dy) desired = arctangent(dx, dy);
+        }
+    }
+    const int turn = NORMALIZE_ANGLE(int(desired)-state.shown+HALF_CIRCLE)-HALF_CIRCLE;
+    const int limit = std::max(1, FULL_CIRCLE/90);
+    state.shown = NORMALIZE_ANGLE(int(state.shown)+std::max(-limit, std::min(limit, turn)));
+    object->facing = state.shown;
+    // Smooth the return to the route heading after leaving contact.
+    if (!state.touching && state.shown == state.heading)
+        sprintathon_contact_facing.erase(it);
+}
+
+// Resolve existing ground-body penetration independently of walking intent.
+// This displacement must never become a new facing or an evasive manoeuvre.
+static bool sprintathon_recover_ground_overlap(short index)
+{
+    if (sprintathon_spring_body(index)) {
+        sprintathon_overlap_recovery.erase(index);
+        sprintathon_apply_body_spring(index);
+        // Pressure displacement never cancels walking, aiming or firing.
+        return false;
+    }
+
+    auto* monster = get_monster_data(index);
+    const auto* definition = get_monster_definition(monster->type);
+    if (!sprintathon_ground_ai(monster, definition) || MONSTER_IS_ATTACKING(monster) ||
+        monster->external_velocity || monster->vertical_velocity ||
+        monster->action == _monster_is_being_hit ||
+        monster->action == _monster_is_teleporting_in || monster->action == _monster_is_teleporting_out)
+        { sprintathon_overlap_recovery.erase(index); return false; }
+    auto* object = get_object_data(monster->object_index);
+    if (OBJECT_IS_INVISIBLE(object) ||
+        std::abs(int(object->location.z)-get_polygon_data(object->polygon)->floor_height) > WORLD_ONE/16)
+        { sprintathon_overlap_recovery.erase(index); return false; }
+    world_distance radius, height;
+    get_monster_dimensions(index, &radius, &height);
+    std::vector<short> nearby;
+    possible_intersecting_monsters(&nearby, LOCAL_INTERSECTING_MONSTER_BUFFER_SIZE, object->polygon, true);
+    const int now = dynamic_world->tick_count;
+    auto& state = sprintathon_overlap_recovery[index];
+    if (state.object != monster->object_index || now < state.tick || now-state.tick > 1) {
+        state = SprintathonOverlapRecovery{};
+        state.object = monster->object_index;
+    }
+    double deepest = 2.0, nx = 0, ny = 0;
+    short selected = NONE;
+    for (short other_object : nearby) {
+        if (other_object == monster->object_index) continue;
+        const auto* body = get_object_data(other_object);
+        if (GET_OBJECT_OWNER(body) != _object_is_monster || OBJECT_IS_INVISIBLE(body)) continue;
+        const auto* peer = get_monster_data(body->permutation);
+        // Ordinary melee contact and player pushing retain their existing rules.
+        if (MONSTER_IS_PLAYER(peer) || MONSTER_IS_DYING(peer)) continue;
+        world_distance peer_radius, peer_height;
+        get_monster_dimensions(body->permutation, &peer_radius, &peer_height);
+        if (object->location.z+height <= body->location.z ||
+            object->location.z >= int(body->location.z)+peer_height) continue;
+        double dx = double(object->location.x)-body->location.x;
+        double dy = double(object->location.y)-body->location.y;
+        const double length = std::sqrt(dx*dx+dy*dy);
+        const double penetration = double(radius)+peer_radius-length;
+        if (penetration <= 2.0) continue;
+        const bool preferred = other_object == state.peer;
+        if (!preferred && ((state.peer != NONE && selected == state.peer) || penetration < deepest ||
+            (penetration == deepest && selected != NONE && other_object >= selected))) continue;
+        world_point2d from = {object->location.x, object->location.y};
+        world_point2d to = {body->location.x, body->location.y};
+        if (line_is_obstructed(object->polygon, &from, body->polygon, &to)) continue;
+        deepest = penetration; selected = other_object;
+        if (length < 1.0) {
+            // Coincident centres need a stable, opposite direction for each body.
+            nx = monster->object_index < other_object ? 1.0 : -1.0; ny = 0;
+        } else { nx = dx/length; ny = dy/length; }
+    }
+    if (selected == NONE) { sprintathon_overlap_recovery.erase(index); return false; }
+    if (state.peer != selected) {
+        state.peer = selected;
+        state.nx = nx; state.ny = ny;
+        state.hold_until = now+TICKS_PER_SECOND/2;
+    }
+    state.tick = now;
+    nx = state.nx; ny = state.ny;
+    const bool waiting = now < state.hold_until;
+    const double step = std::min(double(WORLD_ONE)/128.0, std::max(1.0, deepest*0.125));
+    const double x = object->location.x+nx*step, y = object->location.y+ny*step;
+    if (x < -32768 || x > 32767 || y < -32768 || y > 32767) return waiting;
+    world_point3d next = {static_cast<world_distance>(std::round(x)),
+        static_cast<world_distance>(std::round(y)), object->location.z};
+    world_distance floor = get_polygon_data(object->polygon)->floor_height;
+    world_distance ceiling = get_polygon_data(object->polygon)->ceiling_height;
+    short supporting = object->polygon;
+    if (!sprintathon_ground_corridor(object, &next, definition)) return waiting;
+    keep_line_segment_out_of_walls(object->polygon, &object->location, &next,
+        std::min<world_distance>(definition->maximum_ledge_delta, WORLD_ONE/4),
+        height, &floor, &ceiling, &supporting);
+    if (!sprintathon_ground_corridor(object, &next, definition) || int(next.z)+height > ceiling) return waiting;
+    world_distance object_floor = INT16_MIN;
+    if (legal_player_move(index, &next, &object_floor) != NONE) return waiting;
+    // Wall clipping must still leave a displacement that separates the pair.
+    const auto* body = get_object_data(selected);
+    const double dx = double(next.x)-body->location.x, dy = double(next.y)-body->location.y;
+    const double old_dx = double(object->location.x)-body->location.x;
+    const double old_dy = double(object->location.y)-body->location.y;
+    if (dx*dx+dy*dy <= old_dx*old_dx+old_dy*old_dy) return waiting;
+    const short old_polygon = object->polygon;
+    if (translate_map_object(monster->object_index, &next, NONE)) monster_moved(index, old_polygon);
+    state.hold_until = now+TICKS_PER_SECOND/2;
+    monster_needs_path(index, false);
+    return true;
+}
+
 // Contact constraints for an upright cylinder. Each normal points out of a
 // neighbour; clearance is the minimum permitted outward displacement.
 struct SprintathonBodyContact { double nx, ny, clearance; };
@@ -2152,7 +2594,10 @@ static void sprintathon_slide_bodies(short index, world_point3d& next, int side)
         double dx = double(object->location.x)-body->location.x;
         double dy = double(object->location.y)-body->location.y;
         double length = std::sqrt(dx*dx+dy*dy);
-        const double separation = int(radius)+body_radius;
+        const double separation = GET_OBJECT_OWNER(body)==_object_is_monster &&
+            sprintathon_spring_pair(index,body->permutation) ?
+            sprintathon_spring_separation(world_distance(int(radius)+body_radius)) :
+            int(radius)+body_radius;
         if (length > separation+limit+2) continue;
         if (length < 1) { dx = monster->object_index < object_index ? 1 : -1; dy = 0; length = 1; }
         // Leave one map unit for integer rounding. Recover overlaps gradually;
@@ -2200,6 +2645,13 @@ static bool sprintathon_ground_step(short index, world_distance distance, bool f
         const angle direction = directions[attempt];
         world_point3d next = object->location;
         translate_point2d(&next, std::min<world_distance>(distance, WORLD_ONE/32), direction);
+        if (destination && attempt==0) {
+            world_distance pressure_floor=INT16_MIN;
+            const short pressure_body=legal_player_move(index,&next,&pressure_floor);
+            if (pressure_body!=NONE && GET_OBJECT_OWNER(get_object_data(pressure_body))==_object_is_monster)
+                sprintathon_queue_body_push(index,get_object_data(pressure_body)->permutation,
+                    double(next.x)-object->location.x,double(next.y)-object->location.y,0);
+        }
         sprintathon_slide_bodies(index, next, state.side);
         world_distance floor = get_polygon_data(object->polygon)->floor_height;
         world_distance ceiling = get_polygon_data(object->polygon)->ceiling_height;
@@ -2213,7 +2665,13 @@ static bool sprintathon_ground_step(short index, world_distance distance, bool f
             int(next.z)+definition->height > ceiling) continue;
         world_distance object_floor = INT16_MIN;
         const short blocker = legal_player_move(index, &next, &object_floor);
-        if (blocker != NONE) continue;
+        if (blocker != NONE) {
+            if (destination && GET_OBJECT_OWNER(get_object_data(blocker))==_object_is_monster)
+                sprintathon_queue_body_push(index,get_object_data(blocker)->permutation,
+                    double(destination->x)-object->location.x,
+                    double(destination->y)-object->location.y,0);
+            continue;
+        }
         const int dx = int(next.x)-object->location.x, dy = int(next.y)-object->location.y;
         if (dx*dx+dy*dy < 4) continue;
         const short old_polygon = object->polygon;
@@ -2450,6 +2908,10 @@ static void sprintathon_reset_flock()
     sprintathon_melee_holds.clear();
     sprintathon_failed_routes.clear();
     sprintathon_ground_steering.clear();
+    sprintathon_overlap_recovery.clear();
+    sprintathon_body_springs.clear();
+    sprintathon_body_pushes.clear();
+    sprintathon_contact_facing.clear();
 }
 static bool sprintathon_flock_move(short index, bool* moved)
 {
@@ -4103,6 +4565,12 @@ static bool translate_monster(
         translate_point2d(&new_location, distance, route_facing);
         obstacle_index = legal_monster_move(monster_index, route_facing, &new_location);
     }
+    if (sprintathon_ground_ai(monster, definition)) {
+        world_distance body_floor = INT16_MIN;
+        const short body = legal_player_move(monster_index, &new_location, &body_floor);
+        if (body != NONE && GET_OBJECT_OWNER(get_object_data(body)) == _object_is_monster)
+            obstacle_index = body;
+    }
     /* Retain the normal terrain, platform and object movement checks. */
     if (obstacle_index == NONE)
 	{
@@ -4185,6 +4653,10 @@ static bool translate_monster(
 		if (GET_OBJECT_OWNER(obstacle_object)==_object_is_monster)
 		{
 			struct monster_data *obstacle_monster= get_monster_data(obstacle_object->permutation);
+            sprintathon_queue_body_push(monster_index,obstacle_object->permutation,
+                double(new_location.x)-object->location.x,
+                double(new_location.y)-object->location.y,0);
+
 	
 			/* we collided with another monster: see if we want to attack him; if not, see if we
 				can attack his current target (if he is locked or losing_lock); if not, drop lock
@@ -4194,6 +4666,24 @@ static bool translate_monster(
 				!MONSTER_IS_BERSERK(monster))
 			{
                 if (sprintathon_ground_step(monster_index, distance, false, &new_location)) return true;
+                // A friendly body is a cylinder to pass, not a reason to pick
+                // a random facing. The destination attempt above only tries
+                // forward motion; explicitly try the stable side preference.
+                if (!MONSTER_IS_PLAYER(obstacle_monster) &&
+                    sprintathon_ground_ai(monster, definition) &&
+                    !MONSTER_IS_ATTACKING(monster) && !monster->external_velocity &&
+                    !monster->vertical_velocity && monster->action != _monster_is_being_hit &&
+                    std::abs(int(object->location.z)-
+                        get_polygon_data(object->polygon)->floor_height) <= WORLD_ONE/16) {
+                    if (sprintathon_ground_step(monster_index, distance, false)) return true;
+                    auto& steering = sprintathon_ground_state(monster_index);
+                    if (dynamic_world->tick_count >= steering.body_repath) {
+                        monster_needs_path(monster_index, false);
+                        steering.body_repath = dynamic_world->tick_count+TICKS_PER_SECOND/2;
+                    }
+                    SET_MONSTER_IDLE_STATUS(monster, true);
+                    return false;
+                }
 				if (!MONSTER_IS_PLAYER(obstacle_monster))
 				{
 					if (monster->mode!=_monster_locked)
@@ -4280,6 +4770,11 @@ static bool translate_monster(
 static bool attempt_evasive_manouvers(
 	short monster_index)
 {
+    const auto contact = sprintathon_contact_facing.find(monster_index);
+    if (contact != sprintathon_contact_facing.end() &&
+        contact->second.tick == dynamic_world->tick_count && contact->second.touching)
+        return false;
+
 	struct monster_data *monster= get_monster_data(monster_index);
 	struct object_data *object= get_object_data(monster->object_index);
 	world_point2d destination= { object->location.x, object->location.y };
@@ -4458,7 +4953,7 @@ static bool sprintathon_clear_shortcut(const world_point2d* goal,
 
 struct SprintathonApproachArc {
     short object = NONE, target = NONE;
-    int tick = -1, level = -1;
+    int tick = -1, level = -1, straight_until = -1;
     double bias = 0, turn = 0;
 };
 static std::map<short, SprintathonApproachArc> sprintathon_approach_arcs;
@@ -4497,31 +4992,50 @@ static double sprintathon_approach_curve(short index, double remaining, angle he
     }
     const auto climbing = sprintathon_float_motion.find(index);
     if (climbing != sprintathon_float_motion.end() && now < climbing->second.climb_until) fade = 0;
+    if (now < arc.straight_until) {
+        arc.turn = 0;
+        return 0;
+    }
     const double wanted = arc.bias*(airborne ? 0.30 : 0.20)*fade;
     arc.turn += (wanted-arc.turn)*(1-std::pow(0.85,elapsed));
     if (fade == 0) arc.turn = 0;
     if (std::abs(arc.turn) < 0.001) return 0;
 
-    // Look ahead with the same body-width/topology checks as path straightening.
-    // In tight areas yield immediately; ease back in once there is room again.
-    world_point3d probe = object->location;
-    const angle direction = NORMALIZE_ANGLE(heading+int(arc.turn*FULL_CIRCLE/6.283185307179586));
-    translate_point2d(&probe, world_distance(std::min(remaining, 0.75*WORLD_ONE)), direction);
-    short polygon = object->polygon;
-    bool arrived = false;
-    for (int i = 0; i < 32; ++i) {
-        const short line = find_line_crossed_leaving_polygon(polygon, &object->location, &probe);
-        if (line == NONE) { arrived = true; break; }
-        polygon = find_adjacent_polygon(polygon,line);
-        if (polygon == NONE) break;
-    }
+    // Curvature is optional: require spare body clearance along both the
+    // route and curved intent. Looking only at the curved endpoint lets the
+    // actor drift off the doorway centreline before noticing its jamb.
     SprintathonShortcutContext context;
     context.object = object; context.definition = definition;
     get_monster_dimensions(index, &context.radius, &context.height);
-    world_point2d point = {probe.x,probe.y};
-    if (!arrived || !sprintathon_clear_shortcut(&point,polygon,polygon,&context) ||
-        legal_monster_move(index,direction,&probe) != NONE) {
+    context.radius = world_distance(std::min(32767,
+        int(context.radius)+std::max(int(WORLD_ONE/8), int(context.radius)/2)));
+    const world_distance lookahead = world_distance(std::min(remaining,
+        std::min(2.0*WORLD_ONE, std::max(1.5*WORLD_ONE,
+            12.0*std::abs(int(definition->speed))))));
+    auto roomy = [&](angle direction) {
+        world_point3d probe = object->location;
+        // Avoid wrapping map coordinates at the signed world-distance limits.
+        const double theta = direction*6.283185307179586/FULL_CIRCLE;
+        const double x = object->location.x+lookahead*std::cos(theta);
+        const double y = object->location.y+lookahead*std::sin(theta);
+        if (x < -32767 || x > 32766 || y < -32767 || y > 32766) return false;
+        translate_point2d(&probe, lookahead, direction);
+        short polygon = object->polygon;
+        bool arrived = false;
+        for (int i = 0; i < 32; ++i) {
+            const short line = find_line_crossed_leaving_polygon(polygon, &object->location, &probe);
+            if (line == NONE) { arrived = true; break; }
+            polygon = find_adjacent_polygon(polygon, line);
+            if (polygon == NONE) break;
+        }
+        world_point2d point = {probe.x, probe.y};
+        return arrived && sprintathon_clear_shortcut(&point, polygon, polygon, &context) &&
+            legal_monster_move(index, direction, &probe) == NONE;
+    };
+    const angle direction = NORMALIZE_ANGLE(heading+int(arc.turn*FULL_CIRCLE/6.283185307179586));
+    if (!roomy(heading) || !roomy(direction)) {
         arc.turn = 0;
+        arc.straight_until = now+TICKS_PER_SECOND;
         return 0;
     }
     return arc.turn;

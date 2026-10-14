@@ -304,6 +304,7 @@ void OGL_SetDefaults(OGL_ConfigureData& Data)
 	Data.LandscapeLightShaftElevation = 50;
 	Data.AnamorphicLensFlares = true;
 	Data.AnamorphicLensFlareStrength = 40;
+	Data.LensFlareStyle = 0;
 	Data.AnimatedMediaRipples = true;
 	Data.AnimatedMediaOpacity = 75;
 	Data.AnimatedMediaRippleStrength = 3; // 0.75x
