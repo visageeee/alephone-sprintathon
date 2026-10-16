@@ -444,6 +444,7 @@ void TextureState::Reset()
 	IsUsed = IsGlowing = IsBumped = IsUpscaled = TexGened[Normal] = TexGened[Glowing] = TexGened[Bump] = false;
 	IDUsage[Normal] = IDUsage[Glowing] = IDUsage[Bump] = unusedFrames = 0;
 	BrightEmission = false;
+	SkyColorValid = false;
 	ProjectileVisualColorValid = false;
 }
 
@@ -871,6 +872,48 @@ bool TextureManager::Setup()
 		if (IsGlowing && (!GlowImage.get() || !GlowImage.get()->IsPresent())) 
 			GlowImage.edit(new ImageDescriptor(TxtrWidth, TxtrHeight, GetOGLTexture(GlowColorTable)));
 		
+
+        CTState.SkyColorValid = false;
+        const char* skyBakeSetting = std::getenv("SPRINTATHON_SKY_BAKE");
+        if ((skyBakeSetting ? skyBakeSetting[0] == '1' : graphics_preferences->baked_landscape_lighting) &&
+            TextureType == OGL_Txtr_Landscape && NormalImage.get() && NormalImage.get()->IsPresent()) {
+            // Work on a copy when decoding compressed replacement landscapes.
+            ImageDescriptor skyImage(*NormalImage.get());
+            // MakeRGBA is a DXTC decoder, not an idempotent format conversion.
+            // Calling it on RGBA with no mipmaps discards the pixel buffer.
+            const bool rgbaReady = skyImage.GetFormat() == ImageDescriptor::RGBA8 ||
+                ((skyImage.GetFormat() == ImageDescriptor::DXTC1 ||
+                  skyImage.GetFormat() == ImageDescriptor::DXTC3 ||
+                  skyImage.GetFormat() == ImageDescriptor::DXTC5) &&
+                 skyImage.GetMipMapCount() > 0 && skyImage.MakeRGBA());
+            if (rgbaReady && skyImage.GetBuffer() &&
+                skyImage.GetWidth() > 0 && skyImage.GetHeight() > 0 &&
+                skyImage.GetBufferSize() > 0 &&
+                size_t(skyImage.GetWidth()) <= size_t(skyImage.GetBufferSize()) /
+                    4 / size_t(skyImage.GetHeight())) {
+                const int w=skyImage.GetWidth(), h=skyImage.GetHeight();
+                const unsigned char* pixels=reinterpret_cast<const unsigned char*>(skyImage.GetBuffer());
+                double avg[3]={0,0,0}, bright[3]={0,0,0}, count=0, weight=0;
+                for(int y=0;y<h;y+=std::max(1,h/64))for(int x=0;x<w;x+=std::max(1,w/128)) {
+                    const auto* c=pixels+4*(y*w+x);
+                    const double alpha=c[3]/255.0;
+                    const double l=(.2126*c[0]+.7152*c[1]+.0722*c[2])/255.0;
+                    const double b=alpha*l*l*l*l;
+                    count+=alpha;weight+=b;
+                    for(int i=0;i<3;++i){avg[i]+=alpha*c[i]/255.0;bright[i]+=b*c[i]/255.0;}
+                }
+                if(count>0) {
+                    // Normalize hue, retaining darkness in genuinely dark skies.
+                    double peak=std::max(avg[0],std::max(avg[1],avg[2]))/count;
+                    double sunPeak=weight>0?std::max(bright[0],std::max(bright[1],bright[2]))/weight:0;
+                    for(int i=0;i<3;++i) {
+                        CTState.SkyAmbient[i]=float(avg[i]/count/std::max(.25,peak));
+                        CTState.SkySun[i]=weight>0?float(bright[i]/weight/std::max(.25,sunPeak)):0;
+                    }
+                    CTState.SkyColorValid=true;
+                }
+            }
+        }
 
         // Sample decoded RGBA once per texture, before optional compression/minification.
         // Uniformly pale textures are deliberately excluded.

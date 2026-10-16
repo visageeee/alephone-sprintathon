@@ -39,6 +39,7 @@
 #include "FileHandler.h"
 
 #ifdef HAVE_OPENGL
+#include "SprintathonSkyBake.h"
 
 extern bool ShowPosition;
 
@@ -383,6 +384,7 @@ void RenderRasterize_Shader::setupGL(Rasterizer_Shader_Class& Rasterizer) {
     sprintathon_release_scenery_light_texture();
     sprintathon_gpu_profiler.reset();
     sprintathon_world_detail.reset();
+    SprintathonSkyBake::reset();
 
 	RasPtr = &Rasterizer;
 
@@ -3015,6 +3017,7 @@ static bool sprintathon_draw_volume_fog(const view_data* camera, GLuint scene,
 }
 
 void RenderRasterize_Shader::render_tree() {
+    SprintathonSkyBake::prepare();
     SprintathonStartupFrame startup_frame;
     SprintathonStartupPhase light_prepare(SprintathonStartupTiming::get().light_prepare_ms);
     sprintathon_flame_scene_captured = false;
@@ -3116,6 +3119,7 @@ void RenderRasterize_Shader::render_tree() {
 
 	Shader* s = Shader::get(Shader::S_Invincible);
 	s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
 	s->setFloat(Shader::U_Time, view->tick_count);
 	s->setFloat(Shader::U_LogicalWidth, view->screen_width);
 	s->setFloat(Shader::U_LogicalHeight, view->screen_height);
@@ -3124,6 +3128,7 @@ void RenderRasterize_Shader::render_tree() {
 	if (blur.get()) {
 		s = Shader::get(Shader::S_InvincibleBloom);
 		s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
 		s->setFloat(Shader::U_Time, view->tick_count);
 		s->setFloat(Shader::U_LogicalWidth, view->screen_width);
 		s->setFloat(Shader::U_LogicalHeight, view->screen_height);
@@ -3228,6 +3233,7 @@ void RenderRasterize_Shader::render_tree() {
 
 	for (auto s : landscape_shaders) {
 		s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
 		s->setFloat(Shader::U_FogMix, fogMix);
 		s->setFloat(Shader::U_Yaw, virtual_yaw);
 		s->setFloat(Shader::U_Pitch, view->mimic_sw_perspective ? 0.0 : virtual_pitch);
@@ -3251,6 +3257,7 @@ void RenderRasterize_Shader::render_tree() {
 	
 	for (auto s : fog_mode_shaders) {
 		s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
 		s->setFloat(Shader::U_FogMode, fogmode);
 		s->setFloat(Shader::U_MediaFogEnabled, media_fog_enabled);
 		s->setFloat(Shader::U_MediaFogTop, media_fog_top);
@@ -3647,12 +3654,16 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 			s = Shader::get(Shader::S_InvincibleBloom);
 		}
 		s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
+        s->setVector4(Shader::U_SkyBakeActor,0,0,0,0);
         s->setFloat(Shader::U_TransferFadeOut,((float)((uint16)rect.transfer_data))/(float)((int)FIXED_ONE));
 	} else if (current_player->infravision_duration) {
 		color[0] = color[1] = color[2] = 1;
 		FindInfravisionVersionRGBA(GET_COLLECTION(GET_DESCRIPTOR_COLLECTION(rect.ShapeDesc)), color);
 		s = Shader::get(Shader::S_SpriteInfravision);
 		s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
+        s->setVector4(Shader::U_SkyBakeActor,0,0,0,0);
 	} else if (TMgr->TransferMode == _tinted_transfer) {
 		flare = -1;
 		if (renderStep == kDiffuse) {
@@ -3661,6 +3672,8 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 			s = Shader::get(Shader::S_InvisibleBloom);
 		}
 		s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
+        s->setVector4(Shader::U_SkyBakeActor,0,0,0,0);
 		const float visibility = 1.0f - rect.transfer_data / 32.0f;
 		if (renderStep == kDiffuse &&
             (Get_OGL_ConfigureData().RefractiveInvisibility ||
@@ -3708,6 +3721,8 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 			s = Shader::get(Shader::S_SpriteBloom);
 		}
 		s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
+        s->setVector4(Shader::U_SkyBakeActor,0,0,0,0);
 	}
 
 	if(TMgr->Setup()) {
@@ -3799,6 +3814,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 			flare = -1;
 			s = Shader::get(renderStep == kGlow ? Shader::S_InvincibleBloom : Shader::S_Invincible);
 			s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
             s->setFloat(Shader::U_TransferFadeOut,0);
 			break;
 		case _xfer_landscape:
@@ -3842,6 +3858,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 				}
 			}
 			s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
 			break;
 		default:
 			TMgr->TextureType = OGL_Txtr_Wall;
@@ -3867,10 +3884,16 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 			s = Shader::get(renderStep == kGlow ? Shader::S_WallBloom : Shader::S_Wall);
 		}
 		s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
 	}
 
 	if(TMgr->Setup()) {
 		TMgr->RenderNormal(); // must allocate first
+        if (SprintathonSkyBake::enabled() && TMgr->TextureType == OGL_Txtr_Landscape &&
+            renderStep == kDiffuse && !IsInfravisionActive()) {
+            float ambient[3], sunlight[3];
+            if (TMgr->GetSkyColor(ambient, sunlight)) SprintathonSkyBake::landscapeColor(ambient, sunlight);
+        }
 		if (TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_BumpMap) && !sprintathon_fast_shaft_source()) {
 			glActiveTextureARB(GL_TEXTURE1_ARB);
 			TMgr->RenderBump();
@@ -4093,6 +4116,7 @@ bool setupGlow(struct view_data *view, std::unique_ptr<TextureManager>& TMgr, fl
 		glAlphaFunc(GL_GREATER, 0.001);
 
 		s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
 		// Glow overlays retain their existing alpha/depth behavior. Also reset
 		// the shared wall shader before it is reused by another draw pass.
 		s->setFloat(Shader::U_SprintathonShaftSource, 0.0f);
@@ -4367,6 +4391,18 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
 
     sprintathon_set_sector_light_edges(
         sprintathon_surface_shader(renderStep, TMgr->TextureType), polygon, surface, ceil, view);
+    if (SprintathonSkyBake::enabled() && renderStep == kDiffuse &&
+        (!surface->is_media || surface->media_type != _media_lava) &&
+        !current_player->infravision_duration && TMgr->TextureType == OGL_Txtr_Wall && polygon && polygon->vertex_count) {
+        double x0=1e30,y0=1e30,x1=-1e30,y1=-1e30;
+        for(int i=0;i<polygon->vertex_count;++i){const auto& p=get_endpoint_data(polygon->endpoint_indexes[i])->vertex;
+            x0=std::min(x0,double(p.x));x1=std::max(x1,double(p.x));y0=std::min(y0,double(p.y));y1=std::max(y1,double(p.y));}
+        using SprintathonSkyBake::V;
+        SprintathonSkyBake::bind(sprintathon_surface_shader(renderStep, TMgr->TextureType),polygon,
+            surface->is_media ? (ceil ? 17 : 16) : (ceil ? 1 : 0),
+            V(x0,y0,surface->height),V(1,0,0),V(0,1,0),V(0,0,ceil?-1:1),x1-x0,y1-y0);
+    }
+
     if(renderStep == kDiffuse)
         sprintathon_set_floor_cone_pools(sprintathon_surface_shader(renderStep, TMgr->TextureType),
             polygon, surface, ceil);
@@ -4672,6 +4708,22 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
 
     sprintathon_set_wall_light_edges(
         sprintathon_surface_shader(renderStep, TMgr->TextureType), surface, view);
+    if (SprintathonSkyBake::enabled() && renderStep == kDiffuse && !current_player->infravision_duration &&
+        TMgr->TextureType == OGL_Txtr_Wall && surface->blend_polygon && surface->blend_edge != NONE) {
+        using SprintathonSkyBake::V;
+        const auto* owner=surface->blend_polygon;
+        V origin(surface->p0.i,surface->p0.j,surface->h0+view->origin.z);
+        V delta(double(surface->p1.i)-surface->p0.i,double(surface->p1.j)-surface->p0.j,0);
+        double length=std::sqrt(SprintathonSkyBake::dot(delta,delta));
+        V axis=SprintathonSkyBake::unit(delta),normal(-axis.y,axis.x,0);
+        V center;
+        for(int i=0;i<owner->vertex_count;++i){const auto& p=get_endpoint_data(owner->endpoint_indexes[i])->vertex;center=center+V(p.x,p.y,0);}
+        center=center*(1.0/std::max(1,int(owner->vertex_count)));
+        if(SprintathonSkyBake::dot(center+origin*(-1),normal)<0)normal=normal*(-1);
+        SprintathonSkyBake::bind(sprintathon_surface_shader(renderStep, TMgr->TextureType),owner,2+surface->blend_edge,
+            origin,axis,V(0,0,1),normal,length,std::min(surface->h1,surface->hmax)-surface->h0);
+    }
+
     if (graphics_preferences->projectile_lights_per_pixel) {
         glColor4f(intensity, intensity, intensity, 1.0f);
         sprintathon_set_pixel_light(surface_light_x, surface_light_y, surface_light_z, renderStep, TMgr->TextureType, &surface_bounds);
@@ -4838,6 +4890,7 @@ bool RenderModel(rectangle_definition& RenderRectangle, short Collection,
 			s = Shader::get(Shader::S_InvincibleBloom);
 		}
         s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
         s->setFloat(Shader::U_TransferFadeOut,((float)((uint16)RenderRectangle.transfer_data))/(float)((int)FIXED_ONE));
 	} else if (current_player->infravision_duration) {
 		color[0] = color[1] = color[2] = 1;
@@ -4851,6 +4904,7 @@ bool RenderModel(rectangle_definition& RenderRectangle, short Collection,
 			s = Shader::get(Shader::S_InvisibleBloom);
 		}
 		s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
 		const float visibility =
 			1.0f - RenderRectangle.transfer_data / 32.0f;
 		if (renderStep == kDiffuse &&
@@ -4888,10 +4942,12 @@ bool RenderModel(rectangle_definition& RenderRectangle, short Collection,
 			s = Shader::get(renderStep == kGlow ? Shader::S_WallBloom : Shader::S_Wall);
 		}
 		s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
 	}
 
     if (sprintathon_fast_shaft_source() && renderStep == kDiffuse) {
         s=Shader::get(Shader::S_ShaftOcclusion); s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
         sprintathon_trace_mask_bound();
         s->setFloat(Shader::U_Visibility,RenderRectangle.transfer_mode == _tinted_transfer ?
             std::max(0.0f,std::min(1.0f,1.0f-RenderRectangle.transfer_data/32.0f)) : 1.0f);
@@ -4967,6 +5023,7 @@ bool RenderModel(rectangle_definition& RenderRectangle, short Collection,
 		glAlphaFunc(GL_GREATER, 0.001);
 
 		s->enable();
+        s->setFloat(Shader::U_SkyBakeEnabled, 0);
 		s->setFloat(Shader::U_Glow, SkinPtr->MinGlowIntensity);
 		if (renderStep == kGlow) {
 			s->setFloat(Shader::U_BloomScale, SkinPtr->GlowBloomScale);
@@ -5148,6 +5205,12 @@ void RenderRasterize_Shader::_render_node_object_helper(render_object_data *obje
 
 	auto TMgr = setupSpriteTexture(rect, OGL_Txtr_Inhabitant, offset, renderStep);
 	if (TMgr->ShapeDesc == UNONE) { glPopMatrix(); return; }
+    if (renderStep == kDiffuse && !sprintathon_fast_shaft_source() &&
+        !current_player->infravision_duration && rect.transfer_mode == _textured_transfer &&
+        !(rect.flags & _SHADELESS_BIT) && object->node) {
+        SprintathonSkyBake::bindActor(Shader::get(Shader::S_Sprite),object->node->polygon_index,
+            SprintathonSkyBake::V(pos.x,pos.y,pos.z+(rect.WorldTop+rect.WorldBottom)*rect.Scale*0.5));
+    }
     if (renderStep == kDiffuse && object->projectile_index != NONE &&
         object->projectile_index >= 0 &&
         static_cast<size_t>(object->projectile_index) < ProjectileList.size()) {
@@ -6122,6 +6185,12 @@ void RenderRasterize_Shader::render_viewer_sprite(rectangle_definition& RenderRe
 	// Match the world-sprite path: never read texture options or draw this quad
 	// when setupSpriteTexture has marked the texture invalid.
 	if (TMgr->ShapeDesc == UNONE) return;
+    if (renderStep == kDiffuse && !current_player->infravision_duration &&
+        RenderRectangle.transfer_mode == _textured_transfer && !(RenderRectangle.flags & _SHADELESS_BIT)) {
+        SprintathonSkyBake::bindActor(Shader::get(Shader::S_Sprite),view->origin_polygon_index,
+            SprintathonSkyBake::V(view->origin.x,view->origin.y,view->origin.z));
+    }
+
 	
 	// Calculate the texture coordinates;
 	// the scanline direction is downward, (texture coordinate 0)

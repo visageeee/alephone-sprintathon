@@ -76,6 +76,8 @@ struct TextureState
 	bool IsGlowing;						// Does the texture have a glow map?
 	bool IsBumped;						// Does the texture have a bump map?
 	bool IsUpscaled;					// Keep costly upscaled textures resident for this level
+	bool SkyColorValid;
+	float SkyAmbient[3], SkySun[3];
 	bool BrightEmission;
 	float BrightU, BrightV, BrightColor[3];
 	bool ProjectileVisualColorValid;
@@ -247,6 +249,11 @@ public:
 	// and whether the textures are blended rather than all-or-nothing crisp-edged
 	int GetTextureType() {return TextureType;}	
 	bool IsGlowMapped() {return IsGlowing;}
+    bool GetSkyColor(float ambient[3], float sun[3]) const {
+        if (!TxtrStatePtr || !TxtrStatePtr->SkyColorValid) return false;
+        for (int i=0;i<3;++i) { ambient[i]=TxtrStatePtr->SkyAmbient[i]; sun[i]=TxtrStatePtr->SkySun[i]; }
+        return true;
+    }
     bool GetBrightEmission(float& u, float& v, float rgb[3]) const {
         if (!TxtrStatePtr || !TxtrStatePtr->BrightEmission) return false;
         u = TxtrStatePtr->BrightU; v = TxtrStatePtr->BrightV;

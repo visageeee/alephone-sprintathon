@@ -39,6 +39,7 @@ public:
 		U_Texture1,
 		U_Texture2,
 		U_Texture3,
+        U_SkyBakeActor, U_SkyBakeSun, U_SkyBakeAmbient, U_SkyBakeMap, U_SkyBakeEnabled, U_SkyBakeU, U_SkyBakeV,
 		U_Time,
 		U_Pulsate,
 		U_Wobble,

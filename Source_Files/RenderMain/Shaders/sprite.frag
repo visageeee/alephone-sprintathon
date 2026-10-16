@@ -97,6 +97,8 @@ vec4 flameSpriteColor(vec2 uv) {
     return c;
 }
 
+uniform vec4 skyBakeActor;
+
 void main (void) {
 	vec4 color = flameRipple.x > 0.0 ? flameSpriteColor(gl_TexCoord[0].xy) : projectileSpriteColor(gl_TexCoord[0].xy);
     // Preserve the existing fixed-function alpha test and depth behavior.
@@ -109,6 +111,7 @@ void main (void) {
 		intensity = vertexColor.rgb + (mlFactor * 0.5); }
 	else {
 		intensity = (vertexColor.rgb * 0.5) + mlFactor; }
+	if (skyBakeActor.a > 0.5) intensity = skyBakeActor.rgb + vec3(mlFactor * 0.5);
 	intensity = clamp(intensity + sprintathonLightColor.rgb, glow, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)

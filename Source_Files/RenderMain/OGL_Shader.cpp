@@ -58,6 +58,7 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"texture1",
 	"texture2",
 	"texture3",
+    "skyBakeActor", "skyBakeSun", "skyBakeAmbient", "skyBakeMap", "skyBakeEnabled", "skyBakeU", "skyBakeV",
 	"time",
 	"pulsate",
 	"wobble",
@@ -453,7 +454,8 @@ void Shader::init() {
 	glUniform1iARB(getUniformLocation(U_Texture0), 0);
 	glUniform1iARB(getUniformLocation(U_Texture1), 1);
 	glUniform1iARB(getUniformLocation(U_Texture2), 2);
-	glUniform1iARB(getUniformLocation(U_Texture3), 3);	
+	glUniform1iARB(getUniformLocation(U_Texture3), 3);
+    glUniform1iARB(getUniformLocation(U_SkyBakeMap), 4);
 
 	glUseProgramObjectARB(0);
 
@@ -905,15 +907,15 @@ void main() {
    float ds=max(0.0,min(exitDistance,cell+0.5)-max(t,cell));
    float sampleDistance=cell+0.25;
    vec3 p=origin+ray*sampleDistance;
-   vec3 wind=vec3(vfSettings.w*0.035,vfSettings.w*0.019,0.0);
-   // Broad, slow domain warping: one existing noise lookup, no extra pass.
+   vec3 wind=vec3(vfSettings.w*0.055,vfSettings.w*0.030,0.0);
+   // More closely spaced, faster folds: one noise lookup, no extra pass.
    // Sample in world space so camera movement cannot drag the pattern.
-   vec3 fogCoord=p*0.32-wind;
-   vec3 bend=sin(vec3(fogCoord.y*0.65+fogCoord.z*0.35,
-                      fogCoord.z*0.55+fogCoord.x*0.45,
-                      fogCoord.x*0.40-fogCoord.y*0.50)+
-                 vfSettings.w*vec3(0.18,-0.14,0.11));
-   float cloud=vfNoise(fogCoord+bend*vec3(0.75,0.65,0.24));
+   vec3 fogCoord=p*0.42-wind;
+   vec3 bend=sin(vec3(fogCoord.y*0.90+fogCoord.z*0.48,
+                      fogCoord.z*0.76+fogCoord.x*0.62,
+                      fogCoord.x*0.55-fogCoord.y*0.69)+
+                 vfSettings.w*vec3(0.50,-0.39,0.31));
+   float cloud=vfNoise(fogCoord+bend*vec3(0.95,0.85,0.32));
    // The noise uses fixed ray cells, but the height lookup must stay inside
    // this segment when a cell straddles a portal or a narrow stair tread.
    float layerDistance=clamp(sampleDistance,t,max(t,exitDistance));

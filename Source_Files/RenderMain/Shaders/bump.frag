@@ -1,6 +1,11 @@
 R"(
 
 uniform sampler2D texture0;
+uniform sampler2D skyBakeMap;
+uniform vec4 skyBakeSun;
+uniform vec4 skyBakeAmbient;
+uniform float skyBakeEnabled;
+uniform vec4 skyBakeU, skyBakeV;
 uniform sampler2D texture1;
 uniform sampler2DRect texture2;
 uniform float pulsate;
@@ -861,6 +866,13 @@ R"(                float segmentDistance = sqrt(segmentDistanceSquared);
     if (sectorBlendWeight > 0.0)
         intensity = mix(intensity, vec3(sectorShadeSum / sectorBlendWeight),
                         min(sectorBlendWeight, 0.5) * surfaceDetail);
+    }
+    // Replace sector brightness with static sky illumination. Surface UVs
+    // derive from world coordinates, independent of texture scrolling.
+    if (skyBakeEnabled > 0.5) {
+        vec4 wp = vec4(sprintathonWorldPosition, 1.0);
+        vec2 baked = texture2D(skyBakeMap, vec2(dot(wp, skyBakeU), dot(wp, skyBakeV))).rg;
+        intensity = max(vec3(glow), vec3(0.035) + baked.r * skyBakeSun.rgb + baked.g * skyBakeAmbient.rgb);
     }
     if (sprintathonConeColor0.a > 0.0) {
         vec2 poolDelta = (sprintathonWorldPosition.xy - sprintathonConePool0.xy) * sprintathonConePool0.w;
