@@ -126,6 +126,7 @@ struct graphics_preferences_data
 	bool soft_sector_light_edges;
 	int16 sector_shading_softness;
     bool baked_landscape_lighting;
+    int16 baked_landscape_ambient;
     bool liquid_caustics;
     int16 liquid_fluorescence;
     int16 liquid_caustic_strength;

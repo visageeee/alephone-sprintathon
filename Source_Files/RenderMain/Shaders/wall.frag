@@ -834,7 +834,7 @@ R"(            }
     if (skyBakeEnabled > 0.5) {
         vec4 wp = vec4(sprintathonWorldPosition, 1.0);
         vec2 baked = texture2D(skyBakeMap, vec2(dot(wp, skyBakeU), dot(wp, skyBakeV))).rg;
-        intensity = max(vec3(glow), vec3(0.035) + baked.r * skyBakeSun.rgb + baked.g * skyBakeAmbient.rgb);
+        intensity = max(vec3(glow), vec3(skyBakeAmbient.a) + baked.r * skyBakeSun.rgb + baked.g * skyBakeAmbient.rgb);
     }
     if (sprintathonConeColor0.a > 0.0) {
         vec2 poolDelta = (sprintathonWorldPosition.xy - sprintathonConePool0.xy) * sprintathonConePool0.w;

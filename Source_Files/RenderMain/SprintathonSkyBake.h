@@ -72,7 +72,7 @@ inline void prepare(){
    r.edges.push_back(e);
   }
  }
- fprintf(stderr,"Sky bake: static geometry captured; lightmaps build on first visibility. Restart level to rebake.\n");
+ fprintf(stderr,"Sky bake: static geometry captured; preparing lightmaps. Restart level to rebake.\n");
 }
 inline bool visible(int room,V origin,V direction){
  double t=0;
@@ -111,6 +111,7 @@ inline V light(int room,V p,V normal){
 }
 // Cache a world-space irradiance grid per polygon. Polygon IDs preserve
 // overlapping map topology; trilinear interpolation softens moving shadows.
+inline double ambientFloor(){return std::max(0.0,std::min(1.0,graphics_preferences->baked_landscape_ambient/100.0));}
 inline V actorLight(int room,V point){
  const double spacing=256.0;
  const int ix=int(std::floor(point.x/spacing)),iy=int(std::floor(point.y/spacing)),iz=int(std::floor(point.z/spacing));
@@ -127,7 +128,8 @@ inline V actorLight(int room,V point){
   double weight=(x?fx:1-fx)*(y?fy:1-fy)*(z?fz:1-fz);
   total=total+found->second*weight;
  }
- return V(.035,.035,.035)+sunColor*total.x+ambientColor*total.y;
+ const double base=ambientFloor();
+ return V(base,base,base)+sunColor*total.x+ambientColor*total.y;
 }
 inline void bindActor(Shader* shader,int room,V point){
  if(!shader || !enabled() || !available || room<0 || room>=int(rooms.size()))return;
@@ -135,11 +137,22 @@ inline void bindActor(Shader* shader,int room,V point){
  shader->setVector4(Shader::U_SkyBakeActor,float(c.x),float(c.y),float(c.z),1);
 }
 inline void bind(Shader* shader,const polygon_data* polygon,int face,V origin,V u,V v,V normal,double width,double height){
- if(!shader)return;
- shader->setFloat(Shader::U_SkyBakeEnabled,0);
+ if(shader)shader->setFloat(Shader::U_SkyBakeEnabled,0);
  if(!enabled() || !available || !polygon || polygon->type==_polygon_is_platform || width<1 || height<1)return;
  int room=int(polygon-get_polygon_data(0));if(room<0 || room>=int(rooms.size()))return;
- // Height in the key distinguishes the upper and lower halves of split walls.
+ // Use one full-height lightmap per wall edge. Rendering may split or clip
+ // that wall differently, but must address the same preloaded lightmap.
+ if(face>=2 && face<16){
+  int edge=face-2;if(edge>=int(rooms[room].edges.size()))return;
+  const auto& e=rooms[room].edges[edge];
+  origin=V(e.a.x,e.a.y,rooms[room].floor);
+  V delta=e.b+e.a*(-1);width=std::sqrt(dot(delta,delta));
+  height=rooms[room].ceiling-rooms[room].floor;
+  u=unit(delta);v=V(0,0,1);normal=e.in;
+  if(width<1 || height<1)return;
+ }
+ // Height remains part of the key for moving media.
+
  auto key=std::make_tuple(room,face,int(std::lround(origin.z)),int(std::lround(height)));
  auto it=maps.find(key);
  if(it==maps.end()){
@@ -187,11 +200,34 @@ inline void bind(Shader* shader,const polygon_data* polygon,int face,V origin,V 
   glTexImage2D(GL_TEXTURE_2D,0,GL_RGB8,w,h,0,GL_RGB,GL_UNSIGNED_BYTE,pixels.data());glPixelStorei(GL_UNPACK_ALIGNMENT,alignment);glActiveTextureARB(active);
   it=maps.emplace(key,m).first;
  }
+ if(!shader)return; // Loading creates textures without binding a draw shader.
  shader->setVector4(Shader::U_SkyBakeSun,float(sunColor.x),float(sunColor.y),float(sunColor.z),0);
- shader->setVector4(Shader::U_SkyBakeAmbient,float(ambientColor.x),float(ambientColor.y),float(ambientColor.z),0);
+ shader->setVector4(Shader::U_SkyBakeAmbient,float(ambientColor.x),float(ambientColor.y),float(ambientColor.z),float(ambientFloor()));
  const auto& m=it->second;GLint active=0;glGetIntegerv(GL_ACTIVE_TEXTURE_ARB,&active);glActiveTextureARB(GL_TEXTURE0_ARB+4);glBindTexture(GL_TEXTURE_2D,m.texture);glActiveTextureARB(active);
  shader->setVector4(Shader::U_SkyBakeU,float(m.u.x*m.us),float(m.u.y*m.us),float(m.u.z*m.us),float(m.u0));
  shader->setVector4(Shader::U_SkyBakeV,float(m.v.x*m.vs),float(m.v.y*m.vs),float(m.v.z*m.vs),float(m.v0));shader->setFloat(Shader::U_SkyBakeEnabled,1);
 }
+inline void preload(void (*progress)()){
+ reset();prepare();
+ if(!enabled() || !available)return;
+ for(int room=0;room<int(rooms.size());++room){
+  const auto* polygon=get_polygon_data(room);const auto& bounds=rooms[room];
+  if(polygon->type!=_polygon_is_platform && !bounds.edges.empty()){
+   double x0=1e30,y0=1e30,x1=-1e30,y1=-1e30;
+   for(const auto& edge:bounds.edges){x0=std::min(x0,edge.a.x);x1=std::max(x1,edge.a.x);y0=std::min(y0,edge.a.y);y1=std::max(y1,edge.a.y);}
+   if(!bounds.floorSky)bind(nullptr,polygon,0,V(x0,y0,bounds.floor),V(1,0,0),V(0,1,0),V(0,0,1),x1-x0,y1-y0);
+   if(progress)progress();
+   if(!bounds.ceilingSky)bind(nullptr,polygon,1,V(x0,y0,bounds.ceiling),V(1,0,0),V(0,1,0),V(0,0,-1),x1-x0,y1-y0);
+   for(int edge=0;edge<int(bounds.edges.size());++edge){
+    // Even currently hidden sides are prepared for doors opening later.
+    if(polygon->side_indexes[edge]!=NONE)bind(nullptr,polygon,2+edge,V(),V(),V(),V(),1,1);
+    if(progress)progress();
+   }
+  }
+  if(progress)progress();
+ }
+ fprintf(stderr,"Sky bake: preloaded %lu static surface lightmaps.\n",static_cast<unsigned long>(maps.size()));
+}
+
 }
 #endif

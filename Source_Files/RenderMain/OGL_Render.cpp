@@ -529,6 +529,8 @@ bool OGL_ClearScreen()
 void OGL_Rasterizer_Init();
 
 // Start an OpenGL run (creates a rendering context)
+extern void sprintathon_prebake_sky_lighting(void (*progress)());
+
 bool OGL_StartRun(bool retain_sprites)
 {
 	logContext("starting up OpenGL rendering");
@@ -660,6 +662,8 @@ bool OGL_StartRun(bool retain_sprites)
 	// Avoid lazy initial texture loading
 	OGL_SetProgressMessage("preparing level textures");
 	PreloadTextures();
+    OGL_SetProgressMessage("baking landscape lighting");
+    sprintathon_prebake_sky_lighting([] { OGL_ProgressCallback(0); });
 	OGL_SetProgressMessage("finishing level");
 	OGL_ProgressCallback(1);
 	OGL_StopProgress();

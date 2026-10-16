@@ -384,7 +384,6 @@ void RenderRasterize_Shader::setupGL(Rasterizer_Shader_Class& Rasterizer) {
     sprintathon_release_scenery_light_texture();
     sprintathon_gpu_profiler.reset();
     sprintathon_world_detail.reset();
-    SprintathonSkyBake::reset();
 
 	RasPtr = &Rasterizer;
 
@@ -3014,6 +3013,11 @@ static bool sprintathon_draw_volume_fog(const view_data* camera, GLuint scene,
     glMatrixMode(GL_MODELVIEW);glPopMatrix();glMatrixMode(GL_PROJECTION);glPopMatrix();glMatrixMode(GL_MODELVIEW);
     glPopAttrib();glActiveTextureARB(GL_TEXTURE0_ARB);
     return true;
+}
+
+// Called while the level-loading progress screen is still active.
+void sprintathon_prebake_sky_lighting(void (*progress)()) {
+    SprintathonSkyBake::preload(progress);
 }
 
 void RenderRasterize_Shader::render_tree() {
