@@ -18,11 +18,10 @@ struct SprintathonStartupTiming {
     }
     double cpu=0,cpu_max=0,interval_max=0,upload_ms=0,compile_ms=0;
     static SprintathonStartupTiming& get() { static SprintathonStartupTiming data;return data; }
-    bool active() const { return started && !loading &&
-        (extended() || std::chrono::duration<double>(Clock::now()-start).count()<60); }
+    bool active() const { return extended() && started && !loading; }
     void begin() { *this=SprintathonStartupTiming{}; }
     void ready() {
-        std::fprintf(stderr,"Startup loading: %u shaders %.1f ms; %u texture preparations/uploads %.1f ms\n",
+        if (extended()) std::fprintf(stderr,"Startup loading: %u shaders %.1f ms; %u texture preparations/uploads %.1f ms\n",
             compiles,compile_ms,uploads,upload_ms);
         loading=false;started=true;start=report=last=Clock::now();
         uploads=compiles=evictions=0;upload_ms=compile_ms=0;
@@ -34,7 +33,7 @@ struct SprintathonStartupWork {
     explicit SprintathonStartupWork(bool value):shader(value) {}
     ~SprintathonStartupWork() {
         auto& s=SprintathonStartupTiming::get();
-        if (!s.loading && !s.active()) return;
+        if (!s.extended() || (!s.loading && !s.active())) return;
         const double ms=std::chrono::duration<double,std::milli>(SprintathonStartupTiming::Clock::now()-start).count();
         if(shader){++s.compiles;s.compile_ms+=ms;}else{++s.uploads;s.upload_ms+=ms;}
     }

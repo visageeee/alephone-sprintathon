@@ -18,6 +18,10 @@
 #include "Rasterizer_Shader.h"
 
 #include <memory>
+#include <array>
+#include <cstdint>
+
+namespace SprintathonOpaqueGeometry { struct CpuEntry; }
 
 // Places a short-lived red light at the local player's feet.
 #ifdef HAVE_OPENGL
@@ -39,6 +43,12 @@ class RenderRasterize_Shader : public RenderRasterizerClass {
     enum class WorldSurfacePass { all, opaque, remaining };
     WorldSurfacePass world_surface_pass = WorldSurfacePass::all;
     void render_world_diffuse();
+    void apply_opaque_batch_portal(const std::array<int32_t,4>& portal);
+    void flush_opaque_batch();
+    int queue_opaque_batch(clipping_window_data* window, TextureManager* material,
+        GLenum mode, GLsizei count, const GLfloat* vertices, const GLfloat* uv,
+        SprintathonOpaqueGeometry::CpuEntry* prepared, float intensity,
+        float nx, float ny, float nz, float tx, float ty, float tz, float sign);
     bool skip_world_surface(bool opaque);
     void reset_skipped_world_surface();
     bool world_frustum_active = false;
@@ -59,6 +69,8 @@ protected:
 	virtual void render_node_side(
 		  clipping_window_data *window, vertical_surface_data *surface,
 		  bool void_present, RenderStep renderStep);
+
+    void render_liquid_reflections(sorted_node_data*,clipping_window_data*,polygon_data*,horizontal_surface_data*,RenderStep) override;
 
 	virtual void render_node_object(render_object_data *object, bool other_side_of_media, RenderStep renderStep);
 	

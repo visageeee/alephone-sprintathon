@@ -30,7 +30,8 @@ librendermain_a_SOURCES = AnimatedTextures.h collection_definition.h		   \
   OGL_Setup.cpp OGL_Subst_Texture_Def.cpp OGL_Textures.cpp render.cpp		   \
   RenderPlaceObjs.cpp $(OPENGL_SOURCES) RenderRasterize.cpp RenderSortPoly.cpp \
   RenderVisTree.cpp scottish_textures.cpp shapes.cpp SW_Texture_Extras.cpp	   \
-  textures.cpp OGL_Shader.cpp OGL_FBO.cpp
+  textures.cpp OGL_Shader.cpp OGL_FBO.cpp SprintathonOpaqueGeometry.h \
+  SprintathonOpaqueBatch.h
 
 EXTRA_librendermain_a_SOURCES = Rasterizer_Shader.cpp	\
 RenderRasterize_Shader.cpp

@@ -104,6 +104,8 @@ protected:
 
 	// LP change: add "other side of media" flag, to indicate that the sprite will be rendered
 	// on the opposite side of the liquid surface from the viewpoint, instead of the same side.
+    virtual void render_liquid_reflections(sorted_node_data*,clipping_window_data*,polygon_data*,horizontal_surface_data*,RenderStep) {}
+
 	virtual void render_node_object(
 		render_object_data *object, bool other_side_of_media, RenderStep renderStep);
 

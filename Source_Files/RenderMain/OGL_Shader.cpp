@@ -21,6 +21,10 @@
  */
 #include <algorithm>
 #include <iostream>
+#include <chrono>
+#include <cstdlib>
+#include <cstdio>
+#include "OGL_FBO.h"
 
 #include "OGL_Shader.h"
 #include "SprintathonStartupTiming.h"
@@ -58,7 +62,9 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"texture1",
 	"texture2",
 	"texture3",
-    "skyBakeActor", "skyBakeSun", "skyBakeAmbient", "skyBakeMap", "skyBakeEnabled", "skyBakeU", "skyBakeV",
+    "waterSceneryPosition0", "waterSceneryColor0",
+    "waterSceneryPosition1", "waterSceneryColor1",
+    "skyBakeActor", "skyBakeSun", "skyBakeAmbient", "skyBakeMap", "skyBakeEnabled", "skyBakeU", "skyBakeV", "skyBakeSectorStrength", "liquidSpecLight", "liquidSpecEye", "liquidSceneAvailable", "liquidSkyMap", "liquidSkyParams", "liquidSkyMode", "liquidFlow", "visibleSun", "visibleSunColor", "visibleSunEye",
 	"time",
 	"pulsate",
 	"wobble",
@@ -200,6 +206,7 @@ const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] =
 	"landscape_bloom",
 	"landscape_infravision",
 	"sprite",
+    "water_sprite",
 	"sprite_bloom",
 	"sprite_infravision",
 	"sprite_shadow",
@@ -365,6 +372,96 @@ void Shader::warmup(void (*progress)()) {
     disable();
 }
 
+void Shader::warmupDraws() {
+    const char* requested=std::getenv("SPRINTATHON_SHADER_DRAW_WARMUP");
+    if(!requested || requested[0]!='1' || !FBO_Allowed)return;
+    GLint units=0;glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS,&units);
+    if(units<5)return;
+    const auto start=std::chrono::steady_clock::now();
+    GLint oldFbo=0,oldRenderbuffer=0,oldActive=0,oldMatrix=0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING_EXT,&oldFbo);
+    glGetIntegerv(GL_RENDERBUFFER_BINDING_EXT,&oldRenderbuffer);
+    glGetIntegerv(GL_ACTIVE_TEXTURE_ARB,&oldActive);
+    glGetIntegerv(GL_MATRIX_MODE,&oldMatrix);
+    const GLhandleARB oldProgram=glGetHandleARB(GL_PROGRAM_OBJECT_ARB);
+    glPushAttrib(GL_ALL_ATTRIB_BITS);
+    glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+    glPixelStorei(GL_UNPACK_ALIGNMENT,1);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS,0);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS,0);
+    GLuint fbo=0,buffers[2]={},textures[5]={};
+    glGenFramebuffersEXT(1,&fbo);glBindFramebufferEXT(GL_FRAMEBUFFER_EXT,fbo);
+    glGenRenderbuffersEXT(2,buffers);
+    glBindRenderbufferEXT(GL_RENDERBUFFER_EXT,buffers[0]);
+    glRenderbufferStorageEXT(GL_RENDERBUFFER_EXT,GL_RGBA8,4,4);
+    glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT,GL_COLOR_ATTACHMENT0_EXT,GL_RENDERBUFFER_EXT,buffers[0]);
+    glBindRenderbufferEXT(GL_RENDERBUFFER_EXT,buffers[1]);
+    glRenderbufferStorageEXT(GL_RENDERBUFFER_EXT,GL_DEPTH_COMPONENT24,4,4);
+    glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT,GL_DEPTH_ATTACHMENT_EXT,GL_RENDERBUFFER_EXT,buffers[1]);
+    const bool ready=glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT)==GL_FRAMEBUFFER_COMPLETE_EXT;
+    unsigned draws=0;
+    if(ready){
+        glDrawBuffer(GL_COLOR_ATTACHMENT0_EXT);glReadBuffer(GL_COLOR_ATTACHMENT0_EXT);
+        glViewport(0,0,4,4);glDisable(GL_SCISSOR_TEST);glDisable(GL_CULL_FACE);
+        glDisable(GL_STENCIL_TEST);glDisable(GL_FOG);glDisable(GL_POLYGON_STIPPLE);
+        for(int i=0;i<6;++i)glDisable(GL_CLIP_PLANE0+i);
+        glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
+        glEnable(GL_DEPTH_TEST);glDepthFunc(GL_LEQUAL);glClearDepth(1);glClearColor(0,0,0,0);
+        glGenTextures(5,textures);
+        const unsigned char white[4]={255,255,255,192},normal[4]={128,128,255,255};
+        for(int i=0;i<5;++i){
+            const GLenum target=(i==2 || i==3)?GL_TEXTURE_RECTANGLE_ARB:GL_TEXTURE_2D;
+            glActiveTextureARB(GL_TEXTURE0_ARB+i);glBindTexture(target,textures[i]);
+            glTexParameteri(target,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+            glTexParameteri(target,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+            glTexParameteri(target,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+            glTexParameteri(target,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+            glTexImage2D(target,0,GL_RGBA8,1,1,0,GL_RGBA,GL_UNSIGNED_BYTE,i==1?normal:white);
+        }
+        glActiveTextureARB(GL_TEXTURE0_ARB);glMatrixMode(GL_TEXTURE);glPushMatrix();glLoadIdentity();
+        glMatrixMode(GL_PROJECTION);glPushMatrix();glLoadIdentity();
+        glMatrixMode(GL_MODELVIEW);glPushMatrix();glLoadIdentity();
+        const ShaderType types[]={S_Wall,S_Bump,S_Sprite};
+        for(auto type:types){
+            if(type==S_Bump && !TEST_FLAG(Get_OGL_ConfigureData().Flags,OGL_Flag_BumpMap))continue;
+            Shader* shader=get(type);shader->enable();
+            // Save and restore raw uniforms, leaving the normal uniform caches untouched.
+            const UniformName names[]={U_Glow,U_FogMode,U_PixelWidth,U_PixelHeight};
+            const float values[]={0.1f,-1.0f,4.0f,4.0f};
+            GLint locations[4];GLfloat saved[4]={};
+            for(int i=0;i<4;++i){
+                locations[i]=shader->getUniformLocation(names[i]);
+                if(locations[i]>=0){glGetUniformfvARB(shader->_programObj,locations[i],&saved[i]);glUniform1fARB(locations[i],values[i]);}
+            }
+            glColor4f(.7f,.7f,.7f,1);glNormal3f(0,0,1);
+            glMultiTexCoord4fARB(GL_TEXTURE1_ARB,1,0,0,1);
+            for(int state=0;state<3;++state){
+                glDepthMask(GL_TRUE);glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+                if(state==1){glEnable(GL_ALPHA_TEST);glAlphaFunc(GL_GREATER,.5f);}else glDisable(GL_ALPHA_TEST);
+                if(state==2){glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);glDepthMask(GL_FALSE);}else glDisable(GL_BLEND);
+                glBegin(GL_TRIANGLES);
+                glTexCoord2f(0,0);glVertex3f(-1,-1,-.5f);
+                glTexCoord2f(1,0);glVertex3f(3,-1,-.5f);
+                glTexCoord2f(0,1);glVertex3f(-1,3,-.5f);
+                glEnd();++draws;
+            }
+            for(int i=0;i<4;++i)if(locations[i]>=0)glUniform1fARB(locations[i],saved[i]);
+        }
+        // Loading only: finish submitted draws before handing control to gameplay.
+        glFinish();
+        glMatrixMode(GL_MODELVIEW);glPopMatrix();
+        glMatrixMode(GL_PROJECTION);glPopMatrix();
+        glMatrixMode(GL_TEXTURE);glPopMatrix();
+    }
+    glBindFramebufferEXT(GL_FRAMEBUFFER_EXT,oldFbo);
+    glBindRenderbufferEXT(GL_RENDERBUFFER_EXT,oldRenderbuffer);
+    glDeleteTextures(5,textures);glDeleteRenderbuffersEXT(2,buffers);glDeleteFramebuffersEXT(1,&fbo);
+    glPopClientAttrib();glPopAttrib();glActiveTextureARB(oldActive);glMatrixMode(oldMatrix);glUseProgramObjectARB(oldProgram);
+    const double elapsed=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
+    std::fprintf(stderr,"Shader draw warmup: %u draws, %.2f ms%s\n",draws,elapsed,ready?"":" (framebuffer unavailable)");
+}
+
 void Shader::unloadAll() {
 	for (int i = 0; i < _shaders.size(); ++i) 
 	{
@@ -405,6 +502,7 @@ void Shader::init() {
 	std::fill_n(_cached_floats, static_cast<int>(NUMBER_OF_UNIFORM_LOCATIONS), 0.0);
 	std::fill_n(&_cached_vectors[0][0], 4 * static_cast<int>(NUMBER_OF_UNIFORM_LOCATIONS), -1e30f);
 
+    _batchUniforms = UniformState();
 	_loaded = true;
 
 	_programObj = glCreateProgramObjectARB();
@@ -453,16 +551,48 @@ void Shader::init() {
 
 	glUniform1iARB(getUniformLocation(U_Texture0), 0);
 	glUniform1iARB(getUniformLocation(U_Texture1), 1);
+    glUniform1iARB(getUniformLocation(U_LiquidSkyMap), 5);
 	glUniform1iARB(getUniformLocation(U_Texture2), 2);
 	glUniform1iARB(getUniformLocation(U_Texture3), 3);
     glUniform1iARB(getUniformLocation(U_SkyBakeMap), 4);
 
+    // Resolve the batching snapshot layout while programs are loaded, not per draw.
+    if (opaqueBatchRequested())
+        for (int i=0; i<NUMBER_OF_UNIFORM_LOCATIONS; ++i)
+            getUniformLocation(static_cast<UniformName>(i));
 	glUseProgramObjectARB(0);
 
 //	assert(glGetError() == GL_NO_ERROR);
 }
 
+bool Shader::opaqueBatchRequested() {
+    static const bool requested = []() {
+        const char* value = std::getenv("SPRINTATHON_OPAQUE_BATCH");
+        return value && value[0] == '1';
+    }();
+    return requested;
+}
+
+void Shader::restoreUniformState(const UniformState& state) {
+    for (int i=0; i<NUMBER_OF_UNIFORM_LOCATIONS; ++i) {
+        const auto name = static_cast<UniformName>(i);
+        const auto& v = state.value[i];
+        // A value never set in an earlier snapshot still has its GL default zero.
+        const auto kind = state.kind[i] ? state.kind[i] : _batchUniforms.kind[i];
+        if (kind == 1) setFloat(name, state.kind[i] ? v[0] : 0.0f);
+        else if (kind == 4) {
+            if (state.kind[i]) setVector4(name,v[0],v[1],v[2],v[3]);
+            else setVector4(name,0,0,0,0);
+        }
+    }
+    _batchUniforms = state;
+}
+
 void Shader::setFloat(UniformName name, float f) {
+    if (opaqueBatchRequested() && getUniformLocation(name) >= 0) {
+        _batchUniforms.kind[name] = 1;
+        _batchUniforms.value[name] = {{f,0,0,0}};
+    }
 
 	if (_cached_floats[name] != f) {
 		_cached_floats[name] = f;
@@ -471,6 +601,10 @@ void Shader::setFloat(UniformName name, float f) {
 }
 
 void Shader::setVector4(UniformName name, float x, float y, float z, float w) {
+    if (opaqueBatchRequested() && getUniformLocation(name) >= 0) {
+        _batchUniforms.kind[name] = 4;
+        _batchUniforms.value[name] = {{x,y,z,w}};
+    }
     float *previous = _cached_vectors[name];
     if (previous[0] != x || previous[1] != y || previous[2] != z || previous[3] != w) {
         previous[0] = x; previous[1] = y; previous[2] = z; previous[3] = w;
@@ -479,6 +613,8 @@ void Shader::setVector4(UniformName name, float x, float y, float z, float w) {
 }
 
 void Shader::setMatrix4(UniformName name, float *f) {
+    if (opaqueBatchRequested() && getUniformLocation(name) >= 0)
+        _batchUniforms.matrix = true; // Those programs use the original draw path.
 
 	glUniformMatrix4fvARB(getUniformLocation(name), 1, false, f);
 }
@@ -1440,6 +1576,13 @@ void main(void) {
 	defaultFragmentPrograms["landscape_infravision"] =
         #include "Shaders/landscape_infravision.frag"
 		;
+
+    defaultVertexPrograms["water_sprite"] =
+        #include "Shaders/water_sprite.vert"
+        ;
+    defaultFragmentPrograms["water_sprite"] =
+        #include "Shaders/water_sprite.frag"
+        ;
 
 	defaultVertexPrograms["sprite"] =
         #include "Shaders/sprite.vert"

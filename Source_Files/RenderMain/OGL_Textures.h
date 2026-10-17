@@ -291,6 +291,8 @@ public:
 	// What to render:
 	
 	// Always call this one and call it first; safe to allocate texture ID's in it
+    // Read already-allocated wall material IDs without synchronous GL queries.
+    bool GetOpaqueBatchMaterial(GLuint& normal, GLuint& bump, bool& swapped) const;
 	void RenderNormal();
 	// Call this one after RenderNormal()
 	void RenderGlowing();

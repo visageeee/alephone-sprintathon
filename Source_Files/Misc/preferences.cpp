@@ -442,6 +442,16 @@ public:
 	}
 };
 
+// These strengths are stored as literal percentages, including overdrive above 100%.
+class w_liquid_percent_slider : public w_percentage_slider
+{
+public:
+    w_liquid_percent_slider(int count, int value) : w_percentage_slider(count, value)
+    { init_formatted_value(); }
+    std::string formatted_value() override
+    { return std::to_string(get_selection()) + "%"; }
+};
+
 class w_embedded_media_slider : public w_slider
 {
 public:
@@ -1311,8 +1321,19 @@ void handle_preferences(bool in_game)
 	light_fx_page->min_width(scale_dialog_value(430));
 	w_toggle *baked_landscape_lighting_w = new w_toggle(graphics_preferences->baked_landscape_lighting);
     w_percentage_slider *baked_landscape_ambient_w = new w_percentage_slider(101, graphics_preferences->baked_landscape_ambient);
+    w_percentage_slider *baked_landscape_sector_w = new w_percentage_slider(101, graphics_preferences->baked_landscape_sector);
 	w_toggle *liquid_caustics_w = new w_toggle(graphics_preferences->liquid_caustics);
+    w_toggle *visible_sun_w = new w_toggle(graphics_preferences->visible_sun);
+    static const char *sun_sizes[] = {"0.25 degrees", "0.5 degrees", "1 degree", "2 degrees", "4 degrees", nullptr};
+    static const char *sun_colors[] = {"Warm White", "White", "Amber", "Red", "Pale Blue", nullptr};
+    w_select *visible_sun_size_w = new w_select(graphics_preferences->visible_sun_size,sun_sizes);
+    w_select *visible_sun_color_w = new w_select(graphics_preferences->visible_sun_color,sun_colors);
+    w_percentage_slider *visible_sun_brightness_w = new w_percentage_slider(201,graphics_preferences->visible_sun_brightness);
+	w_toggle *liquid_specular_w = new w_toggle(graphics_preferences->liquid_specular);
+    w_toggle *liquid_sprite_reflections_w = new w_toggle(graphics_preferences->liquid_sprite_reflections);
     w_percentage_slider *liquid_caustic_strength_w = new w_percentage_slider(201, graphics_preferences->liquid_caustic_strength);
+    w_percentage_slider *liquid_specular_strength_w = new w_liquid_percent_slider(201, graphics_preferences->liquid_specular_strength);
+    w_percentage_slider *liquid_reflection_strength_w = new w_liquid_percent_slider(201, graphics_preferences->liquid_reflection_strength);
     w_percentage_slider *liquid_fluorescence_w = new w_percentage_slider(201, graphics_preferences->liquid_fluorescence);
     vertical_placer *world_lighting_page = new vertical_placer(get_theme_space(ITEM_WIDGET));
     world_lighting_page->center_vertically();
@@ -1322,11 +1343,16 @@ void handle_preferences(bool in_game)
     light_fx->dual_add(ogl_bloom_w->label("Bloom Effects"), d); light_fx->dual_add(ogl_bloom_w, d);
     world_lighting->dual_add(baked_landscape_lighting_w->label("Baked Landscape Lighting"), d); world_lighting->dual_add(baked_landscape_lighting_w, d);
     world_lighting->dual_add(baked_landscape_ambient_w->label("Baked Ambient Light"), d); world_lighting->dual_add(baked_landscape_ambient_w, d);
+    world_lighting->dual_add(baked_landscape_sector_w->label("Sector Light Contribution"), d); world_lighting->dual_add(baked_landscape_sector_w, d);
     world_lighting->dual_add(soft_sector_light_edges_w->label("Blend Sector Shading"), d); world_lighting->dual_add(soft_sector_light_edges_w, d);
     world_lighting->dual_add(sector_shading_softness_w->label("Sector Shading Softness"), d); world_lighting->dual_add(sector_shading_softness_w, d);
     world_lighting->dual_add(ogl_sprite_shadows_w->label("Sprite Shadows"), d); world_lighting->dual_add(ogl_sprite_shadows_w, d);
     world_lighting->dual_add(ogl_ambient_occlusion_w->label("Ambient Occlusion"), d); world_lighting->dual_add(ogl_ambient_occlusion_w, d);
     world_lighting->dual_add(ogl_ambient_occlusion_strength_w->label("AO Strength"), d); world_lighting->dual_add(ogl_ambient_occlusion_strength_w, d);
+    light_fx->dual_add(visible_sun_w->label("Visible Sun"),d); light_fx->dual_add(visible_sun_w,d);
+    light_fx->dual_add(visible_sun_size_w->label("Sun Diameter"),d); light_fx->dual_add(visible_sun_size_w,d);
+    light_fx->dual_add(visible_sun_brightness_w->label("Sun Brightness"),d); light_fx->dual_add(visible_sun_brightness_w,d);
+    light_fx->dual_add(visible_sun_color_w->label("Sun Colour"),d); light_fx->dual_add(visible_sun_color_w,d);
     light_fx->dual_add(ogl_landscape_light_shafts_w->label("Landscape Light Shafts"), d); light_fx->dual_add(ogl_landscape_light_shafts_w, d);
     light_fx->dual_add(ogl_landscape_light_shaft_strength_w->label("Shaft Strength"), d); light_fx->dual_add(ogl_landscape_light_shaft_strength_w, d);
     light_fx->dual_add(ogl_landscape_light_shaft_length_w->label("Shaft Length"), d); light_fx->dual_add(ogl_landscape_light_shaft_length_w, d);
@@ -1446,15 +1472,19 @@ void handle_preferences(bool in_game)
 		A1_PIN(graphics_preferences->OGL_Configure.AnimatedMediaRippleStrength - 1, 0, 15));
 	w_embedded_media_slider *liquid_wetness_w = new w_embedded_media_slider(17,
 		A1_PIN(graphics_preferences->OGL_Configure.AnimatedMediaWetTextureStrength, 0, 16), true);
-	w_embedded_media_slider *liquid_speed_w[5];
 	int16 *liquid_speeds[5] = {&graphics_preferences->OGL_Configure.AnimatedMediaRippleSpeed,
 		&graphics_preferences->OGL_Configure.AnimatedLavaRippleSpeed,
 		&graphics_preferences->OGL_Configure.AnimatedGooRippleSpeed,
 		&graphics_preferences->OGL_Configure.AnimatedSewageRippleSpeed,
 		&graphics_preferences->OGL_Configure.AnimatedJjaroRippleSpeed};
-	const char *liquid_speed_names[5] = {"Water Ripple Speed", "Lava Ripple Speed", "Goo Ripple Speed", "Sewage Ripple Speed", "Jjaro Ripple Speed"};
+	int16 pending_liquid_speeds[5];
+	for (int i = 0; i < 5; ++i) pending_liquid_speeds[i] = *liquid_speeds[i];
     liquids->dual_add(liquid_caustics_w->label("Liquid Caustics"), d); liquids->dual_add(liquid_caustics_w, d);
+    liquids->dual_add(liquid_specular_w->label("Liquid Specular Highlights"), d); liquids->dual_add(liquid_specular_w, d);
+    liquids->dual_add(liquid_sprite_reflections_w->label("Liquid Sprite Reflections"), d); liquids->dual_add(liquid_sprite_reflections_w, d);
     liquids->dual_add(liquid_caustic_strength_w->label("Caustic Strength"), d); liquids->dual_add(liquid_caustic_strength_w, d);
+    liquids->dual_add(liquid_specular_strength_w->label("Specular Strength"), d); liquids->dual_add(liquid_specular_strength_w, d);
+    liquids->dual_add(liquid_reflection_strength_w->label("Reflection Strength"), d); liquids->dual_add(liquid_reflection_strength_w, d);
     liquids->dual_add(liquid_fluorescence_w->label("Liquid Fluorescence"), d); liquids->dual_add(liquid_fluorescence_w, d);
 	liquids->dual_add(liquid_transparency_w->label("Transparent Liquids"), d); liquids->dual_add(liquid_transparency_w, d);
 	liquids->dual_add(underwater_distortion_w->label("Underwater Distortion"), d); liquids->dual_add(underwater_distortion_w, d);
@@ -1462,10 +1492,6 @@ void handle_preferences(bool in_game)
 	liquids->dual_add(liquid_ripples_w->label("Animated Media Ripples"), d); liquids->dual_add(liquid_ripples_w, d);
 	liquids->dual_add(liquid_strength_w->label("Ripple Strength"), d); liquids->dual_add(liquid_strength_w, d);
 	liquids->dual_add(liquid_wetness_w->label("Wet Texture Strength"), d); liquids->dual_add(liquid_wetness_w, d);
-	for (int i = 0; i < 5; ++i) {
-		liquid_speed_w[i] = new w_embedded_media_slider(28, A1_PIN(*liquid_speeds[i] - 1, 0, 27));
-		liquids->dual_add(liquid_speed_w[i]->label(liquid_speed_names[i]), d); liquids->dual_add(liquid_speed_w[i], d);
-	}
 	liquids_page->add(liquids, true); 
 
 	vertical_placer *fog_page = new vertical_placer(get_theme_space(ITEM_WIDGET));
@@ -1517,19 +1543,24 @@ void handle_preferences(bool in_game)
 
     auto update_light_controls = [&]() {
         baked_landscape_ambient_w->set_enabled(baked_landscape_lighting_w->get_selection());
+        baked_landscape_sector_w->set_enabled(baked_landscape_lighting_w->get_selection());
         sector_shading_softness_w->set_enabled(soft_sector_light_edges_w->get_selection());
         ogl_ambient_occlusion_strength_w->set_enabled(ogl_ambient_occlusion_w->get_selection());
-        bool sun = baked_landscape_lighting_w->get_selection() || ogl_landscape_light_shafts_w->get_selection();
+        bool sun = visible_sun_w->get_selection() || baked_landscape_lighting_w->get_selection() || ogl_landscape_light_shafts_w->get_selection() || liquid_specular_w->get_selection();
         ogl_landscape_light_shaft_direction_w->set_enabled(sun);
         ogl_landscape_light_shaft_elevation_w->set_enabled(sun);
         ogl_landscape_light_shaft_strength_w->set_enabled(ogl_landscape_light_shafts_w->get_selection());
         ogl_landscape_light_shaft_length_w->set_enabled(ogl_landscape_light_shafts_w->get_selection());
         ogl_anamorphic_lens_flare_strength_w->set_enabled(ogl_anamorphic_lens_flares_w->get_selection()!=0);
         liquid_caustic_strength_w->set_enabled(liquid_caustics_w->get_selection());
+        visible_sun_size_w->set_enabled(visible_sun_w->get_selection());
+        visible_sun_color_w->set_enabled(visible_sun_w->get_selection());
+        visible_sun_brightness_w->set_enabled(visible_sun_w->get_selection());
+        liquid_specular_strength_w->set_enabled(liquid_specular_w->get_selection());
+        liquid_reflection_strength_w->set_enabled(liquid_sprite_reflections_w->get_selection());
         liquid_opacity_w->set_enabled(liquid_transparency_w->get_selection());
         liquid_strength_w->set_enabled(liquid_ripples_w->get_selection());
         liquid_wetness_w->set_enabled(liquid_ripples_w->get_selection());
-        for(auto* speed : liquid_speed_w) speed->set_enabled(liquid_ripples_w->get_selection());
         fog_corona_strength_w->set_enabled(fog_light_coronas_w->get_selection());
         fog_projectile_coronas_w->set_enabled(fog_light_coronas_w->get_selection());
         fog_scenery_coronas_w->set_enabled(fog_light_coronas_w->get_selection());
@@ -1578,7 +1609,7 @@ void handle_preferences(bool in_game)
 		 fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
 		 fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w,
 		 fog_haze_w, fog_volume_w, fog_drift_intensity_w, texture_light_reach_w,
-         baked_landscape_lighting_w, baked_landscape_ambient_w, liquid_caustics_w, liquid_fluorescence_w, liquid_caustic_strength_w, ceiling_fog_cones_w, ceiling_fog_cone_strength_w, fog_light_coronas_w,
+         visible_sun_w, visible_sun_size_w, visible_sun_color_w, visible_sun_brightness_w, baked_landscape_lighting_w, baked_landscape_ambient_w, baked_landscape_sector_w, liquid_caustics_w, liquid_specular_w, liquid_sprite_reflections_w, liquid_fluorescence_w, liquid_caustic_strength_w, liquid_specular_strength_w, liquid_reflection_strength_w, ceiling_fog_cones_w, ceiling_fog_cone_strength_w, fog_light_coronas_w,
          fog_projectile_coronas_w, fog_scenery_coronas_w, fog_corona_strength_w,
 		 scenery_light_reach_w, light_render_distance_w,
 		 scenery_light_render_distance_w,
@@ -1646,7 +1677,7 @@ void handle_preferences(bool in_game)
 			{
 				const int liquid_speeds[] = {6, 22, 6, 2, 3};
 				for (int i = 0; i < 5; ++i)
-					liquid_speed_w[i]->set_selection(liquid_speeds[i]);
+					pending_liquid_speeds[i] = liquid_speeds[i] + 1;
 			}
 
 			fog_enabled_w->set_selection(medium_or_better);
@@ -1662,9 +1693,18 @@ void handle_preferences(bool in_game)
             ceiling_fog_cones_w->set_selection(high_or_better);
             baked_landscape_lighting_w->set_selection(high_or_better);
             baked_landscape_ambient_w->set_selection(high_or_better ? 5 : 15);
+            baked_landscape_sector_w->set_selection(total ? 20 : 0);
             liquid_caustics_w->set_selection(high_or_better);
+            visible_sun_w->set_selection(total);
+            visible_sun_size_w->set_selection(2);
+            visible_sun_color_w->set_selection(0);
+            visible_sun_brightness_w->set_selection(100);
+            liquid_specular_w->set_selection(total);
+            liquid_sprite_reflections_w->set_selection(total);
             liquid_fluorescence_w->set_selection(25);
             liquid_caustic_strength_w->set_selection(100);
+            liquid_specular_strength_w->set_selection(50);
+            liquid_reflection_strength_w->set_selection(100);
             fog_light_coronas_w->set_selection(high_or_better);
             fog_projectile_coronas_w->set_selection(high_or_better);
             fog_scenery_coronas_w->set_selection(high_or_better);
@@ -1688,6 +1728,7 @@ void handle_preferences(bool in_game)
 
 	// Any manual edit outside the Presets page makes the active setup Custom.
 	w_select *graphics_select_widgets[] = {
+        visible_sun_w, visible_sun_size_w, visible_sun_color_w,
 		graphics_windowed_w, graphics_gamma_w, graphics_fps_w,
 		graphics_skip_intro_w, graphics_limit_vertical_w,
 		graphics_bobbing_w, ogl_fader_w, ogl_models_w, ogl_perspective_w,
@@ -1699,7 +1740,7 @@ void handle_preferences(bool in_game)
 		ogl_anamorphic_lens_flares_w, ogl_vsync_w, ogl_npot_w,
 		ogl_effects_w, ogl_aniso_w, sprite_upscaling_w, wall_upscaling_w,
 		model_quality_w, liquid_transparency_w, underwater_distortion_w,
-		liquid_ripples_w, baked_landscape_lighting_w, liquid_caustics_w,
+		liquid_ripples_w, baked_landscape_lighting_w, liquid_caustics_w, liquid_specular_w, liquid_sprite_reflections_w,
 		fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
 		fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w, fog_haze_w, fog_volume_w, ceiling_fog_cones_w, fog_light_coronas_w, fog_projectile_coronas_w, fog_scenery_coronas_w
 	};
@@ -1713,7 +1754,8 @@ void handle_preferences(bool in_game)
 			texture_far_w[i]->set_selection_changed_callback(custom_select_changed);
 	}
 	w_slider *graphics_slider_widgets[] = {
-        fog_corona_strength_w, baked_landscape_ambient_w, liquid_fluorescence_w, liquid_caustic_strength_w,
+        visible_sun_brightness_w,
+        fog_corona_strength_w, baked_landscape_ambient_w, baked_landscape_sector_w, liquid_fluorescence_w, liquid_caustic_strength_w, liquid_specular_strength_w, liquid_reflection_strength_w,
         ceiling_fog_cone_strength_w,
         sector_shading_softness_w,
 		graphics_fov_w, colored_light_intensity_w, texture_light_intensity_w, scenery_light_intensity_w, texture_light_reach_w,
@@ -1731,8 +1773,6 @@ void handle_preferences(bool in_game)
 	};
 	for (w_slider *widget : graphics_slider_widgets)
 		widget->set_slider_changed_callback(custom_slider_changed);
-	for (int i = 0; i < 5; ++i)
-		liquid_speed_w[i]->set_slider_changed_callback(custom_slider_changed);
 
 	// Preserve the FOV enable/disable behavior while also marking manual edits.
 	graphics_override_fov_w->set_selection_changed_callback(
@@ -1948,7 +1988,7 @@ void handle_preferences(bool in_game)
 		25 + liquid_opacity_w->get_selection() * 5;
 	graphics_preferences->OGL_Configure.AnimatedMediaRippleStrength = liquid_strength_w->get_selection() + 1;
 	graphics_preferences->OGL_Configure.AnimatedMediaWetTextureStrength = liquid_wetness_w->get_selection();
-	for (int i = 0; i < 5; ++i) *liquid_speeds[i] = liquid_speed_w[i]->get_selection() + 1;
+	for (int i = 0; i < 5; ++i) *liquid_speeds[i] = pending_liquid_speeds[i];
 	graphics_preferences->OGL_Configure.ForceFogMediaRelative = fog_media_w->get_selection();
 	graphics_preferences->OGL_Configure.ForceFogWeatherPreset = fog_weather_w->get_selection();
 	graphics_preferences->OGL_Configure.ForceFogAnimatedDensity = fog_animated_w->get_selection();
@@ -1960,9 +2000,18 @@ void handle_preferences(bool in_game)
     graphics_preferences->ceiling_fog_cones = ceiling_fog_cones_w->get_selection();
     graphics_preferences->baked_landscape_lighting = baked_landscape_lighting_w->get_selection();
     graphics_preferences->baked_landscape_ambient = baked_landscape_ambient_w->get_selection();
+    graphics_preferences->baked_landscape_sector = baked_landscape_sector_w->get_selection();
     graphics_preferences->liquid_caustics = liquid_caustics_w->get_selection();
+    graphics_preferences->visible_sun = visible_sun_w->get_selection();
+    graphics_preferences->visible_sun_size = visible_sun_size_w->get_selection();
+    graphics_preferences->visible_sun_color = visible_sun_color_w->get_selection();
+    graphics_preferences->visible_sun_brightness = visible_sun_brightness_w->get_selection();
+    graphics_preferences->liquid_specular = liquid_specular_w->get_selection();
+    graphics_preferences->liquid_sprite_reflections = liquid_sprite_reflections_w->get_selection();
     graphics_preferences->liquid_fluorescence = liquid_fluorescence_w->get_selection();
     graphics_preferences->liquid_caustic_strength = liquid_caustic_strength_w->get_selection();
+    graphics_preferences->liquid_specular_strength = liquid_specular_strength_w->get_selection();
+    graphics_preferences->liquid_reflection_strength = liquid_reflection_strength_w->get_selection();
     graphics_preferences->fog_light_coronas = fog_light_coronas_w->get_selection();
     graphics_preferences->fog_projectile_coronas = fog_projectile_coronas_w->get_selection();
     graphics_preferences->fog_scenery_coronas = fog_scenery_coronas_w->get_selection();
@@ -6257,9 +6306,18 @@ InfoTree graphics_preferences_tree()
     root.put_attr("ceiling_fog_cones", graphics_preferences->ceiling_fog_cones);
     root.put_attr("baked_landscape_lighting", graphics_preferences->baked_landscape_lighting);
     root.put_attr("baked_landscape_ambient", graphics_preferences->baked_landscape_ambient);
+    root.put_attr("baked_landscape_sector", graphics_preferences->baked_landscape_sector);
     root.put_attr("liquid_caustics", graphics_preferences->liquid_caustics);
+    root.put_attr("visible_sun", graphics_preferences->visible_sun);
+    root.put_attr("visible_sun_size", graphics_preferences->visible_sun_size);
+    root.put_attr("visible_sun_color", graphics_preferences->visible_sun_color);
+    root.put_attr("visible_sun_brightness", graphics_preferences->visible_sun_brightness);
+    root.put_attr("liquid_specular", graphics_preferences->liquid_specular);
+    root.put_attr("liquid_sprite_reflections", graphics_preferences->liquid_sprite_reflections);
     root.put_attr("liquid_fluorescence", graphics_preferences->liquid_fluorescence);
     root.put_attr("liquid_caustic_strength", graphics_preferences->liquid_caustic_strength);
+    root.put_attr("liquid_specular_strength", graphics_preferences->liquid_specular_strength);
+    root.put_attr("liquid_reflection_strength", graphics_preferences->liquid_reflection_strength);
     root.put_attr("fog_light_coronas", graphics_preferences->fog_light_coronas);
     root.put_attr("fog_projectile_coronas", graphics_preferences->fog_projectile_coronas);
     root.put_attr("fog_scenery_coronas", graphics_preferences->fog_scenery_coronas);
@@ -6915,9 +6973,18 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
     preferences->ceiling_fog_cones = true;
     preferences->baked_landscape_lighting = false;
     preferences->baked_landscape_ambient = 15;
+    preferences->baked_landscape_sector = 0;
     preferences->liquid_caustics = true;
+    preferences->visible_sun = false;
+    preferences->visible_sun_size = 2;
+    preferences->visible_sun_color = 0;
+    preferences->visible_sun_brightness = 100;
+    preferences->liquid_specular = false;
+    preferences->liquid_sprite_reflections = false;
     preferences->liquid_fluorescence = 25;
     preferences->liquid_caustic_strength = 100;
+    preferences->liquid_specular_strength = 50;
+    preferences->liquid_reflection_strength = 100;
     preferences->fog_light_coronas = true;
     preferences->fog_projectile_coronas = true;
     preferences->fog_scenery_coronas = true;
@@ -7479,9 +7546,18 @@ void parse_graphics_preferences(InfoTree root, std::string version)
     root.read_attr("ceiling_fog_cones", graphics_preferences->ceiling_fog_cones);
     root.read_attr("baked_landscape_lighting", graphics_preferences->baked_landscape_lighting);
     root.read_attr_bounded<int16>("baked_landscape_ambient", graphics_preferences->baked_landscape_ambient, 0, 100);
+    root.read_attr_bounded<int16>("baked_landscape_sector", graphics_preferences->baked_landscape_sector, 0, 100);
     root.read_attr("liquid_caustics", graphics_preferences->liquid_caustics);
+    root.read_attr("visible_sun",graphics_preferences->visible_sun);
+    root.read_attr_bounded<int16>("visible_sun_size",graphics_preferences->visible_sun_size,0,4);
+    root.read_attr_bounded<int16>("visible_sun_color",graphics_preferences->visible_sun_color,0,4);
+    root.read_attr_bounded<int16>("visible_sun_brightness",graphics_preferences->visible_sun_brightness,0,200);
+    root.read_attr("liquid_specular", graphics_preferences->liquid_specular);
+    root.read_attr("liquid_sprite_reflections", graphics_preferences->liquid_sprite_reflections);
     root.read_attr_bounded<int16>("liquid_fluorescence", graphics_preferences->liquid_fluorescence, 0, 200);
     root.read_attr_bounded<int16>("liquid_caustic_strength", graphics_preferences->liquid_caustic_strength, 0, 200);
+    root.read_attr_bounded<int16>("liquid_specular_strength", graphics_preferences->liquid_specular_strength, 0, 200);
+    root.read_attr_bounded<int16>("liquid_reflection_strength", graphics_preferences->liquid_reflection_strength, 0, 200);
     root.read_attr("fog_light_coronas", graphics_preferences->fog_light_coronas);
     root.read_attr("fog_projectile_coronas", graphics_preferences->fog_projectile_coronas);
     root.read_attr("fog_scenery_coronas", graphics_preferences->fog_scenery_coronas);

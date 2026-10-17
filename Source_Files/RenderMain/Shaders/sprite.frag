@@ -98,6 +98,7 @@ vec4 flameSpriteColor(vec2 uv) {
 }
 
 uniform vec4 skyBakeActor;
+uniform float skyBakeSectorStrength;
 
 void main (void) {
 	vec4 color = flameRipple.x > 0.0 ? flameSpriteColor(gl_TexCoord[0].xy) : projectileSpriteColor(gl_TexCoord[0].xy);
@@ -111,7 +112,13 @@ void main (void) {
 		intensity = vertexColor.rgb + (mlFactor * 0.5); }
 	else {
 		intensity = (vertexColor.rgb * 0.5) + mlFactor; }
-	if (skyBakeActor.a > 0.5) intensity = skyBakeActor.rgb + vec3(mlFactor * 0.5);
+	if (skyBakeActor.a > 0.5) {
+        vec3 combined = skyBakeActor.rgb + vertexColor.rgb * clamp(skyBakeSectorStrength, 0.0, 1.0);
+        intensity = combined;
+        if (mlFactor > 0.0)
+            intensity = combined.r > mlFactor ? combined + vec3(mlFactor * 0.5)
+                                             : combined * 0.5 + vec3(mlFactor);
+    }
 	intensity = clamp(intensity + sprintathonLightColor.rgb, glow, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)

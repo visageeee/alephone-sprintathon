@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <map>
 
 #include "RenderRasterize_Shader.h"
 
@@ -39,7 +40,11 @@
 #include "FileHandler.h"
 
 #ifdef HAVE_OPENGL
+#include "SprintathonWaterNormals.h"
+#include "SprintathonSpriteReflection.h"
 #include "SprintathonSkyBake.h"
+#include "SprintathonOpaqueGeometry.h"
+#include "SprintathonOpaqueBatch.h"
 
 extern bool ShowPosition;
 
@@ -359,6 +364,21 @@ struct SprintathonVolumeTarget {
     std::vector<GLfloat> room_data;
 };
 static SprintathonVolumeTarget sprintathon_volume_target;
+static void sprintathon_prepare_volume_buffer(int half_width,int half_height){
+    auto& target=sprintathon_volume_target;
+    if(!target.fbo) glGenFramebuffersEXT(1,&target.fbo);
+    if(!target.color) glGenTextures(1,&target.color);
+    if(!target.rooms) glGenTextures(1,&target.rooms);
+    glBindTexture(GL_TEXTURE_RECTANGLE_ARB,target.color);
+    if(target.width!=half_width || target.height!=half_height) {
+        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_RECTANGLE_ARB,0,0x881A /* RGBA16F */,half_width,half_height,0,GL_RGBA,GL_FLOAT,nullptr);
+        target.width=half_width;target.height=half_height;
+    }
+}
 static void sprintathon_release_volume_target() {
     auto& t=sprintathon_volume_target;
     if(t.fbo) glDeleteFramebuffersEXT(1,&t.fbo);
@@ -384,6 +404,7 @@ void RenderRasterize_Shader::setupGL(Rasterizer_Shader_Class& Rasterizer) {
     sprintathon_release_scenery_light_texture();
     sprintathon_gpu_profiler.reset();
     sprintathon_world_detail.reset();
+    SprintathonWaterNormals::reset();
 
 	RasPtr = &Rasterizer;
 
@@ -412,8 +433,26 @@ const double TWO_PI = 8*atan(1.0);
 const float FixedAngleToRadians = TWO_PI/(float(FIXED_ONE)*float(FULL_CIRCLE));
 const float FixedAngleToDegrees = 360.0/(float(FIXED_ONE)*float(FULL_CIRCLE));
 
+static void sprintathon_set_visible_sun(Shader* shader,const view_data* view)
+{
+    const auto& config=Get_OGL_ConfigureData();
+    const double azimuth=(config.LandscapeLightShaftDirection-90.0)*0.017453292519943295;
+    const double elevation=config.LandscapeLightShaftElevation*0.017453292519943295;
+    static const float diameters[]={0.25f,0.5f,1.0f,2.0f,4.0f};
+    static const float colors[][3]={{1.0f,0.91f,0.72f},{1,1,1},{1,0.55f,0.18f},{1,0.22f,0.12f},{0.65f,0.82f,1}};
+    const int size=std::max(0,std::min(4,int(graphics_preferences->visible_sun_size)));
+    const int color=std::max(0,std::min(4,int(graphics_preferences->visible_sun_color)));
+    const float strength=graphics_preferences->visible_sun && !IsInfravisionActive() ?
+        std::max(0,std::min(200,int(graphics_preferences->visible_sun_brightness)))/100.0f : 0.0f;
+    shader->setVector4(Shader::U_VisibleSun,std::cos(azimuth)*std::cos(elevation),
+        std::sin(azimuth)*std::cos(elevation),std::sin(elevation),
+        std::cos(diameters[size]*0.5*0.017453292519943295));
+    shader->setVector4(Shader::U_VisibleSunColor,colors[color][0],colors[color][1],colors[color][2],strength);
+    shader->setVector4(Shader::U_VisibleSunEye,view->origin.x,view->origin.y,view->origin.z,0);
+}
+
 // One clock shared by liquid surfaces and their projected caustics.
-static float sprintathon_liquid_ripple_phase(int16 mediaType, double rate = 1.0)
+static float sprintathon_liquid_ripple_phase(int16 mediaType, double rate = 1.0, bool wrap = true)
 {
 	const OGL_ConfigureData& config = Get_OGL_ConfigureData();
 	int16 ripple_speed_index = config.AnimatedMediaRippleSpeed;
@@ -453,9 +492,9 @@ static float sprintathon_liquid_ripple_phase(int16 mediaType, double rate = 1.0)
 			(sprintathon_bullet_time_active() ? 0.35 : 1.0);
 		last_ripple_tick = ripple_tick;
 	}
-	const float ripple_phase = static_cast<float>(std::fmod(
-		ripple_seconds * 1.05 * ripple_speed * rate, TWO_PI));
-	return ripple_phase;
+    const double phase = ripple_seconds * 1.05 * ripple_speed * rate;
+    // Texture ripples use a periodic phase; flowing normals need a continuous clock.
+    return static_cast<float>(wrap ? std::fmod(phase,TWO_PI) : phase);
 }
 
 static float sprintathon_underwater_phase(int16 media_type)
@@ -530,6 +569,27 @@ static float sprintathon_fog_haze_phase()
 	return static_cast<float>(phase);
 }
 
+		static GLuint media_scene_texture = 0;
+		static GLsizei media_scene_width = 0;
+		static GLsizei media_scene_height = 0;
+static void sprintathon_prepare_media_scene(GLsizei width,GLsizei height){
+		glActiveTextureARB(GL_TEXTURE2_ARB);
+		if (!media_scene_texture)
+			glGenTextures(1, &media_scene_texture);
+		glBindTexture(GL_TEXTURE_RECTANGLE_ARB, media_scene_texture);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		if (width != media_scene_width || height != media_scene_height)
+		{
+			glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA, width, height,
+				0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+			media_scene_width = width;
+			media_scene_height = height;
+		}
+}
+
 static void setup_invisibility_refraction(
 	Shader *shader, GLsizei width, GLsizei height, float visibility)
 {
@@ -552,6 +612,7 @@ static void setup_invisibility_refraction(
 		texture_width = width;
 		texture_height = height;
 	}
+	if(!shader){glActiveTextureARB(GL_TEXTURE0_ARB);return;}
 	glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0,
 		0, 0, width, height);
 	glActiveTextureARB(GL_TEXTURE0_ARB);
@@ -572,7 +633,7 @@ static void setup_classic_invisibility(Shader *shader, float visibility)
 	shader->setFloat(Shader::U_PixelHeight, 0.0f);
 }
 
-static GLuint sprintathon_capture_scene_depth(GLsizei width, GLsizei height)
+static GLuint sprintathon_capture_scene_depth(GLsizei width, GLsizei height, bool capture = true)
 {
 	static GLuint depth_texture = 0;
 	static GLsizei texture_width = 0;
@@ -593,13 +654,13 @@ static GLuint sprintathon_capture_scene_depth(GLsizei width, GLsizei height)
 		texture_width = width;
 		texture_height = height;
 	}
-	glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0,
+	if(capture) glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0,
 		0, 0, width, height);
 	glActiveTextureARB(GL_TEXTURE0_ARB);
 	return depth_texture;
 }
 
-static GLuint sprintathon_capture_scene_color(GLsizei width, GLsizei height)
+static GLuint sprintathon_capture_scene_color(GLsizei width, GLsizei height, bool capture = true)
 {
 	static GLuint color_texture = 0;
 	static GLsizei texture_width = 0;
@@ -620,7 +681,7 @@ static GLuint sprintathon_capture_scene_color(GLsizei width, GLsizei height)
 		texture_width = width;
 		texture_height = height;
 	}
-	glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0,
+	if(capture) glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0,
 		0, 0, width, height);
 	return color_texture;
 }
@@ -707,6 +768,15 @@ static void sprintathon_shaft_draw_arrays(GLenum mode, GLint first, GLsizei coun
     SprintathonShaftCpuScope time(sprintathon_shaft_trace.draw_ms);
     glDrawArrays(mode,first,count);
 }
+static void sprintathon_draw_opaque_geometry(GLenum mode,GLsizei count,
+    const GLfloat* vertices,const GLfloat* uv,bool eligible,SprintathonOpaqueGeometry::CpuEntry* prepared=nullptr){
+    const bool cached=eligible && ((prepared && SprintathonOpaqueGeometry::bindPrepared(*prepared)) ||
+        SprintathonOpaqueGeometry::bind(count,vertices,uv,prepared?&prepared->gpuOffset:nullptr));
+    sprintathon_shaft_draw_arrays(mode,0,count);
+    if(cached)SprintathonOpaqueGeometry::restore(vertices,uv);
+}
+void sprintathon_preload_opaque_geometry(){SprintathonOpaqueGeometry::preload();}
+
 static void sprintathon_shaft_draw_elements(GLenum mode, GLsizei count, GLenum type, const void* indices)
 {
     sprintathon_world_detail.draw();
@@ -736,7 +806,7 @@ static void sprintathon_finish_shaft_trace()
 static const float sprintathon_shaft_overscan = 1.60f;
 
 static bool sprintathon_begin_shaft_source(GLsizei main_width,
-	GLsizei main_height, const GLfloat *projection)
+	GLsizei main_height, const GLfloat *projection, bool allocate_only = false)
 {
 	if (!FBO_Allowed)
 		return false;
@@ -800,6 +870,10 @@ static bool sprintathon_begin_shaft_source(GLsizei main_width,
 		return false;
 	}
 
+    if(allocate_only){
+        glBindFramebufferEXT(GL_FRAMEBUFFER_EXT,source.previous_framebuffer);
+        glActiveTextureARB(GL_TEXTURE0_ARB);return true;
+    }
 	glPushAttrib(GL_ALL_ATTRIB_BITS);
 	glViewport(0, 0, width, height);
 	glDisable(GL_SCISSOR_TEST);
@@ -845,13 +919,33 @@ static void sprintathon_end_shaft_source()
 	source.active = false;
 }
 
+	static GLuint ao_texture = 0;
+	static GLsizei ao_texture_width = 0;
+	static GLsizei ao_texture_height = 0;
+
+static void sprintathon_prepare_ao(GLsizei mask_width,GLsizei mask_height){
+	glActiveTextureARB(GL_TEXTURE1_ARB);
+	if (!ao_texture)
+		glGenTextures(1, &ao_texture);
+	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, ao_texture);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	if (mask_width != ao_texture_width || mask_height != ao_texture_height)
+	{
+		glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA,
+			mask_width, mask_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+		ao_texture_width = mask_width;
+		ao_texture_height = mask_height;
+	}
+
+}
+
 static void sprintathon_draw_ambient_occlusion(GLuint color_texture,
 	GLuint depth_texture, GLsizei width, GLsizei height,
 	const GLfloat *projection, float strength, float fog_mode)
 {
-	static GLuint ao_texture = 0;
-	static GLsizei ao_texture_width = 0;
-	static GLsizei ao_texture_height = 0;
 	const GLsizei mask_width = std::max<GLsizei>(1, (width + 1) / 2);
 	const GLsizei mask_height = std::max<GLsizei>(1, (height + 1) / 2);
 
@@ -871,21 +965,7 @@ static void sprintathon_draw_ambient_occlusion(GLuint color_texture,
 	// Keep the AO field separate from scene color so it can be softened without
 	// blurring wall textures. Half resolution provides a broad, inexpensive
 	// kernel and remains compatible with the renderer's framebuffer-copy path.
-	glActiveTextureARB(GL_TEXTURE1_ARB);
-	if (!ao_texture)
-		glGenTextures(1, &ao_texture);
-	glBindTexture(GL_TEXTURE_RECTANGLE_ARB, ao_texture);
-	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	if (mask_width != ao_texture_width || mask_height != ao_texture_height)
-	{
-		glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA,
-			mask_width, mask_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-		ao_texture_width = mask_width;
-		ao_texture_height = mask_height;
-	}
+	sprintathon_prepare_ao(mask_width,mask_height);
 
 	glViewport(0, 0, mask_width, mask_height);
 	Shader *shader = Shader::get(Shader::S_AmbientOcclusion);
@@ -1748,6 +1828,7 @@ struct SprintathonTextureEmitter {
     float scenery_object_z;
     bool liquid; // Distinguish liquid emission from ordinary bright textures.
     short liquid_type;
+    float reflection_radius; // estimated from the rendered scenery frame
 };
 static std::vector<SprintathonTextureEmitter> sprintathon_texture_lights;
 static std::vector<SprintathonTextureEmitter> sprintathon_texture_lights_next;
@@ -1920,6 +2001,7 @@ static void sprintathon_refresh_texture_lights()
             source.b = observation.b;
             source.last_seen = observation.last_seen;
             source.ambient_delta = observation.ambient_delta;
+            source.reflection_radius = observation.reflection_radius;
             if (source.scenery) {
                 source.x = observation.x;
                 source.y = observation.y;
@@ -1939,7 +2021,7 @@ static void sprintathon_refresh_texture_lights()
 static void sprintathon_record_texture_light(TextureManager *texture,
                                              float x, float y, float z, RenderStep step, bool vertical, bool lava = false,
                                              short light_index = NONE, float ambient_delta = 0.0f,
-                                             short scenery_object_index = NONE, short liquid_type = NONE)
+                                             short scenery_object_index = NONE, short liquid_type = NONE, float reflection_radius = 0.0f)
 {
     if (sprintathon_fast_shaft_source()) return;
     if (lava) liquid_type = _media_lava;
@@ -1983,7 +2065,7 @@ static void sprintathon_record_texture_light(TextureManager *texture,
         scenery, machine_tick_count(), light_index, ambient_delta, 1.0f,
         scenery_object_index, static_cast<short>(scenery ? ObjectList[scenery_object_index].permutation : NONE),
         scenery ? float(ObjectList[scenery_object_index].location.z) : 0.0f,
-        liquid_type != NONE, liquid_type};
+        liquid_type != NONE, liquid_type, reflection_radius};
     // Static surfaces may arrive as different clipped fragments. Scenery already
     // has an exact object position and must never snap to a neighboring fixture.
     if (!scenery) {
@@ -2028,7 +2110,7 @@ static void sprintathon_upload_all_scenery_lights()
     for (const auto& source : sprintathon_texture_lights) {
         if (!sprintathon_is_forced_scenery(source)) continue;
         pixels.insert(pixels.end(), {source.x, source.y, source.z, inverse_radius,
-            source.r * gain, source.g * gain, source.b * gain, 1.0f});
+            source.r * gain, source.g * gain, source.b * gain, source.reflection_radius});
         ++sprintathon_all_scenery_count;
     }
     if (pixels.empty()) return;
@@ -2331,6 +2413,37 @@ static void sprintathon_scenery_surface_range(const SprintathonSurfaceLightBound
     };
     while (first < end && !reaches(first)) ++first;
     while (end > first && !reaches(end - 1)) --end;
+}
+
+// Select two all-visible scenery sources on the CPU, using distance to
+// the complete liquid bounds so a large pool can receive light at its edge.
+static void sprintathon_set_water_scenery(Shader* shader,
+    const SprintathonSurfaceLightBounds& bounds)
+{
+    if(!shader || !bounds.valid || !sprintathon_all_scenery_enabled())return;
+    // Reflection reach is independent of the diffuse-light bounds trim.
+    int first=0,end=sprintathon_all_scenery_count;
+    if(sprintathon_scenery_light_pixels.size()<size_t(end)*8)return;
+    int best[2]={-1,-1};float score[2]={0,0};
+    for(int i=first;i<end;++i) {
+        const float* p=&sprintathon_scenery_light_pixels[size_t(i)*8];
+        if(p[3]<=0 || p[2]<=bounds.z1)continue;
+        float dx=std::max(bounds.x0,std::min(p[0],bounds.x1))-p[0];
+        float dy=std::max(bounds.y0,std::min(p[1],bounds.y1))-p[1];
+        float dz=bounds.z1-p[2];
+        float r2=(dx*dx+dy*dy+dz*dz)*p[3]*p[3]/9.0f;
+        if(r2>=1)continue;
+        float value=std::max(p[4],std::max(p[5],p[6]))*(1-r2)*(1-r2)/(1+2*r2);
+        if(value>score[0]){best[1]=best[0];score[1]=score[0];best[0]=i;score[0]=value;}
+        else if(value>score[1]){best[1]=i;score[1]=value;}
+    }
+    const Shader::UniformName positions[2]={Shader::U_WaterSceneryPosition0,Shader::U_WaterSceneryPosition1};
+    const Shader::UniformName colours[2]={Shader::U_WaterSceneryColor0,Shader::U_WaterSceneryColor1};
+    for(int i=0;i<2;++i)if(best[i]>=0) {
+        const float* p=&sprintathon_scenery_light_pixels[size_t(best[i])*8];
+        shader->setVector4(positions[i],p[0],p[1],p[2],p[3]/3.0f);
+        shader->setVector4(colours[i],p[4],p[5],p[6],-std::max(p[7],32.0f));
+    }
 }
 
 static void sprintathon_set_view_emitters(Shader *shader,
@@ -2945,18 +3058,7 @@ static bool sprintathon_draw_volume_fog(const view_data* camera, GLuint scene,
     glDisable(GL_CLIP_PLANE0);glDisable(GL_CLIP_PLANE1);glDisable(GL_FRAMEBUFFER_SRGB_EXT);
     glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
     const int half_width=std::max(1,(width+3)/4),half_height=std::max(1,(height+3)/4);
-    if(!target.fbo) glGenFramebuffersEXT(1,&target.fbo);
-    if(!target.color) glGenTextures(1,&target.color);
-    if(!target.rooms) glGenTextures(1,&target.rooms);
-    glBindTexture(GL_TEXTURE_RECTANGLE_ARB,target.color);
-    if(target.width!=half_width || target.height!=half_height) {
-        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
-        glTexImage2D(GL_TEXTURE_RECTANGLE_ARB,0,0x881A /* RGBA16F */,half_width,half_height,0,GL_RGBA,GL_FLOAT,nullptr);
-        target.width=half_width;target.height=half_height;
-    }
+    sprintathon_prepare_volume_buffer(half_width,half_height);
     glBindFramebufferEXT(GL_FRAMEBUFFER_EXT,target.fbo);
     glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT,GL_COLOR_ATTACHMENT0_EXT,GL_TEXTURE_RECTANGLE_ARB,target.color,0);
     if(glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT)!=GL_FRAMEBUFFER_COMPLETE_EXT) {
@@ -3013,6 +3115,59 @@ static bool sprintathon_draw_volume_fog(const view_data* camera, GLuint scene,
     glMatrixMode(GL_MODELVIEW);glPopMatrix();glMatrixMode(GL_PROJECTION);glPopMatrix();glMatrixMode(GL_MODELVIEW);
     glPopAttrib();glActiveTextureARB(GL_TEXTURE0_ARB);
     return true;
+}
+
+// Level-stable palette: no landscape setup or polygon search per water draw.
+struct SprintathonLiquidPalette {
+    bool ready=false, valid=false;
+    int level=-1, polygons=-1;
+    float colour[3]={0,0,0};
+};
+static SprintathonLiquidPalette sprintathon_liquid_palette;
+static void sprintathon_prepare_liquid_palette();
+
+void sprintathon_preload_post_buffers(){
+    // Prepare even when disabled, so toggling speculars needs no new texture.
+    GLint waterActive=0;glGetIntegerv(GL_ACTIVE_TEXTURE_ARB,&waterActive);
+    glPushAttrib(GL_TEXTURE_BIT);
+    SprintathonWaterNormals::bind();
+    sprintathon_prepare_liquid_palette();
+    glPopAttrib();glActiveTextureARB(waterActive);
+    const SDL_Rect rect=alephone::Screen::instance()->view_rect();
+    const GLsizei width=SprintathonRenderPixels(rect.w),height=SprintathonRenderPixels(rect.h);
+    if(width<=0 || height<=0)return;
+    const auto& config=Get_OGL_ConfigureData();
+    GLint active=0;glGetIntegerv(GL_ACTIVE_TEXTURE_ARB,&active);
+    glPushAttrib(GL_ALL_ATTRIB_BITS);
+    const bool fog=TEST_FLAG(config.Flags,OGL_Flag_Fog);
+    if(config.AmbientOcclusion || config.LandscapeLightShafts || fog){
+        sprintathon_capture_scene_depth(width,height,false);
+        sprintathon_capture_scene_color(width,height,false);
+    }
+    if(config.RefractiveInvisibility)setup_invisibility_refraction(nullptr,width,height,1);
+    if(config.AnimatedMediaRipples && TEST_FLAG(config.Flags,OGL_Flag_LiqSeeThru))
+        sprintathon_prepare_media_scene(width,height);
+    if(config.AmbientOcclusion)sprintathon_prepare_ao(std::max(1,(width+1)/2),std::max(1,(height+1)/2));
+    if(config.LandscapeLightShafts){
+        sprintathon_begin_shaft_source(width,height,nullptr,true);
+        sprintathon_prepare_shaft_scattering(width,height);
+    }
+    if(fog && graphics_preferences->sprintathon_volume_fog && FBO_Allowed &&
+        SDL_GL_ExtensionSupported("GL_ARB_texture_float")){
+        glActiveTextureARB(GL_TEXTURE0_ARB);
+        sprintathon_prepare_volume_buffer(std::max(1,(width+3)/4),std::max(1,(height+3)/4));
+    }
+    glPopAttrib();glActiveTextureARB(active);
+}
+
+// Reset before texture preparation so the palette captured there survives baking.
+void sprintathon_begin_sky_loading() {
+    sprintathon_liquid_palette=SprintathonLiquidPalette{};
+    SprintathonSkyBake::reset();
+    SprintathonSkyBake::prepare();
+}
+void sprintathon_preload_sky_palette(const float ambient[3],const float sunlight[3]) {
+    if(SprintathonSkyBake::enabled()) SprintathonSkyBake::landscapeColor(ambient,sunlight);
 }
 
 // Called while the level-loading progress screen is still active.
@@ -3239,6 +3394,7 @@ void RenderRasterize_Shader::render_tree() {
 		s->enable();
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
 		s->setFloat(Shader::U_FogMix, fogMix);
+		sprintathon_set_visible_sun(s,view);
 		s->setFloat(Shader::U_Yaw, virtual_yaw);
 		s->setFloat(Shader::U_Pitch, view->mimic_sw_perspective ? 0.0 : virtual_pitch);
 	}
@@ -3256,7 +3412,8 @@ void RenderRasterize_Shader::render_tree() {
 		Shader::get(Shader::S_Sprite),
 		Shader::get(Shader::S_SpriteBloom),
 		Shader::get(Shader::S_SpriteInfravision),
-		Shader::get(Shader::S_SpriteShadow)
+		Shader::get(Shader::S_SpriteShadow),
+        Shader::get(Shader::S_WaterSpriteReflection)
 	};
 	
 	for (auto s : fog_mode_shaders) {
@@ -3461,8 +3618,11 @@ void RenderRasterize_Shader::render_world_diffuse()
     const bool see_through_liquids =
         TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_LiqSeeThru);
     world_surface_pass = WorldSurfacePass::opaque;
+    if (!current_player->infravision_duration) SprintathonOpaqueBatch::begin();
     for (auto node = RSPtr->SortedNodes.rbegin(); node != RSPtr->SortedNodes.rend(); ++node)
         render_node(&*node, see_through_liquids, kDiffuse);
+    flush_opaque_batch();
+    SprintathonOpaqueBatch::end();
     world_surface_pass = WorldSurfacePass::remaining;
     RenderRasterizerClass::render_tree(kDiffuse);
     world_surface_pass = WorldSurfacePass::all;
@@ -3555,6 +3715,55 @@ void RenderRasterize_Shader::render_node(sorted_node_data *node, bool SeeThruLiq
 	// turn off clipping planes
 	glDisable(GL_CLIP_PLANE0);
 	glDisable(GL_CLIP_PLANE1);
+}
+
+void RenderRasterize_Shader::apply_opaque_batch_portal(const std::array<int32_t,4>& portal)
+{
+    clipping_window_data window{};
+    window.left.i=portal[0]; window.left.j=portal[1];
+    window.right.i=portal[2]; window.right.j=portal[3];
+    clip_to_window(&window);
+}
+
+void RenderRasterize_Shader::flush_opaque_batch()
+{
+    SprintathonOpaqueBatch::flush(
+        [this](const std::array<int32_t,4>& portal) { apply_opaque_batch_portal(portal); },
+        []() { sprintathon_world_detail.category=0; sprintathon_world_detail.draw(); });
+}
+
+int RenderRasterize_Shader::queue_opaque_batch(clipping_window_data* window,
+    TextureManager* material, GLenum mode, GLsizei count, const GLfloat* vertices,
+    const GLfloat* uv, SprintathonOpaqueGeometry::CpuEntry* prepared,
+    float intensity, float nx, float ny, float nz, float tx, float ty, float tz, float sign)
+{
+    if (!SprintathonOpaqueBatch::active) return 0;
+    SprintathonOpaqueBatch::State state;
+    state.shader=sprintathon_surface_shader(kDiffuse,OGL_Txtr_Wall);
+    if (!state.shader || !material->GetOpaqueBatchMaterial(state.texture,state.bump,state.swapped)) {
+        ++SprintathonOpaqueBatch::fallback;
+        flush_opaque_batch(); return -1;
+    }
+    if (!TEST_FLAG(Get_OGL_ConfigureData().Flags,OGL_Flag_BumpMap)) state.bump=0;
+    state.uniforms=state.shader->uniformState();
+    if (state.uniforms.value[Shader::U_SkyBakeEnabled][0]!=0)
+        state.bake=SprintathonSkyBake::batchBoundTexture;
+    state.mode=mode;
+    state.attributes={{intensity,intensity,intensity,1,nx,ny,nz,tx,ty,tz,sign}};
+    state.portal={{window->left.i,window->left.j,window->right.i,window->right.j}};
+    size_t offset=prepared ? prepared->gpuOffset : size_t(-1);
+    if (!state.valid() ||
+        !((prepared && SprintathonOpaqueGeometry::bindPrepared(*prepared)) ||
+          SprintathonOpaqueGeometry::bind(count,vertices,uv,&offset))) {
+        ++SprintathonOpaqueBatch::fallback;
+        flush_opaque_batch(); return -1;
+    }
+    if (prepared) prepared->gpuOffset=offset;
+    SprintathonOpaqueBatch::submit(state,offset,count,
+        [this](const std::array<int32_t,4>& portal) { apply_opaque_batch_portal(portal); },
+        []() { sprintathon_world_detail.category=0; sprintathon_world_detail.draw(); });
+    SprintathonOpaqueGeometry::restore(vertices,uv);
+    return 1;
 }
 
 void RenderRasterize_Shader::clip_to_window(clipping_window_data *win)
@@ -3768,6 +3977,78 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 const double Radian2Circle = 1/TWO_PI;			// A circle is 2*pi radians
 const double FullCircleReciprocal = 1/double(FULL_CIRCLE);
 
+// Resolve and sample the level landscape once, after texture preparation.
+static void sprintathon_prepare_liquid_palette()
+{
+    auto& palette=sprintathon_liquid_palette;
+    if(palette.ready && palette.level==dynamic_world->current_level_number &&
+       palette.polygons==dynamic_world->polygon_count)return;
+    palette=SprintathonLiquidPalette{};
+    palette.ready=true;palette.level=dynamic_world->current_level_number;
+    palette.polygons=dynamic_world->polygon_count;
+    shape_descriptor sky=UNONE;
+    for(int i=0;i<dynamic_world->polygon_count;++i) {
+        const auto* polygon=get_polygon_data(i);
+        if(SprintathonSkyBake::sky(polygon->ceiling_transfer_mode) && polygon->ceiling_texture!=UNONE) {
+            sky=polygon->ceiling_texture;break;
+        }
+        if(SprintathonSkyBake::sky(polygon->floor_transfer_mode) && polygon->floor_texture!=UNONE)
+            sky=polygon->floor_texture;
+    }
+    if(sky==UNONE)return;
+    TextureManager landscape;
+    landscape.ShapeDesc=sky;
+    get_shape_bitmap_and_shading_table(sky,&landscape.Texture,&landscape.ShadingTables,_shading_normal);
+    landscape.TextureType=OGL_Txtr_Landscape;
+    landscape.TransferMode=_big_landscaped_transfer;
+    landscape.TransferData=0;landscape.IsShadeless=false;
+    const auto* options=View_GetLandscapeOptions(sky);
+    landscape.LandscapeVertRepeat=options->VertRepeat;
+    landscape.Landscape_AspRatExp=options->SphereMap ? 1 : options->OGL_AspRatExp;
+    glActiveTextureARB(GL_TEXTURE0_ARB+5);
+    if(landscape.Setup()) {
+        landscape.RenderNormal();
+        float sunlight[3];
+        palette.valid=landscape.GetSkyColor(palette.colour,sunlight);
+    }
+    glActiveTextureARB(GL_TEXTURE0_ARB);
+}
+
+static void sprintathon_bind_liquid_sky(Shader* shader)
+{
+    // Fallback for a level transition outside the normal loading path.
+    sprintathon_prepare_liquid_palette();
+    const auto& palette=sprintathon_liquid_palette;
+    if(palette.valid) {
+        shader->setVector4(Shader::U_LiquidSkyParams,
+            palette.colour[0],palette.colour[1],palette.colour[2],1);
+        shader->setFloat(Shader::U_LiquidSkyMode,1);
+    }
+}
+
+// Track the actual displayed texture origin, not an invented current.
+static void sprintathon_set_liquid_flow(Shader* shader,short mediaIndex,float x,float y)
+{
+    if(!shader || mediaIndex==NONE)return;
+    struct Flow { bool ready=false; float x=0,y=0; double u=0,v=0; };
+    static std::map<short,Flow> flows;
+    static int level=-1,tick=-1;
+    if(level!=dynamic_world->current_level_number || dynamic_world->tick_count<tick) flows.clear();
+    level=dynamic_world->current_level_number;tick=dynamic_world->tick_count;
+    auto& flow=flows[mediaIndex];
+    if(!flow.ready) { flow.u=x;flow.v=y;flow.ready=true; }
+    else {
+        // Texture origins wrap by one world unit. Follow the nearest continuous
+        // displacement so wrapping doesn't reset the procedural wave pattern.
+        double dx=x-flow.x,dy=y-flow.y;
+        dx-=std::round(dx/WORLD_ONE)*WORLD_ONE;
+        dy-=std::round(dy/WORLD_ONE)*WORLD_ONE;
+        flow.u+=dx;flow.v+=dy;
+    }
+    flow.x=x;flow.y=y;
+    shader->setVector4(Shader::U_LiquidFlow,float(flow.u),float(flow.v),0,0);
+}
+
 std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const shape_descriptor& Texture, short transferMode, float pulsate, float wobble, float intensity, float offset, RenderStep renderStep, int16 mediaType) {
     SprintathonShaftCpuScope trace_time(sprintathon_shaft_trace.wall_ms);
     if(sprintathon_shaft_trace.enabled) {
@@ -3891,6 +4172,14 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
 	}
 
+    s->setFloat(Shader::U_LiquidSkyMode,0);
+    if(renderStep==kDiffuse && mediaType!=NONE && mediaType!=_media_lava &&
+       graphics_preferences->liquid_specular && !current_player->infravision_duration) {
+        sprintathon_bind_liquid_sky(s);
+        // Sky colour is a uniform; unit 5 can hold the cached wave normals.
+        SprintathonWaterNormals::bind();
+    }
+
 	if(TMgr->Setup()) {
 		TMgr->RenderNormal(); // must allocate first
         if (SprintathonSkyBake::enabled() && TMgr->TextureType == OGL_Txtr_Landscape &&
@@ -3925,6 +4214,23 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 	TMgr->SetupTextureMatrix();
 	const OGL_ConfigureData& config = Get_OGL_ConfigureData();
 	const float ripple_phase = sprintathon_liquid_ripple_phase(mediaType);
+    sprintathon_set_visible_sun(s,view);
+    s->setVector4(Shader::U_LiquidFlow,0,0,0,0);
+    s->setVector4(Shader::U_WaterSceneryColor0,0,0,0,0);
+    s->setVector4(Shader::U_WaterSceneryColor1,0,0,0,0);
+    s->setFloat(Shader::U_LiquidSceneAvailable,0);
+    s->setVector4(Shader::U_LiquidSpecLight,0,0,1,0);
+    if (renderStep == kDiffuse && mediaType != NONE && mediaType != _media_lava &&
+        graphics_preferences->liquid_specular && !current_player->infravision_duration) {
+        const double azimuth=(config.LandscapeLightShaftDirection-90.0)*0.017453292519943295;
+        const double elevation=config.LandscapeLightShaftElevation*0.017453292519943295;
+        s->setVector4(Shader::U_LiquidSpecLight,
+            std::cos(azimuth)*std::cos(elevation),std::sin(azimuth)*std::cos(elevation),
+            std::sin(elevation),graphics_preferences->liquid_specular_strength/100.0f);
+        // W carries continuous wave time; it must not reset with texture ripple phase.
+        s->setVector4(Shader::U_LiquidSpecEye,view->origin.x,view->origin.y,view->origin.z,
+            sprintathon_liquid_ripple_phase(mediaType,1.0,false));
+    }
 	s->setFloat(Shader::U_Time, ripple_phase);
 	s->setFloat(Shader::U_PixelWidth,
 		SprintathonRenderPixels(view->screen_width));
@@ -3943,32 +4249,16 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 	// Diffuse media shaders sample it from texture unit 2 and bend that sample
 	// with the same wave field used to animate the liquid texture.
 	if (mediaType != NONE && renderStep == kDiffuse &&
-		config.AnimatedMediaRipples &&
+        (config.AnimatedMediaRipples || (graphics_preferences->liquid_specular && mediaType!=_media_lava)) &&
 		TEST_FLAG(config.Flags, OGL_Flag_LiqSeeThru))
 	{
-		static GLuint media_scene_texture = 0;
-		static GLsizei media_scene_width = 0;
-		static GLsizei media_scene_height = 0;
 		const GLsizei width = static_cast<GLsizei>(
 			SprintathonRenderPixels(view->screen_width));
 		const GLsizei height = static_cast<GLsizei>(
 			SprintathonRenderPixels(view->screen_height));
 
-		glActiveTextureARB(GL_TEXTURE2_ARB);
-		if (!media_scene_texture)
-			glGenTextures(1, &media_scene_texture);
-		glBindTexture(GL_TEXTURE_RECTANGLE_ARB, media_scene_texture);
-		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		if (width != media_scene_width || height != media_scene_height)
-		{
-			glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA, width, height,
-				0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-			media_scene_width = width;
-			media_scene_height = height;
-		}
+        sprintathon_prepare_media_scene(width,height);
+        s->setFloat(Shader::U_LiquidSceneAvailable,1);
         // The traversal interleaves media with geometry behind each surface.
         // Capture at this draw, after that geometry has become available.
         glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0,
@@ -4121,6 +4411,7 @@ bool setupGlow(struct view_data *view, std::unique_ptr<TextureManager>& TMgr, fl
 
 		s->enable();
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
+		s->setVector4(Shader::U_LiquidSpecLight,0,0,1,0);
 		// Glow overlays retain their existing alpha/depth behavior. Also reset
 		// the shared wall shader before it is reused by another draw pass.
 		s->setFloat(Shader::U_SprintathonShaftSource, 0.0f);
@@ -4305,6 +4596,11 @@ static void sprintathon_set_sector_light_edges(Shader *shader,
 
 void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *window,
 	polygon_data *polygon, horizontal_surface_data *surface, bool void_present, bool ceil, RenderStep renderStep) {
+    const bool batchTransfer=surface->transfer_mode==_xfer_normal ||
+        surface->transfer_mode==_xfer_2x || surface->transfer_mode==_xfer_4x;
+    if (SprintathonOpaqueBatch::active && (!batchTransfer || void_present)) flush_opaque_batch();
+
+
 
     // These surfaces stay in the original back-to-front pass. In particular,
     // skip media before setupWallTexture can copy the scene for refraction.
@@ -4364,6 +4660,15 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
               std::min(1.0f, intensity + projectile_rgb[2]), 1.0f);
 	if(TMgr->ShapeDesc == UNONE) { return; }
     const bool opaque_surface = !void_present && !surface->is_media && TMgr->TextureType == OGL_Txtr_Wall && !TMgr->IsBlended();
+    if (opaque_surface)
+        SprintathonOpaqueBatch::inspectSurface(TMgr->IsGlowMapped(),batchTransfer);
+    if (SprintathonOpaqueBatch::active && SprintathonOpaqueBatch::count && opaque_surface && TMgr->IsGlowMapped()) {
+        flush_opaque_batch();
+        SprintathonOpaqueBatch::active=false;
+        render_node_floor_or_ceiling(window,polygon,surface,void_present,ceil,renderStep);
+        SprintathonOpaqueBatch::active=true;
+        return;
+    }
     if (world_surface_pass == WorldSurfacePass::opaque && skip_world_surface(opaque_surface)) return;
     const bool lava_surface = surface->is_media && surface->media_type == _media_lava;
     if (graphics_preferences->projectile_lights_per_pixel &&
@@ -4420,6 +4725,10 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
     if (graphics_preferences->projectile_lights_per_pixel) {
         glColor4f(intensity, intensity, intensity, 1.0f);
         sprintathon_set_pixel_light(surface_light_x, surface_light_y, surface_light_z, renderStep, TMgr->TextureType, &surface_bounds);
+        if(surface->is_media && surface->media_type!=_media_lava && renderStep==kDiffuse &&
+           graphics_preferences->liquid_specular && !current_player->infravision_duration)
+            sprintathon_set_water_scenery(sprintathon_surface_shader(renderStep,TMgr->TextureType),surface_bounds);
+
     } else {
         sprintathon_clear_pixel_light(renderStep, TMgr->TextureType, &surface_bounds);
     }
@@ -4463,6 +4772,11 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
 
 		world_distance x = 0.0, y = 0.0;
 		instantiate_transfer_mode(view, surface->transfer_mode, x, y);
+        if(surface->is_media && surface->media_type!=_media_lava && renderStep==kDiffuse &&
+           graphics_preferences->liquid_specular && !current_player->infravision_duration)
+            sprintathon_set_liquid_flow(sprintathon_surface_shader(renderStep,TMgr->TextureType),
+                polygon->media_index,surface->origin.x+x,surface->origin.y+y);
+
 
 		vec3 N;
 		vec3 T;
@@ -4499,6 +4813,20 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
 				break;
 		}
 
+        SprintathonOpaqueGeometry::CpuKey geometryKey;
+        SprintathonOpaqueGeometry::CpuEntry* preparedGeometry=nullptr;
+        const bool cacheGeometry=opaque_surface && SprintathonOpaqueGeometry::enabled() && vertex_count<=16;
+        if(cacheGeometry){
+            geometryKey.count=vertex_count;
+            geometryKey.inputs[0]=0;geometryKey.inputs[1]=ceil;
+            geometryKey.inputs[2]=surface->height;geometryKey.inputs[3]=scale;
+            geometryKey.inputs[4]=surface->origin.x;geometryKey.inputs[5]=surface->origin.y;
+            geometryKey.inputs[6]=x;geometryKey.inputs[7]=y;
+            for(int i=0;i<vertex_count;++i){const auto& point=get_endpoint_data(polygon->endpoint_indexes[i])->vertex;
+                geometryKey.inputs[8+2*i]=point.x;geometryKey.inputs[9+2*i]=point.y;}
+            preparedGeometry=SprintathonOpaqueGeometry::findPrepared(geometryKey);
+        }
+        if(!preparedGeometry){
 		if (ceil)
 		{
 			for(short i = 0; i < vertex_count; ++i) {
@@ -4521,16 +4849,30 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
 				*tp++ = (vertex.y + surface->origin.y + y) / scale;
 			}
 		}
-		glVertexPointer(3, GL_FLOAT, 0, vertex_array);
-		glTexCoordPointer(2, GL_FLOAT, 0, texcoord_array);
+            if(cacheGeometry)preparedGeometry=SprintathonOpaqueGeometry::storePrepared(geometryKey,vertex_array,texcoord_array);
+        }
+        const GLfloat* drawVertices=preparedGeometry?preparedGeometry->vertices.data():vertex_array;
+        const GLfloat* drawUV=preparedGeometry?preparedGeometry->uv.data():texcoord_array;
+		glVertexPointer(3, GL_FLOAT, 0, drawVertices);
+		glTexCoordPointer(2, GL_FLOAT, 0, drawUV);
 
-		sprintathon_shaft_draw_arrays(GL_POLYGON, 0, vertex_count);
+		const int queued=(batchTransfer && opaque_surface && !TMgr->IsGlowMapped()) ? queue_opaque_batch(window,TMgr.get(),GL_POLYGON,
+                vertex_count,drawVertices,drawUV,preparedGeometry,intensity,N[0],N[1],N[2],T[0],T[1],T[2],sign) : 0;
+            if (queued<0) {
+                // Cache exhaustion or unsupported state: redo setup after the
+                // barrier, then use the established immediate path for this draw.
+                SprintathonOpaqueBatch::active=false;
+                render_node_floor_or_ceiling(window,polygon,surface,void_present,ceil,renderStep);
+                SprintathonOpaqueBatch::active=true;
+                return;
+            }
+            if (!queued) sprintathon_draw_opaque_geometry(GL_POLYGON, vertex_count, drawVertices, drawUV, opaque_surface, preparedGeometry);
 
 		// see note 2 above; pulsate uniform should stay set from setupWall call
 		if (setupGlow(view, TMgr, 0, intensity, weaponFlare, selfLuminosity, offset, renderStep)) {
             sprintathon_set_sector_light_edges(
                 sprintathon_surface_shader(renderStep, TMgr->TextureType), polygon, surface, ceil, view);
-			sprintathon_shaft_draw_arrays(GL_POLYGON, 0, vertex_count);
+			sprintathon_draw_opaque_geometry(GL_POLYGON, vertex_count, drawVertices, drawUV, opaque_surface, preparedGeometry);
 		}
 
 		Shader::disable();
@@ -4632,6 +4974,10 @@ static void sprintathon_set_wall_light_edges(Shader *shader,
 }
 
 void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vertical_surface_data *surface, bool void_present, RenderStep renderStep) {
+    const bool batchTransfer=surface->transfer_mode==_xfer_normal ||
+        surface->transfer_mode==_xfer_2x || surface->transfer_mode==_xfer_4x;
+    if (SprintathonOpaqueBatch::active && (!batchTransfer || void_present)) flush_opaque_batch();
+
 
     // These surfaces stay in the original back-to-front pass. In particular,
     // skip media before setupWallTexture can copy the scene for refraction.
@@ -4696,6 +5042,15 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
               std::min(1.0f, intensity + projectile_rgb[2]), 1.0f);
 	if(TMgr->ShapeDesc == UNONE) { return; }
     const bool opaque_surface = !void_present && TMgr->TextureType == OGL_Txtr_Wall && !TMgr->IsBlended();
+    if (opaque_surface)
+        SprintathonOpaqueBatch::inspectSurface(TMgr->IsGlowMapped(),batchTransfer);
+    if (SprintathonOpaqueBatch::active && SprintathonOpaqueBatch::count && opaque_surface && TMgr->IsGlowMapped()) {
+        flush_opaque_batch();
+        SprintathonOpaqueBatch::active=false;
+        render_node_side(window,surface,void_present,renderStep);
+        SprintathonOpaqueBatch::active=true;
+        return;
+    }
     if (world_surface_pass == WorldSurfacePass::opaque && skip_world_surface(opaque_surface)) return;
     if (graphics_preferences->projectile_lights_per_pixel &&
         world_surface_pass != WorldSurfacePass::opaque)
@@ -4818,6 +5173,18 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
 			GLfloat* vp = vertex_array;
 			GLfloat* tp = texcoord_array;
 
+            SprintathonOpaqueGeometry::CpuKey geometryKey;
+            SprintathonOpaqueGeometry::CpuEntry* preparedGeometry=nullptr;
+            const bool cacheGeometry=opaque_surface && SprintathonOpaqueGeometry::enabled();
+            if(cacheGeometry){
+                geometryKey.count=vertex_count;geometryKey.inputs[0]=1;
+                geometryKey.inputs[1]=div;geometryKey.inputs[2]=tOffset;
+                geometryKey.inputs[3]=x0;geometryKey.inputs[4]=surface->length;
+                for(int i=0;i<vertex_count;++i){geometryKey.inputs[5+3*i]=vertices[i].x;
+                    geometryKey.inputs[6+3*i]=vertices[i].y;geometryKey.inputs[7+3*i]=vertices[i].z;}
+                preparedGeometry=SprintathonOpaqueGeometry::findPrepared(geometryKey);
+            }
+            if(!preparedGeometry){
 			for(int i = 0; i < vertex_count; ++i) {
 				float p2 = 0;
 				if(i == 1 || i == 2) { p2 = surface->length; }
@@ -4828,15 +5195,29 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
 				*tp++ = (tOffset - vertices[i].z) / static_cast<float>(div);
 				*tp++ = (x0+p2) / static_cast<float>(div);
 			}
-			glVertexPointer(3, GL_FLOAT, 0, vertex_array);
-			glTexCoordPointer(2, GL_FLOAT, 0, texcoord_array);
+                if(cacheGeometry)preparedGeometry=SprintathonOpaqueGeometry::storePrepared(geometryKey,vertex_array,texcoord_array);
+            }
+            const GLfloat* drawVertices=preparedGeometry?preparedGeometry->vertices.data():vertex_array;
+            const GLfloat* drawUV=preparedGeometry?preparedGeometry->uv.data():texcoord_array;
+			glVertexPointer(3, GL_FLOAT, 0, drawVertices);
+			glTexCoordPointer(2, GL_FLOAT, 0, drawUV);
 			
-			sprintathon_shaft_draw_arrays(GL_QUADS, 0, vertex_count);
+			const int queued=(batchTransfer && opaque_surface && !TMgr->IsGlowMapped()) ? queue_opaque_batch(window,TMgr.get(),GL_QUADS,
+                vertex_count,drawVertices,drawUV,preparedGeometry,intensity,N[0],N[1],N[2],T[0],T[1],T[2],sign) : 0;
+            if (queued<0) {
+                // Cache exhaustion or unsupported state: redo setup after the
+                // barrier, then use the established immediate path for this draw.
+                SprintathonOpaqueBatch::active=false;
+                render_node_side(window,surface,void_present,renderStep);
+                SprintathonOpaqueBatch::active=true;
+                return;
+            }
+            if (!queued) sprintathon_draw_opaque_geometry(GL_QUADS, vertex_count, drawVertices, drawUV, opaque_surface, preparedGeometry);
 
 			if (setupGlow(view, TMgr, wobble, intensity, weaponFlare, selfLuminosity, offset, renderStep)) {
             sprintathon_set_wall_light_edges(
                 sprintathon_surface_shader(renderStep, TMgr->TextureType), surface, view);
-				sprintathon_shaft_draw_arrays(GL_QUADS, 0, vertex_count);
+				sprintathon_draw_opaque_geometry(GL_QUADS, vertex_count, drawVertices, drawUV, opaque_surface, preparedGeometry);
 			}
 
 			Shader::disable();
@@ -5054,6 +5435,90 @@ bool RenderModel(rectangle_definition& RenderRectangle, short Collection,
 	return true;
 }
 
+void RenderRasterize_Shader::render_liquid_reflections(sorted_node_data* node,
+    clipping_window_data* window,polygon_data* polygon,horizontal_surface_data* surface,RenderStep step)
+{
+    if(!graphics_preferences->liquid_sprite_reflections || step!=kDiffuse ||
+       world_surface_pass==WorldSurfacePass::opaque || sprintathon_fast_shaft_source() ||
+       current_player->infravision_duration || surface->media_type==_media_lava ||
+       view->origin.z<=surface->height+1 || polygon->vertex_count<3)return;
+    using namespace SprintathonSpriteReflection;
+    const double h=surface->height,ex=view->origin.x,ey=view->origin.y,ez=view->origin.z;
+    double cx=0,cy=0;
+    for(int i=0;i<polygon->vertex_count;++i) {
+        const auto& p=get_endpoint_data(polygon->endpoint_indexes[i])->vertex;
+        cx+=p.x;cy+=p.y;
+    }
+    cx/=polygon->vertex_count;cy/=polygon->vertex_count;
+    glPushAttrib(GL_ALL_ATTRIB_BITS);
+    clip_to_window(window);
+    glEnable(GL_DEPTH_TEST);glDepthFunc(GL_LEQUAL);glDepthMask(GL_FALSE);
+    glDisable(GL_CULL_FACE);glDisable(GL_ALPHA_TEST);
+    glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_POLYGON_OFFSET_FILL);glPolygonOffset(-1.0f,-1.0f);
+    SprintathonWaterNormals::bind();
+    Shader* shader=Shader::get(Shader::S_WaterSpriteReflection);
+    shader->enable();
+    shader->setVector4(Shader::U_LiquidSpecEye,ex,ey,ez,0);
+    shader->setFloat(Shader::U_Time,sprintathon_liquid_ripple_phase(surface->media_type,1.0,false));
+    shader->setFloat(Shader::U_Pulsate,Get_OGL_ConfigureData().AnimatedMediaRipples ? 1.0f : 0.0f);
+    int drawn=0;
+    for(auto* object=node->exterior_objects;object && drawn<8;object=object->next_object) {
+        // Include characters (and other players), using their current sprite frame.
+        if(!(object->is_scenery || object->casts_character_shadow) ||
+           !object->node || object->node->polygon_index!=node->polygon_index)continue;
+        const auto& rect=object->rectangle;
+        if(rect.ModelPtr || rect.transfer_mode!=_textured_transfer || rect.Opacity<=0)continue;
+        double dx=rect.Position.x-ex,dy=rect.Position.y-ey;
+        double distance=std::sqrt(dx*dx+dy*dy);
+        if(distance>=12.0*WORLD_ONE)continue;
+        double bottom=rect.Position.z+rect.WorldBottom*rect.Scale;
+        double top=rect.Position.z+rect.WorldTop*rect.Scale;
+        if(top<=h || top<=bottom || bottom-h>4.0*WORLD_ONE)continue;
+        // Clip the source to the part above this pool before mirroring it.
+        double clippedBottom=std::max(bottom,h),fraction=(clippedBottom-bottom)/(top-bottom);
+        TextureManager texture;
+        texture.ShapeDesc=rect.ShapeDesc;texture.LowLevelShape=rect.LowLevelShape;
+        texture.Texture=rect.texture;texture.ShadingTables=rect.shading_tables;
+        texture.TransferMode=rect.transfer_mode;texture.TransferData=rect.transfer_data;
+        texture.IsShadeless=(rect.flags&_SHADELESS_BIT)!=0;texture.TextureType=OGL_Txtr_Inhabitant;
+        if(!texture.Setup())continue;
+        glActiveTextureARB(GL_TEXTURE0_ARB);texture.RenderNormal();texture.SetupTextureMatrix();
+        double uTop=texture.U_Offset,uBottom=uTop+texture.U_Scale;
+        double vLeft=texture.V_Offset,vRight=vLeft+texture.V_Scale;
+        if(rect.flip_vertical)std::swap(uTop,uBottom);
+        if(rect.flip_horizontal)std::swap(vLeft,vRight);
+        uBottom+=(uTop-uBottom)*fraction;
+        double yaw=view->virtual_yaw*FixedAngleToDegrees*0.017453292519943295;
+        double axisX=-std::sin(yaw),axisY=std::cos(yaw);
+        double left=rect.WorldLeft*rect.Scale*rect.HorizScale;
+        double right=rect.WorldRight*rect.Scale*rect.HorizScale;
+        auto vertex=[&](double side,double z,double u,double v) {
+            return project(ex,ey,ez,rect.Position.x+axisX*side,rect.Position.y+axisY*side,z,h,u,v);
+        };
+        std::vector<Vertex> vertices={vertex(left,top,uTop,vLeft),vertex(right,top,uTop,vRight),
+            vertex(right,clippedBottom,uBottom,vRight),vertex(left,clippedBottom,uBottom,vLeft)};
+        for(int i=0;i<polygon->vertex_count && !vertices.empty();++i) {
+            const auto& a=get_endpoint_data(polygon->endpoint_indexes[i])->vertex;
+            const auto& b=get_endpoint_data(polygon->endpoint_indexes[(i+1)%polygon->vertex_count])->vertex;
+            double side=(b.x-a.x)*(cy-a.y)-(b.y-a.y)*(cx-a.x);
+            vertices=clip(vertices,a.x,a.y,b.x,b.y,side>=0 ? 1.0 : -1.0);
+        }
+        if(vertices.size()>=3) {
+            double fade=1.0-std::max(0.0,(distance-6.0*WORLD_ONE)/(6.0*WORLD_ONE));
+            fade*=1.0-std::min(1.0,std::max(0.0,bottom-h)/(4.0*WORLD_ONE));
+            float shade=texture.IsShadeless ? 1.0f : std::max(0.0f,std::min(1.0f,float(rect.ambient_shade)/FIXED_ONE));
+            glColor4f(shade,shade,shade,float(fade)*rect.Opacity*
+                (graphics_preferences->liquid_reflection_strength/100.0f));
+            glBegin(GL_TRIANGLE_FAN);
+            for(const auto& p:vertices){glTexCoord4d(p.u,p.v,0,p.q);glVertex3d(p.x,p.y,h);}
+            glEnd();++drawn;
+        }
+        texture.RestoreTextureMatrix();
+    }
+    Shader::disable();glPopAttrib();glActiveTextureARB(GL_TEXTURE0_ARB);
+}
+
 void RenderRasterize_Shader::render_node_object(render_object_data *object, bool other_side_of_media, RenderStep renderStep) {
     if (world_surface_pass == WorldSurfacePass::opaque) return;
 
@@ -5242,7 +5707,9 @@ void RenderRasterize_Shader::_render_node_object_helper(render_object_data *obje
             const float light_z = pos.z + bottom + (top - bottom) * (1.0f - bright_v);
             sprintathon_collect_fog_cone(object->scenery_object_index, light_z, bright_rgb);
             sprintathon_record_texture_light(TMgr.get(), pos.x, pos.y, light_z, renderStep, true,
-                false, NONE, 0.0f, object->scenery_object_index);
+                false, NONE, 0.0f, object->scenery_object_index, NONE,
+                0.25f*std::sqrt(float(rect.WorldRight-rect.WorldLeft)*float(rect.WorldRight-rect.WorldLeft)+
+                                float(rect.WorldTop-rect.WorldBottom)*float(rect.WorldTop-rect.WorldBottom))*std::abs(rect.Scale));
         }
     }
 

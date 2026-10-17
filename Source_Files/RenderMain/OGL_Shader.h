@@ -22,6 +22,7 @@
  Implements OpenGL vertex/fragment shader class
  */
 
+#include <array>
 #include <string>
 #include <map>
 #include "OGL_Headers.h"
@@ -39,7 +40,9 @@ public:
 		U_Texture1,
 		U_Texture2,
 		U_Texture3,
-        U_SkyBakeActor, U_SkyBakeSun, U_SkyBakeAmbient, U_SkyBakeMap, U_SkyBakeEnabled, U_SkyBakeU, U_SkyBakeV,
+        U_WaterSceneryPosition0, U_WaterSceneryColor0,
+        U_WaterSceneryPosition1, U_WaterSceneryColor1,
+        U_SkyBakeActor, U_SkyBakeSun, U_SkyBakeAmbient, U_SkyBakeMap, U_SkyBakeEnabled, U_SkyBakeU, U_SkyBakeV, U_SkyBakeSectorStrength, U_LiquidSpecLight, U_LiquidSpecEye, U_LiquidSceneAvailable, U_LiquidSkyMap, U_LiquidSkyParams, U_LiquidSkyMode, U_LiquidFlow, U_VisibleSun, U_VisibleSunColor, U_VisibleSunEye,
 		U_Time,
 		U_Pulsate,
 		U_Wobble,
@@ -181,6 +184,7 @@ public:
 		S_LandscapeBloom,
 		S_LandscapeInfravision,
 		S_Sprite,
+        S_WaterSpriteReflection,
 		S_SpriteBloom,
 		S_SpriteInfravision,
 		S_SpriteShadow,
@@ -232,6 +236,7 @@ public:
 	static Shader* get(ShaderType type) { return &_shaders[type]; }
 	static void loadAll();
     static void warmup(void (*progress)() = nullptr);
+    static void warmupDraws();
 	static void unloadAll();
 	
 	Shader() : _programObj(0), _passes(-1), _loaded(false) {}
@@ -243,6 +248,21 @@ public:
 	void init();
 	void enable();
 	void unload();
+    // CPU snapshots for conservative opaque batching; sampler bindings are fixed.
+    struct UniformState {
+        std::array<unsigned char, NUMBER_OF_UNIFORM_LOCATIONS> kind{};
+        std::array<std::array<float, 4>, NUMBER_OF_UNIFORM_LOCATIONS> value{};
+        bool matrix = false;
+        bool operator==(const UniformState& b) const {
+            return matrix == b.matrix && kind == b.kind && value == b.value;
+        }
+    };
+    static bool opaqueBatchRequested();
+    const UniformState& uniformState() const { return _batchUniforms; }
+    void restoreUniformState(const UniformState& state);
+private:
+    UniformState _batchUniforms;
+public:
 	void setFloat(UniformName name, float); // shader must be enabled
 	void setMatrix4(UniformName name, float *f);
 	void setVector4(UniformName name, float x, float y, float z, float w);

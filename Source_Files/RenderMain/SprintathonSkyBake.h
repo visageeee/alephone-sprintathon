@@ -4,9 +4,11 @@
 #include <tuple>
 #include <vector>
 #include <array>
+#include <deque>
 
 // Experimental static lightmaps. Geometry is copied once, never edited.
 namespace SprintathonSkyBake {
+static GLuint batchBoundTexture = 0;
 struct V { double x,y,z; V(double X=0,double Y=0,double Z=0):x(X),y(Y),z(Z){} V operator+(V b)const{return V(x+b.x,y+b.y,z+b.z);} V operator*(double s)const{return V(x*s,y*s,z*s);} };
 inline double dot(V a,V b){return a.x*b.x+a.y*b.y+a.z*b.z;}
 inline V unit(V a){return a*(1.0/std::max(1e-12,std::sqrt(dot(a,a))));}
@@ -28,6 +30,9 @@ inline void landscapeColor(const float ambient[3],const float direct[3]){
 }
 inline bool enabled(){const char* p=std::getenv("SPRINTATHON_SKY_BAKE");return p ? p[0]=='1' : graphics_preferences->baked_landscape_lighting;}
 static std::map<std::tuple<int,int,int,int>,V> actorSamples;
+static std::deque<std::tuple<int,int,int,int>> actorSampleOrder;
+static const size_t actorSampleLimit=65536;
+static double actorSpacing=256.0;
 // Match the shaft projection: configured north is world -Y, yaw zero is +X.
 static double sunDirectionSetting=0, sunElevationSetting=0;
 static bool sunReady=false;
@@ -39,7 +44,7 @@ inline void updateSun(){
  if(sunReady && direction==sunDirectionSetting && elevation==sunElevationSetting)return;
  // Only lighting changes; retain the level's original geometry snapshot.
  for(auto& p:maps)if(p.second.texture)glDeleteTextures(1,&p.second.texture);
- maps.clear();actorSamples.clear();
+ maps.clear();actorSamples.clear();actorSampleOrder.clear();
  sunDirectionSetting=direction;sunElevationSetting=elevation;sunReady=true;
  const double a=(direction-90.0)*0.017453292519943295;
  const double h=elevation*0.017453292519943295;
@@ -47,7 +52,7 @@ inline void updateSun(){
 }
 inline void reset(){
  if(context==SDL_GL_GetCurrentContext())for(auto& p:maps)if(p.second.texture)glDeleteTextures(1,&p.second.texture);
- maps.clear();actorSamples.clear();rooms.clear();paletteReady=false;ambientColor=sunColor=V(1,1,1);sunReady=false;checked=available=false;level=lastTick=-1;context=SDL_GL_GetCurrentContext();
+ maps.clear();actorSamples.clear();actorSampleOrder.clear();rooms.clear();actorSpacing=256.0;paletteReady=false;ambientColor=sunColor=V(1,1,1);sunReady=false;checked=available=false;level=lastTick=-1;context=SDL_GL_GetCurrentContext();
 }
 inline void prepare(){
  if(!enabled()){if(!rooms.empty())reset();return;}
@@ -111,28 +116,69 @@ inline V light(int room,V p,V normal){
 }
 // Cache a world-space irradiance grid per polygon. Polygon IDs preserve
 // overlapping map topology; trilinear interpolation softens moving shadows.
+inline float sectorStrength(){return std::max(0.0f,std::min(1.0f,graphics_preferences->baked_landscape_sector/100.0f));}
 inline double ambientFloor(){return std::max(0.0,std::min(1.0,graphics_preferences->baked_landscape_ambient/100.0));}
+inline V actorSample(int room,int x,int y,int z){
+ auto key=std::make_tuple(room,x,y,z);auto found=actorSamples.find(key);
+ if(found!=actorSamples.end())return found->second;
+ // Unusual positions or changed geometry evict one entry, never the whole grid.
+ if(actorSamples.size()>=actorSampleLimit && !actorSampleOrder.empty()){
+  actorSamples.erase(actorSampleOrder.front());actorSampleOrder.pop_front();
+ }
+ V p=inside(room,V(x*actorSpacing,y*actorSpacing,z*actorSpacing));
+ p.z=std::max(rooms[room].floor+0.5,std::min(rooms[room].ceiling-0.5,p.z));
+ V value=light(room,p,V(0,0,1));
+ actorSamples.emplace(key,value);actorSampleOrder.push_back(key);return value;
+}
+struct ActorGrid {int lo[3],hi[3];};
+inline ActorGrid actorGrid(const Room& room){
+ double x0=1e30,y0=1e30,x1=-1e30,y1=-1e30;
+ for(const auto& e:room.edges){x0=std::min(x0,e.a.x);x1=std::max(x1,e.a.x);y0=std::min(y0,e.a.y);y1=std::max(y1,e.a.y);}
+ ActorGrid grid;
+ const double low[3]={x0,y0,room.floor},high[3]={x1,y1,room.ceiling};
+ for(int i=0;i<3;++i){grid.lo[i]=int(std::floor(low[i]/actorSpacing));grid.hi[i]=int(std::floor(high[i]/actorSpacing))+1;}
+ return grid;
+}
+inline void preloadActors(void (*progress)()){
+ // Coarsen large maps until their complete interpolation grid fits the budget.
+ actorSpacing=256.0;
+ for(;;){
+  double count=0;
+  for(const auto& room:rooms)if(!room.edges.empty()){
+   ActorGrid g=actorGrid(room);
+   count+=double(g.hi[0]-g.lo[0]+1)*(g.hi[1]-g.lo[1]+1)*(g.hi[2]-g.lo[2]+1);
+  }
+  if(count<=actorSampleLimit || actorSpacing>=65536.0)break;
+  actorSpacing*=2.0;
+ }
+ for(int room=0;room<int(rooms.size());++room){
+  if(rooms[room].edges.empty())continue;
+  ActorGrid g=actorGrid(rooms[room]);
+  for(int z=g.lo[2];z<=g.hi[2];++z)for(int y=g.lo[1];y<=g.hi[1];++y){
+   for(int x=g.lo[0];x<=g.hi[0];++x){
+    if(actorSamples.size()>=actorSampleLimit)return;
+    actorSample(room,x,y,z);
+   }
+   if(progress)progress();
+  }
+ }
+}
 inline V actorLight(int room,V point){
- const double spacing=256.0;
+ const double spacing=actorSpacing;
  const int ix=int(std::floor(point.x/spacing)),iy=int(std::floor(point.y/spacing)),iz=int(std::floor(point.z/spacing));
  const double fx=point.x/spacing-ix,fy=point.y/spacing-iy,fz=point.z/spacing-iz;
  V total;
  for(int z=0;z<2;++z)for(int y=0;y<2;++y)for(int x=0;x<2;++x){
-  auto key=std::make_tuple(room,ix+x,iy+y,iz+z);auto found=actorSamples.find(key);
-  if(found==actorSamples.end()){
-   if(actorSamples.size()>=8192)actorSamples.clear();
-   V p=inside(room,V((ix+x)*spacing,(iy+y)*spacing,(iz+z)*spacing));
-   p.z=std::max(rooms[room].floor+0.5,std::min(rooms[room].ceiling-0.5,p.z));
-   found=actorSamples.emplace(key,light(room,p,V(0,0,1))).first;
-  }
+  V sample=actorSample(room,ix+x,iy+y,iz+z);
   double weight=(x?fx:1-fx)*(y?fy:1-fy)*(z?fz:1-fz);
-  total=total+found->second*weight;
+  total=total+sample*weight;
  }
  const double base=ambientFloor();
  return V(base,base,base)+sunColor*total.x+ambientColor*total.y;
 }
 inline void bindActor(Shader* shader,int room,V point){
  if(!shader || !enabled() || !available || room<0 || room>=int(rooms.size()))return;
+ shader->setFloat(Shader::U_SkyBakeSectorStrength,sectorStrength());
  V c=actorLight(room,point);
  shader->setVector4(Shader::U_SkyBakeActor,float(c.x),float(c.y),float(c.z),1);
 }
@@ -201,14 +247,15 @@ inline void bind(Shader* shader,const polygon_data* polygon,int face,V origin,V 
   it=maps.emplace(key,m).first;
  }
  if(!shader)return; // Loading creates textures without binding a draw shader.
+ shader->setFloat(Shader::U_SkyBakeSectorStrength,sectorStrength());
  shader->setVector4(Shader::U_SkyBakeSun,float(sunColor.x),float(sunColor.y),float(sunColor.z),0);
  shader->setVector4(Shader::U_SkyBakeAmbient,float(ambientColor.x),float(ambientColor.y),float(ambientColor.z),float(ambientFloor()));
- const auto& m=it->second;GLint active=0;glGetIntegerv(GL_ACTIVE_TEXTURE_ARB,&active);glActiveTextureARB(GL_TEXTURE0_ARB+4);glBindTexture(GL_TEXTURE_2D,m.texture);glActiveTextureARB(active);
+ const auto& m=it->second;batchBoundTexture=m.texture;GLint active=0;glGetIntegerv(GL_ACTIVE_TEXTURE_ARB,&active);glActiveTextureARB(GL_TEXTURE0_ARB+4);glBindTexture(GL_TEXTURE_2D,m.texture);glActiveTextureARB(active);
  shader->setVector4(Shader::U_SkyBakeU,float(m.u.x*m.us),float(m.u.y*m.us),float(m.u.z*m.us),float(m.u0));
  shader->setVector4(Shader::U_SkyBakeV,float(m.v.x*m.vs),float(m.v.y*m.vs),float(m.v.z*m.vs),float(m.v0));shader->setFloat(Shader::U_SkyBakeEnabled,1);
 }
 inline void preload(void (*progress)()){
- reset();prepare();
+ prepare();
  if(!enabled() || !available)return;
  for(int room=0;room<int(rooms.size());++room){
   const auto* polygon=get_polygon_data(room);const auto& bounds=rooms[room];
@@ -218,6 +265,15 @@ inline void preload(void (*progress)()){
    if(!bounds.floorSky)bind(nullptr,polygon,0,V(x0,y0,bounds.floor),V(1,0,0),V(0,1,0),V(0,0,1),x1-x0,y1-y0);
    if(progress)progress();
    if(!bounds.ceilingSky)bind(nullptr,polygon,1,V(x0,y0,bounds.ceiling),V(1,0,0),V(0,1,0),V(0,0,-1),x1-x0,y1-y0);
+   if(polygon->media_index!=NONE){
+    const auto* media=get_media_data(polygon->media_index);
+    if(media && media->type!=_media_lava && media->height>bounds.floor && media->height<bounds.ceiling){
+     bind(nullptr,polygon,16,V(x0,y0,media->height),V(1,0,0),V(0,1,0),V(0,0,1),x1-x0,y1-y0);
+     if(progress)progress();
+     bind(nullptr,polygon,17,V(x0,y0,media->height),V(1,0,0),V(0,1,0),V(0,0,-1),x1-x0,y1-y0);
+     if(progress)progress();
+    }
+   }
    for(int edge=0;edge<int(bounds.edges.size());++edge){
     // Even currently hidden sides are prepared for doors opening later.
     if(polygon->side_indexes[edge]!=NONE)bind(nullptr,polygon,2+edge,V(),V(),V(),V(),1,1);
@@ -226,6 +282,8 @@ inline void preload(void (*progress)()){
   }
   if(progress)progress();
  }
+ preloadActors(progress);
+ fprintf(stderr,"Sky bake: preloaded %lu actor samples (spacing %.0f).\n",static_cast<unsigned long>(actorSamples.size()),actorSpacing);
  fprintf(stderr,"Sky bake: preloaded %lu static surface lightmaps.\n",static_cast<unsigned long>(maps.size()));
 }
 

@@ -11,6 +11,20 @@ varying float cosYaw;
 varying float sinYaw;
 uniform float offsetx; // azimuth in the sphere map
 const float M_PI = 3.14156;
+varying vec3 sunWorldRay;
+
+uniform vec4 visibleSun;
+uniform vec4 visibleSunColor;
+vec3 sprintathonSunDisc(vec3 ray) {
+    if(visibleSunColor.w<=0.0)return vec3(0.0);
+    float alignment=dot(normalize(ray),visibleSun.xyz);
+    float radius=max(1.0-visibleSun.w,0.000001);
+    float feather=max(fwidth(alignment),radius*0.15);
+    float disc=smoothstep(visibleSun.w-feather,visibleSun.w+feather,alignment);
+    float halo=0.035*exp2(-max(0.0,1.0-alignment)/(radius*4.0));
+    return visibleSunColor.rgb*visibleSunColor.w*(disc+halo);
+}
+
 void main(void) {
 	mat3 rotateYaw = mat3(cosYaw, 0, sinYaw,
 						  0, 1, 0,
@@ -29,6 +43,7 @@ void main(void) {
 	float v = phi / M_PI;
 
 	vec4 color = texture2D(texture0, vec2(u, v));
+    color.rgb += sprintathonSunDisc(sunWorldRay);
 	float intensity = clamp(bloomScale, 0.0, 1.0);
 
 #ifdef GAMMA_CORRECTED_BLENDING

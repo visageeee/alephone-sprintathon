@@ -1877,6 +1877,15 @@ void TextureManager::PlaceTexture(const ImageDescriptor *Image, bool normal_map)
 // What to render:
 
 // Always call this one and call it first; safe to allocate texture ID's in it
+bool TextureManager::GetOpaqueBatchMaterial(GLuint& normal, GLuint& bump, bool& swapped) const
+{
+    if (!TxtrStatePtr || !TxtrOptsPtr || TextureType != OGL_Txtr_Wall) return false;
+    normal = TxtrStatePtr->IDs[TextureState::Normal];
+    bump = TxtrStatePtr->IsBumped ? TxtrStatePtr->IDs[TextureState::Bump] : flatBumpTextureID;
+    swapped = TxtrOptsPtr->Substitution;
+    return normal != 0;
+}
+
 void TextureManager::RenderNormal()
 {
 

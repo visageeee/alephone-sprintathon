@@ -335,6 +335,7 @@ void RenderRasterizerClass::render_node(
 			for (window= node->clipping_windows; window; window= window->next_window)
 			{
 				render_node_floor_or_ceiling(window, polygon, &LiquidSurface, false, ceil, renderStep);
+                render_liquid_reflections(node,window,polygon,&LiquidSurface,renderStep);
 			}
 		}
 	}

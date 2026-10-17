@@ -530,6 +530,10 @@ void OGL_Rasterizer_Init();
 
 // Start an OpenGL run (creates a rendering context)
 extern void sprintathon_prebake_sky_lighting(void (*progress)());
+extern void sprintathon_begin_sky_loading();
+extern void sprintathon_preload_post_buffers();
+extern void sprintathon_preload_opaque_geometry();
+extern void sprintathon_preload_sky_palette(const float ambient[3], const float sunlight[3]);
 
 bool OGL_StartRun(bool retain_sprites)
 {
@@ -661,9 +665,15 @@ bool OGL_StartRun(bool retain_sprites)
 
 	// Avoid lazy initial texture loading
 	OGL_SetProgressMessage("preparing level textures");
+    sprintathon_begin_sky_loading();
 	PreloadTextures();
     OGL_SetProgressMessage("baking landscape lighting");
     sprintathon_prebake_sky_lighting([] { OGL_ProgressCallback(0); });
+    OGL_SetProgressMessage("preparing post-processing buffers");
+    sprintathon_preload_post_buffers();
+    sprintathon_preload_opaque_geometry();
+    OGL_SetProgressMessage("warming shader draws");
+    Shader::warmupDraws();
 	OGL_SetProgressMessage("finishing level");
 	OGL_ProgressCallback(1);
 	OGL_StopProgress();
@@ -879,6 +889,7 @@ void PreloadWallTexture(const TextureWithTransferMode& inTexture)
 		break;
 	
 	case _xfer_landscape:
+	case _xfer_big_landscape:
 		TMgr_TransferMode = _big_landscaped_transfer;
 		break;
 	}
@@ -900,6 +911,10 @@ void PreloadWallTexture(const TextureWithTransferMode& inTexture)
 	
 	// After all this setting up, now use it!
 	if (TMgr.Setup()) {
+        if(IsLandscape && !IsInfravision){
+            float ambient[3],sunlight[3];
+            if(TMgr.GetSkyColor(ambient,sunlight)) sprintathon_preload_sky_palette(ambient,sunlight);
+        }
 		TMgr.RenderNormal();
 		if (TMgr.IsGlowMapped()) TMgr.RenderGlowing();
 		if (TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_BumpMap))

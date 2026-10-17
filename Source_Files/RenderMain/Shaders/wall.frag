@@ -5,6 +5,15 @@ uniform sampler2D skyBakeMap;
 uniform vec4 skyBakeSun;
 uniform vec4 skyBakeAmbient;
 uniform float skyBakeEnabled;
+uniform float skyBakeSectorStrength;
+uniform vec4 liquidSpecLight, liquidSpecEye;
+uniform sampler2D liquidSkyMap;
+uniform vec4 liquidSkyParams;
+uniform float liquidSkyMode;
+uniform vec4 liquidFlow;
+uniform vec4 waterSceneryPosition0,waterSceneryColor0;
+uniform vec4 waterSceneryPosition1,waterSceneryColor1;
+uniform float liquidSceneAvailable;
 uniform vec4 skyBakeU, skyBakeV;
 uniform sampler2DRect texture2;
 uniform float pulsate;
@@ -574,6 +583,76 @@ void sprintathonApplyAllScenery(inout vec3 intensity) {
     }
 }
 
+)"
+R"(
+// Procedural flowing normals: layered wave gradients, local wave evolution,
+// and specular filtering. Independently implemented for the liquid renderer.
+
+uniform vec4 visibleSun;
+uniform vec4 visibleSunColor;
+vec3 sprintathonSunDisc(vec3 ray) {
+    if(visibleSunColor.w<=0.0)return vec3(0.0);
+    float alignment=dot(normalize(ray),visibleSun.xyz);
+    float radius=max(1.0-visibleSun.w,0.000001);
+    float feather=max(fwidth(alignment),radius*0.15);
+    float disc=smoothstep(visibleSun.w-feather,visibleSun.w+feather,alignment);
+    float halo=0.035*exp2(-max(0.0,1.0-alignment)/(radius*4.0));
+    return visibleSunColor.rgb*visibleSunColor.w*(disc+halo);
+}
+
+// Texture-based surface normals. RG and BA contain independent seamless
+// slope fields. Rotated scales and balanced motion hide their repeat pattern.
+// Reuse the existing world-space coloured-light uniforms. Liquid emitters
+// are excluded so their fluorescence does not reflect back into itself.
+vec3 sprintathonWaterLight(vec4 source,vec4 colour,vec3 normal,vec3 eye,float alpha2) {
+    if(colour.a<=0.0 || colour.a>=2.0 || source.w<=0.0)return vec3(0.0);
+    vec3 delta=source.xyz-sprintathonWorldPosition;
+    float distance2=dot(delta,delta);
+    float range2=distance2*source.w*source.w;
+    if(delta.z<=0.0 || range2>=1.0 || distance2<0.001)return vec3(0.0);
+    vec3 light=delta*inversesqrt(distance2);
+    vec3 halfway=normalize(eye+light);
+    float nl=max(dot(normal,light),0.0);
+    float nv=max(dot(normal,eye),0.001);
+    float nh=max(dot(normal,halfway),0.0);
+    float nh2=nh*nh;
+    // A modest source width prevents point-like pinpricks at close range.
+    float width=max(alpha2,0.0025);
+    float denominator=nh2*(width-1.0)+1.0;
+    float distribution=width/(3.14159265*denominator*denominator);
+    float k=sqrt(width)*0.5;
+    float geometry=nl/(4.0*(nv*(1.0-k)+k)*(nl*(1.0-k)+k));
+    float f=1.0-clamp(dot(eye,halfway),0.0,1.0);
+    float fresnel=0.02+0.98*f*f*f*f*f;
+    float falloff=(1.0-range2)*(1.0-range2)/(1.0+16.0*range2);
+    return max(colour.rgb,vec3(0.0))*(distribution*geometry*fresnel*falloff);
+}
+
+vec2 sprintathonFlowingSlopes(vec2 position,float phase,float distanceToEye) {
+    vec2 uv=position*(0.24/1024.0);
+    // Match the visible ripple cadence more closely; phase already carries
+    // the per-liquid speed and bullet-time scaling. Keep it continuous.
+    float t=phase*0.032;
+    mat2 rotate=mat2(0.8,0.6,-0.6,0.8);
+    mat2 back=mat2(0.8,-0.6,0.6,0.8);
+    vec2 a=texture2D(liquidSkyMap,uv+vec2(t,t*0.37)).rg*2.0-1.0;
+    vec2 b=texture2D(liquidSkyMap,rotate*uv*1.61+vec2(-t*0.83,t*0.29)+vec2(0.31,0.67)).ba*2.0-1.0;
+    vec2 slopes=a*0.19+(back*b)*0.13;
+    // Fade each fine scale to zero before skipping its texture fetch. World
+    // distance, rather than polygon size, keeps adjacent liquid faces seamless.
+    float smallWeight=1.0-smoothstep(12.0*1024.0,24.0*1024.0,distanceToEye);
+    float microWeight=1.0-smoothstep(6.0*1024.0,12.0*1024.0,distanceToEye);
+    if(smallWeight>0.0) {
+        vec2 c=texture2D(liquidSkyMap,back*uv*3.17+vec2(t*0.41,-t*0.73)+vec2(0.73,0.19)).rg*2.0-1.0;
+        slopes+=(rotate*c)*(0.075*smallWeight);
+    }
+    if(microWeight>0.0) {
+        vec2 e=texture2D(liquidSkyMap,uv*6.73+vec2(-t*0.33,-t*0.19)+vec2(0.13,0.43)).ba*2.0-1.0;
+        slopes+=e*(0.035*microWeight);
+    }
+    return slopes;
+}
+
 void main (void) {
     float viewDistance = length(viewDir);
     // Fade small surface details consistently across polygon boundaries.
@@ -588,6 +667,12 @@ R"(        1.0 - smoothstep(16.0 * 1024.0, 32.0 * 1024.0, viewDistance) : 1.0;
 	float mediaTextureMix = 0.0;
 	float wetTextureShade = 1.0;
 	vec2 sceneRefractionOffset = vec2(0.0);
+    vec2 liquidSlopes=vec2(0.0);
+    if(liquidSpecLight.w>0.0 && rippleStrength>0.001) {
+        liquidSlopes=sprintathonFlowingSlopes(sprintathonWorldPosition.xy+liquidFlow.xy,liquidSpecEye.w,viewDistance)
+            * clamp(rippleStrength,0.0,1.5);
+        // Reflection and refraction share this continuous wave field.
+    }
 	if (rippleStrength > 0.001) {
 		float phase = time;
 		vec2 base = sprintathonWorldPosition.xy / 1024.0;
@@ -617,6 +702,16 @@ R"(        1.0 - smoothstep(16.0 * 1024.0, 32.0 * 1024.0, viewDistance) : 1.0;
 			rippleStrength + rippleFresnel * 0.05 * rippleStrength,
 			0.65, 1.35);
 	}
+    if(liquidSpecLight.w>0.0 && rippleStrength>0.001) {
+        // Retain the established liquid texture animation above. Only the
+        // optical distortion follows the new reflection normal field.
+        vec3 viewSlope=gl_NormalMatrix*vec3(liquidSlopes,0.0);
+        sceneRefractionOffset=viewSlope.xy*22.0;
+        // Let the specular model provide the highlight rather than layering
+        // the old fixed-direction wave lighting on top of it.
+        rippleHighlight=1.0;
+        wetTextureShade=1.0;
+    }
 	vec3 normXY = normalize(viewXY);
 	texCoords += vec3(normXY.y * -pulsate, normXY.x * pulsate, 0.0);
 	texCoords += vec3(normXY.y * -wobble * texCoords.y, wobble * texCoords.y, 0.0);
@@ -627,7 +722,9 @@ R"(        1.0 - smoothstep(16.0 * 1024.0, 32.0 * 1024.0, viewDistance) : 1.0;
 		gl_FragColor = vec4(0.0, 0.0, 0.0, alpha);
 		return;
 	}
-	float mlFactor = clamp(selfLuminosity + flare - classicDepth, 0.0, 1.0);
+	float playerLight = clamp(selfLuminosity + flare - classicDepth, 0.0, 1.0);
+    // Keep the sector contribution independent of the player light when baking.
+    float mlFactor = skyBakeEnabled > 0.5 ? 0.0 : playerLight;
 	// more realistic: replace classicDepth with (viewDistance/8192.0)
 	vec3 intensity;
 	if (vertexColor.r > mlFactor) {
@@ -829,12 +926,19 @@ R"(            }
         intensity = mix(intensity, vec3(sectorShadeSum / sectorBlendWeight),
                         min(sectorBlendWeight, 0.5) * surfaceDetail);
     }
-    // Replace sector brightness with static sky illumination. Surface UVs
+    // Combine live sector brightness with static sky illumination. Surface UVs
     // derive from world coordinates, independent of texture scrolling.
     if (skyBakeEnabled > 0.5) {
         vec4 wp = vec4(sprintathonWorldPosition, 1.0);
         vec2 baked = texture2D(skyBakeMap, vec2(dot(wp, skyBakeU), dot(wp, skyBakeV))).rg;
-        intensity = max(vec3(glow), vec3(skyBakeAmbient.a) + baked.r * skyBakeSun.rgb + baked.g * skyBakeAmbient.rgb);
+        vec3 combined = vec3(skyBakeAmbient.a) + baked.r * skyBakeSun.rgb + baked.g * skyBakeAmbient.rgb
+            + intensity * clamp(skyBakeSectorStrength, 0.0, 1.0);
+        // Apply the existing player/muzzle light once, after combining world light.
+        intensity = combined;
+        if (playerLight > 0.0)
+            intensity = combined.r > playerLight ? combined + vec3(playerLight * 0.5)
+                                                : combined * 0.5 + vec3(playerLight);
+        intensity = clamp(intensity, glow, 1.0);
     }
     if (sprintathonConeColor0.a > 0.0) {
         vec2 poolDelta = (sprintathonWorldPosition.xy - sprintathonConePool0.xy) * sprintathonConePool0.w;
@@ -910,19 +1014,96 @@ R"(        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPositio
 			1.0 + 0.10 * surfaceWetness) * wetTextureShade;
 	}
 	vec3 shadedColor = clamp(color.rgb * intensity, 0.0, 1.0);
-    // Preserve surface detail through luminance, without tinting orange light
-    // green on green textures. One shared headroom factor preserves RGB ratios.
-    vec3 caustic = sprintathonCausticRadiance * dot(color.rgb, vec3(0.299, 0.587, 0.114));
-    vec3 headroom = (vec3(1.0) - shadedColor) / max(caustic, vec3(0.00001));
-    shadedColor += caustic * clamp(min(headroom.r, min(headroom.g, headroom.b)), 0.0, 1.0);
 	float fogFactor = getFogFactor(viewDistance);
 	if (mediaFogEnabled > 0.0) {
 		float heightFog = clamp((mediaFogTop - worldZ) / mediaFogSoftness, 0.0, 1.0);
 		float heightMask = mix(1.0, heightFog, mediaFogEnabled);
 		fogFactor = 1.0 - (1.0 - fogFactor) * heightMask;
 	}
+    vec3 liquidReflection=vec3(0.0), liquidDirect=vec3(0.0);
+    float liquidReflectWeight=0.0;
+    if (liquidSpecLight.w > 0.0) {
+        vec3 eyeDelta = liquidSpecEye.xyz - sprintathonWorldPosition;
+        vec3 eye = eyeDelta / max(length(eyeDelta),0.0001);
+        if (eye.z > 0.0) {
+            vec2 slopes=liquidSlopes;
+            vec3 normal=normalize(vec3(-slopes,1.0));
+            vec3 halfVector=normalize(eye+liquidSpecLight.xyz);
+            float nv=max(dot(normal,eye),0.001);
+            float nl=max(dot(normal,liquidSpecLight.xyz),0.0);
+            float nh=max(dot(normal,halfVector),0.0);
+            // Approximate fog-softened sunlight with a wider normalized lobe.
+            // Reuse the surface fog amount, including the media-height mask.
+            float fogSpread=smoothstep(0.0,0.85,1.0-clamp(fogFactor,0.0,1.0));
+            // Keep roughness stable; the texture normals provide the detail.
+            float sunRoughness=mix(0.024,0.070,fogSpread);
+            vec3 ndx=dFdx(normal), ndy=dFdy(normal);
+            float alpha2=clamp(sunRoughness*sunRoughness+
+                0.5*(dot(ndx,ndx)+dot(ndy,ndy)),0.000324,0.25);
+            float denominator=nh*nh*(alpha2-1.0)+1.0;
+            float distribution=alpha2/(3.14159265*denominator*denominator);
+            float k=sqrt(alpha2)*0.5;
+            float visibility=1.0/(4.0*(nv*(1.0-k)+k)*(nl*(1.0-k)+k));
+            float glint=distribution*visibility*nl;
+            float grazing=1.0-clamp(nv,0.0,1.0);
+            float fresnel=0.02+0.98*pow(grazing,5.0);
+            float specFresnel=0.02+0.98*pow(1.0-clamp(dot(eye,halfVector),0.0,1.0),5.0);
+            float exposure = 1.0;
+            float skyExposure = 1.0;
+            vec3 tint = vec3(1.0);
+            if (skyBakeEnabled > 0.5) {
+                vec4 wp = vec4(sprintathonWorldPosition,1.0);
+                vec2 skyVisibility = texture2D(skyBakeMap,vec2(dot(wp,skyBakeU),dot(wp,skyBakeV))).rg;
+                float sunlight = skyVisibility.r;
+                skyExposure = clamp(skyVisibility.g / 0.3,0.0,1.0);
+                exposure = clamp(sunlight/max(0.8*liquidSpecLight.z,0.001),0.0,1.0);
+                tint = skyBakeSun.rgb;
+            }
+            if(visibleSunColor.w>0.0) tint=visibleSunColor.rgb*visibleSunColor.w;
+            vec3 reflectionColor=shadedColor;
+            float reflectionCoverage=0.0;
+            if(liquidSkyMode > 0.5) {
+                vec3 waveNormal = normalize(vec3(-slopes,1.0));
+                vec3 reflected = reflect(-eye,waveNormal);
+                // One stable landscape-derived colour; no sky image or disc.
+                reflectionColor=liquidSkyParams.rgb;
+                reflectionCoverage=skyExposure*smoothstep(0.0,0.05,reflected.z);
+            }
+            // Water reflects little head-on and strongly near grazing angles.
+            // Reflected radiance is controlled by sky visibility, not by the
+            // diffuse sector brightness of the surface receiving it.
+            float sheenWeight=fresnel*liquidSpecLight.w*reflectionCoverage;
+            liquidReflection=reflectionColor;
+            liquidReflectWeight=clamp(sheenWeight,0.0,0.98);
+            // Keep the widened reflection soft and give low slider values
+            // finer control. Landscape sheen retains its existing response.
+            // Avoid a hard radiance cap, which flattens bright crests into
+            // uniform patches. Fade the most extreme grazing-angle boost.
+            float grazingSoftness=mix(0.55,1.0,smoothstep(0.0,0.25,nv));
+            vec3 sunRadiance=max(tint,vec3(0.0))*(glint*specFresnel*1.5*exposure*grazingSoftness);
+            float sunGain=liquidSpecLight.w*min(liquidSpecLight.w,1.0);
+            vec3 specular=(sunRadiance/(vec3(1.0)+sunRadiance))*sunGain
+                * mix(0.75,0.55,fogSpread)*step(0.001,liquidSpecLight.z);
+            // One selected projectile plus four existing surface-light slots.
+            vec3 localRadiance=sprintathonWaterLight(sprintathonLightPosition,sprintathonLightColor,normal,eye,alpha2)
+                +(sprintathonSurfaceLightCount>0.0 ? sprintathonWaterLight(sprintathonLightPosition2,sprintathonLightColor2,normal,eye,alpha2) : vec3(0.0))
+                +(sprintathonSurfaceLightCount>1.0 ? sprintathonWaterLight(sprintathonLightPosition3,sprintathonLightColor3,normal,eye,alpha2) : vec3(0.0))
+                +(sprintathonSurfaceLightCount>2.0 ? sprintathonWaterLight(sprintathonLightPosition4,sprintathonLightColor4,normal,eye,alpha2) : vec3(0.0))
+                +(sprintathonSurfaceLightCount>3.0 ? sprintathonWaterLight(sprintathonLightPosition5,sprintathonLightColor5,normal,eye,alpha2) : vec3(0.0));
+            localRadiance+=sprintathonWaterLight(waterSceneryPosition0,waterSceneryColor0,normal,eye,alpha2)
+                +sprintathonWaterLight(waterSceneryPosition1,waterSceneryColor1,normal,eye,alpha2);
+            liquidDirect=specular+localRadiance/(vec3(1.0)+localRadiance)*sunGain*0.75;
+        }
+    }
+    // Preserve surface detail through luminance, without tinting orange light
+    // green on green textures. One shared headroom factor preserves RGB ratios.
+    vec3 caustic = sprintathonCausticRadiance * dot(color.rgb, vec3(0.299, 0.587, 0.114));
+    vec3 headroom = (vec3(1.0) - shadedColor) / max(caustic, vec3(0.00001));
+    shadedColor += caustic * clamp(min(headroom.r, min(headroom.g, headroom.b)), 0.0, 1.0);
 	vec3 finalColor = mix(gl_Fog.color.rgb, shadedColor, fogFactor);
-	if (rippleStrength > 0.001) {
+    vec3 reflectedFog=mix(gl_Fog.color.rgb,liquidReflection,fogFactor);
+    vec3 directFog=liquidDirect*fogFactor;
+	if (rippleStrength > 0.001 || (liquidSpecLight.w>0.0 && liquidSceneAvailable>0.5)) {
 )"
 R"(        // Screen-space distance keeps the guard narrow at every viewing angle.
         float edgePixels = 100000.0;
@@ -965,9 +1146,14 @@ R"(        // Screen-space distance keeps the guard narrow at every viewing angl
 		vec3 refractedScene = texture2DRect(texture2,
 			refractedCoord).rgb;
 		float liquidAlpha = clamp(vertexColor.a, 0.0, 1.0);
-		gl_FragColor = vec4(mix(refractedScene, finalColor, liquidAlpha), 1.0);
+        // First compose transmission. Opacity controls liquid tint/body only.
+        vec3 transmitted=mix(refractedScene,finalColor,liquidAlpha);
+        // Reflection belongs to the interface, independent of its transparency.
+        vec3 water=mix(transmitted,reflectedFog,liquidReflectWeight)+directFog;
+        gl_FragColor=vec4(clamp(water,0.0,1.0),1.0);
 	} else {
-		gl_FragColor = vec4(finalColor, vertexColor.a * color.a);
+        vec3 surface=mix(finalColor,reflectedFog,liquidReflectWeight)+directFog;
+        gl_FragColor = vec4(clamp(surface,0.0,1.0), vertexColor.a * color.a);
 	}
 }
 
