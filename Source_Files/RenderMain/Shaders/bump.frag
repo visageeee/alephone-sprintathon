@@ -2,6 +2,13 @@ R"(
 
 uniform sampler2D texture0;
 uniform sampler2D skyBakeMap;
+uniform vec4 skyBakeLayers;
+vec2 sampleSkyBake(vec2 uv) {
+    if(skyBakeLayers.w>=0.999)return texture2D(skyBakeMap,uv).rg;
+    vec2 low=texture2D(skyBakeMap,vec2(uv.x,(uv.y+skyBakeLayers.x)*skyBakeLayers.w)).rg;
+    vec2 high=texture2D(skyBakeMap,vec2(uv.x,(uv.y+skyBakeLayers.y)*skyBakeLayers.w)).rg;
+    return mix(low,high,skyBakeLayers.z);
+}
 uniform vec4 skyBakeSun;
 uniform vec4 skyBakeAmbient;
 uniform float skyBakeEnabled;
@@ -977,7 +984,7 @@ R"(                float segmentDistance = sqrt(segmentDistanceSquared);
     // derive from world coordinates, independent of texture scrolling.
     if (skyBakeEnabled > 0.5) {
         vec4 wp = vec4(sprintathonWorldPosition, 1.0);
-        vec2 baked = texture2D(skyBakeMap, vec2(dot(wp, skyBakeU), dot(wp, skyBakeV))).rg;
+        vec2 baked = sampleSkyBake(vec2(dot(wp, skyBakeU), dot(wp, skyBakeV)));
         vec3 combined = vec3(skyBakeAmbient.a) + baked.r * skyBakeSun.rgb + baked.g * skyBakeAmbient.rgb
             + intensity * clamp(skyBakeSectorStrength, 0.0, 1.0);
         // Apply the existing player/muzzle light once, after combining world light.
@@ -1083,7 +1090,7 @@ R"(                float segmentDistance = sqrt(segmentDistanceSquared);
             vec3 tint = vec3(1.0);
             if (skyBakeEnabled > 0.5) {
                 vec4 wp = vec4(sprintathonWorldPosition,1.0);
-                vec2 skyVisibility = texture2D(skyBakeMap,vec2(dot(wp,skyBakeU),dot(wp,skyBakeV))).rg;
+                vec2 skyVisibility = sampleSkyBake(vec2(dot(wp,skyBakeU),dot(wp,skyBakeV)));
                 float sunlight = skyVisibility.r;
                 skyExposure = clamp(skyVisibility.g / 0.3,0.0,1.0);
                 exposure = clamp(sunlight/max(0.8*liquidSpecLight.z,0.001),0.0,1.0);

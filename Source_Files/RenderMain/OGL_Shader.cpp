@@ -64,7 +64,7 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"texture3",
     "waterSceneryPosition0", "waterSceneryColor0",
     "waterSceneryPosition1", "waterSceneryColor1",
-    "skyBakeActor", "skyBakeSun", "skyBakeAmbient", "skyBakeMap", "skyBakeEnabled", "skyBakeU", "skyBakeV", "skyBakeSectorStrength", "liquidSpecLight", "liquidSpecEye", "liquidSceneAvailable", "liquidSkyMap", "liquidSkyParams", "liquidSkyMode", "liquidFlow", "visibleSun", "visibleSunColor", "visibleSunEye",
+    "skyBakeActor", "skyBakeSun", "skyBakeAmbient", "skyBakeMap", "skyBakeEnabled", "skyBakeLayers", "skyBakeU", "skyBakeV", "skyBakeSectorStrength", "liquidSpecLight", "liquidSpecEye", "liquidSceneAvailable", "liquidSkyMap", "liquidSkyParams", "liquidSkyMode", "liquidFlow", "visibleSun", "visibleSunColor", "visibleSunEye", "scriptSunEffects",
 	"time",
 	"pulsate",
 	"wobble",
@@ -1256,29 +1256,32 @@ uniform float yaw;
 uniform float pitch;
 uniform float sunAzimuth;
 uniform float sunElevation;
+uniform vec4 visibleSun;
+uniform vec4 visibleSunColor;
+uniform vec4 scriptSunEffects;
+uniform vec4 visibleSunEye;
+
+// Interpolate classified visibility, not depth: depth interpolation alone still
+// produces an abrupt threshold at a silhouette.
+float sunSkyTap(vec2 p) {
+    vec2 size=vec2(offsetx,offsety);
+    if(p.x<0.5 || p.y<0.5 || p.x>size.x-0.5 || p.y>size.y-0.5)return 0.0;
+    float sky=step(0.9995,texture2DRect(texture3,p).r);
+    vec3 color=texture2DRect(texture1,p).rgb;
+    return sky*smoothstep(0.005,0.04,max(color.r,max(color.g,color.b)));
+}
+float sunSkyCoverage(vec2 p) {
+    vec2 base=floor(p-vec2(0.5))+vec2(0.5);
+    vec2 f=clamp(p-base,0.0,1.0);
+    return mix(mix(sunSkyTap(base),sunSkyTap(base+vec2(1.0,0.0)),f.x),
+        mix(sunSkyTap(base+vec2(0.0,1.0)),sunSkyTap(base+vec2(1.0)),f.x),f.y);
+}
 
 void main(void) {
 	vec2 p = gl_TexCoord[0].xy;
-	// The configured world-space sun remains stable while the camera turns.
-	float relativeAzimuth = sunAzimuth - yaw;
-	float horizontalLength = cos(sunElevation);
-	vec3 sunDirection = vec3(
-		horizontalLength * sin(relativeAzimuth),
-		sin(sunElevation),
-		horizontalLength * cos(relativeAzimuth));
-
-	// Rotate the fixed direction by camera pitch, then project it with the same
-	// horizontal and vertical scales used for world geometry.
-	float cosinePitch = cos(pitch);
-	float sinePitch = sin(pitch);
-	float viewY = sunDirection.y * cosinePitch -
-		sunDirection.z * sinePitch;
-	float viewZ = sunDirection.y * sinePitch +
-		sunDirection.z * cosinePitch;
-	float safeViewZ = max(viewZ, 0.08);
-	vec2 sunNdc = vec2(
-		sunDirection.x * logicalWidth / safeViewZ,
-		viewY * logicalHeight / safeViewZ);
+    float viewZ=visibleSunEye.z;
+    float safeViewZ=max(viewZ,0.08);
+    vec2 sunNdc=visibleSunEye.xy;
 	// Preserve the true projected direction even when the sun is far outside
 	// the framebuffer. Component-wise clamping to an off-screen rectangle made
 	// the apparent shaft angle rotate as each axis reached the clamp separately.
@@ -1352,6 +1355,78 @@ void main(void) {
 	shafts /= max(totalWeight, 0.0001);
 	// Keep the additive result restrained; strength remains user-controlled.
 	vec3 light = shafts * bloomScale * 1.15 * sunVisibility;
+    // Compact solar glare: reuse the overscanned sky mask, without a new pass.
+    // Only fragments near the projected sun execute these extra samples.
+    if(visibleSunColor.w>0.0 && viewZ>0.1) {
+        float angularRadius=sqrt(max(2.0*(1.0-visibleSun.w),0.000001));
+        vec2 discRadius=max(vec2(0.75),sourceDimensions*
+            vec2(abs(logicalWidth),abs(logicalHeight))*
+            (0.5*angularRadius/(repeat*viewZ)));
+        vec2 delta=(sourceP-source)/discRadius;
+        float extent=length(delta);
+        // Concentrate taps near the disk; the broad landscape trace can miss it.
+        // Occluders split this radial scatter into rays as the camera moves.
+        float rayAngle=length((sourceP-source)/sourceDimensions*(2.0*repeat)/
+            max(abs(vec2(logicalWidth,logicalHeight)),vec2(0.001)));
+        if(extent<22.0 && rayAngle<0.18) {
+            float ray=0.0;
+            for(int i=0;i<12;++i) {
+                float t=1.0-(float(i)+0.5)*(0.4/12.0);
+                vec2 at=mix(sourceP,source,t);
+                float exposure=sunSkyCoverage(at);
+                float distanceFromSun=length((at-source)/discRadius);
+                ray+=exposure*exp(-distanceFromSun*distanceFromSun*0.18);
+            }
+            float rayFade=(1.0-smoothstep(10.0,22.0,extent));
+            rayFade*=1.0-smoothstep(0.08,0.18,rayAngle);
+            light+=visibleSunColor.rgb*visibleSunColor.w*bloomScale*
+                (ray/12.0)*rayFade*1.2;
+        }
+        // A broad, low-intensity veil only while looking almost at the sun.
+        vec2 screenNdc=p/vec2(pixelWidth,pixelHeight)*2.0-1.0;
+        vec2 angularDelta=(screenNdc-sunNdc)/
+            max(abs(vec2(logicalWidth,logicalHeight)),vec2(0.001));
+        float angularDistance=length(angularDelta);
+        // Full veiling glare within one degree; gone beyond three degrees.
+        float gazeAngle=length(sunNdc/max(abs(vec2(logicalWidth,logicalHeight)),vec2(0.001)));
+        float gaze=1.0-smoothstep(0.01746,0.05241,gazeAngle);
+        float veilShape=1.0-smoothstep(0.04,0.32,angularDistance);
+        if(extent<10.0 || (gaze>0.0 && veilShape>0.0)) {
+            float visibility=0.0;
+            float glare=0.0;
+            float diskBloom=0.0;
+            for(int tap=0;tap<16;++tap) {
+                // Equal-area disk samples; fixed in screen space to avoid shimmer.
+                float radius=sqrt((float(tap)+0.5)/16.0);
+                float angle=float(tap)*2.39996323;
+                vec2 disk=radius*vec2(cos(angle),sin(angle));
+                vec2 samplePoint=source+disk*discRadius;
+                float exposed=sunSkyCoverage(samplePoint);
+                visibility+=exposed;
+                if(pass<0.5) {
+                    vec2 bloomOffset=delta-disk;
+                    float bloomDistance=dot(bloomOffset,bloomOffset);
+                    diskBloom+=exposed*(exp(-bloomDistance*0.8)+0.25*exp(-bloomDistance*0.2));
+                }
+
+            }
+            visibility*=0.0625;
+            diskBloom*=0.0625;
+            if(pass<0.5) light+=visibleSunColor.rgb*visibleSunColor.w*diskBloom*
+                (1.0-smoothstep(4.0,6.0,extent))*0.38*min(bloomScale,1.0)*scriptSunEffects.y;
+            glare=visibility*(0.7*exp(-extent*extent*0.42)+0.14*exp(-extent*extent*0.055));
+            // Peak when an edge covers part of the disk, zero when fully hidden.
+            float edgeBoost=1.0+2.0*(4.0*visibility*(1.0-visibility));
+            float boundaryFade=1.0-smoothstep(8.0,10.0,extent);
+            light+=visibleSunColor.rgb*visibleSunColor.w*glare*edgeBoost*
+                boundaryFade*min(bloomScale,1.0)*0.65;
+            // Additive veiling light lifts dark detail; no flashing or afterimage.
+            vec3 veilColor=mix(vec3(1.0),visibleSunColor.rgb,0.3);
+            light+=veilColor*min(visibleSunColor.w,1.5)*visibility*
+                gaze*veilShape*min(bloomScale,1.0)*0.11*scriptSunEffects.x;
+        }
+    }
+
 	if (pass > 0.5) {
 		// Store only scattering and logarithmic scene depth in the half-size
 		// floating-point target. Sky uses a separate sentinel to preserve edges.
@@ -1378,6 +1453,20 @@ uniform float offsetx;
 uniform float offsety;
 uniform float scalex;
 uniform float scaley;
+uniform vec4 visibleSunEye;
+uniform vec4 visibleSunColor;
+uniform vec4 scriptSunEffects;
+uniform vec4 liquidSkyParams; // w: shaft strength
+
+// Fixed Gaussian weights; preserve the existing nine-by-nine kernel.
+float solarBlurWeight(int i) {
+    int k=i<0 ? -i : i;
+    if(k==0)return 1.0000000000;
+    if(k==1)return 0.8095716487;
+    if(k==2)return 0.4295573582;
+    if(k==3)return 0.1493817753;
+    return 0.0340474547;
+}
 
 float depthWeight(float a, float b) {
 	if (a < 0.0 || b < 0.0)
@@ -1410,6 +1499,44 @@ void main(void) {
 		max(totalWeight, 0.00001);
 	// A thin foreground object can have no matching half-resolution sample.
 	// Keep its scene color rather than borrowing light from the background.
+    // Add optical bloom AFTER depth-aware upsampling: the receiving surface
+    // must not occlude light scattered in the camera. Only the source is masked.
+    if(visibleSunColor.w>0.0) {
+        vec2 radii=max(visibleSunEye.zw,vec2(0.00001));
+        // Small full-resolution convolution of the actual sun image. The
+        // previous sparse synthetic disk samples produced overlapping copies.
+        float sigma=clamp(pixelHeight*(7.0/1080.0),4.0,16.0);
+        vec2 sunCenter=(visibleSunEye.xy*0.5+0.5)*vec2(pixelWidth,pixelHeight);
+        vec2 sunRadius=radii*0.5*vec2(pixelWidth,pixelHeight);
+        vec2 reach=sunRadius+vec2(3.0*sigma);
+        if(all(lessThan(abs(p-sunCenter),reach))) {
+            vec3 glow=vec3(0.0);
+
+            for(int y=-4;y<=4;++y) {
+                float rowWeight=solarBlurWeight(y);
+                for(int x=-4;x<=4;++x) {
+                    vec2 grid=vec2(float(x),float(y));
+                    float weight=rowWeight*solarBlurWeight(x);
+                    vec2 at=p+grid*(sigma*0.65);
+                    vec2 disk=(at-sunCenter)/max(sunRadius,vec2(0.5));
+                    float core=1.0-smoothstep(0.95,1.08,length(disk));
+                    float valid=step(0.5,at.x)*step(0.5,at.y)*
+                        step(at.x,pixelWidth-0.5)*step(at.y,pixelHeight-0.5);
+                    // These samples contribute exactly zero; avoid their texture reads.
+                    if(core<=0.0 || valid<=0.0)continue;
+                    // Source occlusion only: bloom is allowed on foreground pixels.
+                    float sky=step(0.9995,texture2DRect(texture2,at).r);
+                    if(sky<=0.0)continue;
+                    vec3 color=texture2DRect(texture0,at).rgb;
+                    float brightness=max(color.r,max(color.g,color.b));
+                    float hot=smoothstep(0.65,0.95,brightness);
+                    glow+=color*(weight*core*sky*valid*hot);
+                }
+            }
+            light+=glow/14.7849206965*min(visibleSunColor.w,1.5)*
+                min(liquidSkyParams.w,1.0)*5.0*scriptSunEffects.y;
+        }
+    }
 	gl_FragColor = vec4(scene.rgb + light, scene.a);
 }
 )";

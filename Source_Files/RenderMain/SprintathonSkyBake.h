@@ -15,7 +15,7 @@ inline V unit(V a){return a*(1.0/std::max(1e-12,std::sqrt(dot(a,a))));}
 inline bool sky(short mode){return mode==_xfer_landscape || mode==_xfer_big_landscape;}
 struct Edge {V a,b,in;int next=-1;bool highSky=false,lowSky=false,panel=false,panelSky=false;};
 struct Room {double floor=0,ceiling=0;bool floorSky=false,ceilingSky=false;V center;std::vector<Edge> edges;};
-struct Map {GLuint texture=0;V u,v;double u0=0,v0=0,us=1,vs=1;};
+struct Map {int layers=1;double low=0,high=0;GLuint texture=0;V u,v;double u0=0,v0=0,us=1,vs=1;};
 static std::vector<Room> rooms;
 static std::map<std::tuple<int,int,int,int>,Map> maps;
 static SDL_GLContext context=nullptr;
@@ -183,7 +183,7 @@ inline void bindActor(Shader* shader,int room,V point){
  shader->setVector4(Shader::U_SkyBakeActor,float(c.x),float(c.y),float(c.z),1);
 }
 inline void bind(Shader* shader,const polygon_data* polygon,int face,V origin,V u,V v,V normal,double width,double height){
- if(shader)shader->setFloat(Shader::U_SkyBakeEnabled,0);
+ if(shader){shader->setFloat(Shader::U_SkyBakeEnabled,0);shader->setVector4(Shader::U_SkyBakeLayers,0,0,0,1);}
  if(!enabled() || !available || !polygon || polygon->type==_polygon_is_platform || width<1 || height<1)return;
  int room=int(polygon-get_polygon_data(0));if(room<0 || room>=int(rooms.size()))return;
  // Use one full-height lightmap per wall edge. Rendering may split or clip
@@ -197,23 +197,22 @@ inline void bind(Shader* shader,const polygon_data* polygon,int face,V origin,V 
   u=unit(delta);v=V(0,0,1);normal=e.in;
   if(width<1 || height<1)return;
  }
- // Height remains part of the key for moving media.
+ // Media stores a fixed stack of height slices in one atlas.
+ const bool mediaFace=face==16 || face==17;
 
- auto key=std::make_tuple(room,face,int(std::lround(origin.z)),int(std::lround(height)));
+ auto key=std::make_tuple(room,face,mediaFace?0:int(std::lround(origin.z)),int(std::lround(height)));
  auto it=maps.find(key);
  if(it==maps.end()){
-  // Media uses separate faces (16/17). Replace its old height's bake when
-  // liquid rises or falls, instead of accumulating textures every tick.
-  if(face==16 || face==17)for(auto old=maps.begin();old!=maps.end();){
-   if(std::get<0>(old->first)==room && std::get<1>(old->first)==face){
-    if(old->second.texture)glDeleteTextures(1,&old->second.texture);
-    old=maps.erase(old);
-   }else ++old;
-  }
+  // Missing media atlases must never trigger a gameplay bake.
+  if(mediaFace && shader)return;
   if(maps.size()>=16384)return; // Bounded experimental cache.
   Map m;m.u=u;m.v=v;
+  if(mediaFace){m.layers=8;m.low=rooms[room].floor+0.5;m.high=std::max(m.low,rooms[room].ceiling-0.5);}
   int w=std::max(2,std::min(128,int(std::ceil(width/128.0))+1));int h=std::max(2,std::min(128,int(std::ceil(height/128.0))+1));
   m.us=(w-1.0)/(width*w);m.vs=(h-1.0)/(height*h);m.u0=0.5/w-dot(origin,u)*m.us;m.v0=0.5/h-dot(origin,v)*m.vs;
+  std::vector<unsigned char> atlas(size_t(w)*h*3*m.layers);
+  for(int layer=0;layer<m.layers;++layer){
+   if(mediaFace)origin.z=m.low+(m.high-m.low)*layer/(m.layers-1);
   std::vector<unsigned char> pixels(size_t(w)*h*3);
   for(int y=0;y<h;++y)for(int x=0;x<w;++x){V p=origin+u*(width*x/(w-1))+v*(height*y/(h-1));p=inside(room,p+normal*1.0);p.z=std::max(rooms[room].floor+0.5,std::min(rooms[room].ceiling-0.5,p.z));V c=light(room,p,normal);pixels[3*(y*w+x)]=static_cast<unsigned char>(std::lround(c.x*255));pixels[3*(y*w+x)+1]=static_cast<unsigned char>(std::lround(c.y*255));pixels[3*(y*w+x)+2]=0;}
   // Refine only direct-sun discontinuities. Coverage samples stay on the
@@ -239,17 +238,26 @@ inline void bind(Shader* shader,const polygon_data* polygon,int face,V origin,V 
    }
    pixels[3*(y*w+x)]=static_cast<unsigned char>(std::lround(sunlight*coverage*255));
   }
+   std::copy(pixels.begin(),pixels.end(),atlas.begin()+size_t(layer)*w*h*3);
+  }
   GLint active=0,alignment=0;glGetIntegerv(GL_ACTIVE_TEXTURE_ARB,&active);glGetIntegerv(GL_UNPACK_ALIGNMENT,&alignment);glPixelStorei(GL_UNPACK_ALIGNMENT,1);
   glActiveTextureARB(GL_TEXTURE0_ARB+4);glGenTextures(1,&m.texture);glBindTexture(GL_TEXTURE_2D,m.texture);
   glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
   glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
-  glTexImage2D(GL_TEXTURE_2D,0,GL_RGB8,w,h,0,GL_RGB,GL_UNSIGNED_BYTE,pixels.data());glPixelStorei(GL_UNPACK_ALIGNMENT,alignment);glActiveTextureARB(active);
+  glTexImage2D(GL_TEXTURE_2D,0,GL_RGB8,w,h*m.layers,0,GL_RGB,GL_UNSIGNED_BYTE,atlas.data());glPixelStorei(GL_UNPACK_ALIGNMENT,alignment);glActiveTextureARB(active);
   it=maps.emplace(key,m).first;
  }
  if(!shader)return; // Loading creates textures without binding a draw shader.
  shader->setFloat(Shader::U_SkyBakeSectorStrength,sectorStrength());
  shader->setVector4(Shader::U_SkyBakeSun,float(sunColor.x),float(sunColor.y),float(sunColor.z),0);
  shader->setVector4(Shader::U_SkyBakeAmbient,float(ambientColor.x),float(ambientColor.y),float(ambientColor.z),float(ambientFloor()));
+ const auto& mediaMap=it->second;
+ if(mediaMap.layers>1){
+  double z=std::max(0.0,std::min(double(mediaMap.layers-1),
+      (origin.z-mediaMap.low)/std::max(0.001,mediaMap.high-mediaMap.low)*(mediaMap.layers-1)));
+  int lo=int(std::floor(z)),hi=std::min(lo+1,mediaMap.layers-1);
+  shader->setVector4(Shader::U_SkyBakeLayers,float(lo),float(hi),float(z-lo),1.0f/mediaMap.layers);
+ }
  const auto& m=it->second;batchBoundTexture=m.texture;GLint active=0;glGetIntegerv(GL_ACTIVE_TEXTURE_ARB,&active);glActiveTextureARB(GL_TEXTURE0_ARB+4);glBindTexture(GL_TEXTURE_2D,m.texture);glActiveTextureARB(active);
  shader->setVector4(Shader::U_SkyBakeU,float(m.u.x*m.us),float(m.u.y*m.us),float(m.u.z*m.us),float(m.u0));
  shader->setVector4(Shader::U_SkyBakeV,float(m.v.x*m.vs),float(m.v.y*m.vs),float(m.v.z*m.vs),float(m.v0));shader->setFloat(Shader::U_SkyBakeEnabled,1);
@@ -267,7 +275,7 @@ inline void preload(void (*progress)()){
    if(!bounds.ceilingSky)bind(nullptr,polygon,1,V(x0,y0,bounds.ceiling),V(1,0,0),V(0,1,0),V(0,0,-1),x1-x0,y1-y0);
    if(polygon->media_index!=NONE){
     const auto* media=get_media_data(polygon->media_index);
-    if(media && media->type!=_media_lava && media->height>bounds.floor && media->height<bounds.ceiling){
+    if(media && media->type!=_media_lava && bounds.ceiling>bounds.floor){
      bind(nullptr,polygon,16,V(x0,y0,media->height),V(1,0,0),V(0,1,0),V(0,0,1),x1-x0,y1-y0);
      if(progress)progress();
      bind(nullptr,polygon,17,V(x0,y0,media->height),V(1,0,0),V(0,1,0),V(0,0,-1),x1-x0,y1-y0);

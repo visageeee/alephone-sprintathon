@@ -1,3 +1,4 @@
+#include "SprintathonLuaSun.h"
 #include "shell_options.h"
 /*
  *  RenderRasterize_Shader.cpp
@@ -436,19 +437,18 @@ const float FixedAngleToDegrees = 360.0/(float(FIXED_ONE)*float(FULL_CIRCLE));
 static void sprintathon_set_visible_sun(Shader* shader,const view_data* view)
 {
     const auto& config=Get_OGL_ConfigureData();
-    const double azimuth=(config.LandscapeLightShaftDirection-90.0)*0.017453292519943295;
-    const double elevation=config.LandscapeLightShaftElevation*0.017453292519943295;
-    static const float diameters[]={0.25f,0.5f,1.0f,2.0f,4.0f};
-    static const float colors[][3]={{1.0f,0.91f,0.72f},{1,1,1},{1,0.55f,0.18f},{1,0.22f,0.12f},{0.65f,0.82f,1}};
-    const int size=std::max(0,std::min(4,int(graphics_preferences->visible_sun_size)));
-    const int color=std::max(0,std::min(4,int(graphics_preferences->visible_sun_color)));
-    const float strength=graphics_preferences->visible_sun && !IsInfravisionActive() ?
-        std::max(0,std::min(200,int(graphics_preferences->visible_sun_brightness)))/100.0f : 0.0f;
+    const double azimuth=(SprintathonLuaSun::get(SprintathonLuaSun::Azimuth)-90.0)*0.017453292519943295;
+    const double elevation=SprintathonLuaSun::get(SprintathonLuaSun::Elevation)*0.017453292519943295;
+    const float strength=graphics_preferences->visible_sun && SprintathonLuaSun::get(SprintathonLuaSun::Enabled) && !IsInfravisionActive() ?
+        float(SprintathonLuaSun::get(SprintathonLuaSun::Brightness)) : 0.0f;
     shader->setVector4(Shader::U_VisibleSun,std::cos(azimuth)*std::cos(elevation),
         std::sin(azimuth)*std::cos(elevation),std::sin(elevation),
-        std::cos(diameters[size]*0.5*0.017453292519943295));
-    shader->setVector4(Shader::U_VisibleSunColor,colors[color][0],colors[color][1],colors[color][2],strength);
-    shader->setVector4(Shader::U_VisibleSunEye,view->origin.x,view->origin.y,view->origin.z,0);
+        std::cos(SprintathonLuaSun::get(SprintathonLuaSun::Size)*0.5*0.017453292519943295));
+    shader->setVector4(Shader::U_VisibleSunColor,SprintathonLuaSun::get(SprintathonLuaSun::Red),SprintathonLuaSun::get(SprintathonLuaSun::Green),SprintathonLuaSun::get(SprintathonLuaSun::Blue),strength);
+    if(view) shader->setVector4(Shader::U_VisibleSunEye,view->origin.x,view->origin.y,view->origin.z,0);
+    shader->setVector4(Shader::U_ScriptSunEffects,
+        float(SprintathonLuaSun::get(SprintathonLuaSun::Glare)),
+        float(SprintathonLuaSun::get(SprintathonLuaSun::Bloom)),0,0);
 }
 
 // One clock shared by liquid surfaces and their projected caustics.
@@ -1154,7 +1154,7 @@ static bool sprintathon_prepare_shaft_scattering(GLsizei width, GLsizei height)
 static void sprintathon_draw_landscape_light_shafts(GLuint color_texture,
 	GLuint scene_depth, GLuint source_color, GLuint source_depth, GLsizei width, GLsizei height,
 	GLsizei source_width, GLsizei source_height,
-	const GLfloat *projection, float camera_yaw, float camera_pitch,
+	const GLfloat *projection, const GLfloat *modelview, float camera_yaw, float camera_pitch,
 	float strength, float length, float sun_azimuth, float sun_elevation)
 {
 	glPushAttrib(GL_ALL_ATTRIB_BITS);
@@ -1185,6 +1185,20 @@ static void sprintathon_draw_landscape_light_shafts(GLuint color_texture,
 
 	Shader *shader = Shader::get(Shader::S_LandscapeLightShafts);
 	shader->enable();
+	sprintathon_set_visible_sun(shader,nullptr);
+    // Project the world sun through this frame's actual camera, including roll
+    // and asymmetric projection. A direction has w=0, so jumping adds no parallax.
+    const float direction[4]={std::cos(sun_azimuth)*std::cos(sun_elevation),
+        std::sin(sun_azimuth)*std::cos(sun_elevation),std::sin(sun_elevation),0};
+    float eye[4]={0,0,0,0},clip[4]={0,0,0,0};
+    for(int row=0;row<4;++row)
+        for(int col=0;col<4;++col) eye[row]+=modelview[col*4+row]*direction[col];
+    for(int row=0;row<4;++row)
+        for(int col=0;col<4;++col) clip[row]+=projection[col*4+row]*eye[col];
+    const float denominator=std::max(clip[3],0.08f);
+    shader->setVector4(Shader::U_VisibleSunEye,clip[0]/denominator,
+        clip[1]/denominator,-eye[2],0);
+
 	shader->setFloat(Shader::U_Pass, half_resolution ? 1.0f : 0.0f);
 	shader->setFloat(Shader::U_ScaleX, projection[10]);
 	shader->setFloat(Shader::U_ScaleY, projection[14]);
@@ -1235,6 +1249,18 @@ static void sprintathon_draw_landscape_light_shafts(GLuint color_texture,
 			previous_viewport[2], previous_viewport[3]);
 		shader = Shader::get(Shader::S_LandscapeLightShaftsComposite);
 		shader->enable();
+        sprintathon_set_visible_sun(shader,nullptr);
+        const float sunRadius=float(SprintathonLuaSun::get(SprintathonLuaSun::Size))*0.5f*0.017453292519943295f;
+        shader->setVector4(Shader::U_VisibleSunEye,clip[0]/denominator,clip[1]/denominator,
+            std::abs(projection[0])*sunRadius/denominator,
+            std::abs(projection[5])*sunRadius/denominator);
+        if(-eye[2]<=0.1f) shader->setVector4(Shader::U_VisibleSunColor,0,0,0,0);
+        shader->setVector4(Shader::U_LiquidSkyParams,float(source_width),float(source_height),
+            sprintathon_shaft_overscan,strength);
+        glActiveTextureARB(GL_TEXTURE5_ARB);
+        glBindTexture(GL_TEXTURE_RECTANGLE_ARB,source_color);
+
+
 		shader->setFloat(Shader::U_PixelWidth, static_cast<float>(width));
 		shader->setFloat(Shader::U_PixelHeight, static_cast<float>(height));
 		shader->setFloat(Shader::U_OffsetX, static_cast<float>(sprintathon_shaft_scattering.width));
@@ -3518,13 +3544,13 @@ void RenderRasterize_Shader::render_tree() {
 			sprintathon_shaft_source.color, sprintathon_shaft_source.depth,
 			framebuffer_width, framebuffer_height,
 			sprintathon_shaft_source.width, sprintathon_shaft_source.height,
-			scene_projection,
+			scene_projection, volume_modelview,
 			virtual_yaw, virtual_pitch,
-			ogl_config.LandscapeLightShaftStrength / 100.0f,
+			float(SprintathonLuaSun::get(SprintathonLuaSun::Shafts)),
 			ogl_config.LandscapeLightShaftLength / 100.0f,
-			(ogl_config.LandscapeLightShaftDirection - 90.0f) *
+			(SprintathonLuaSun::get(SprintathonLuaSun::Azimuth) - 90.0f) *
 				0.017453292519943295f,
-			ogl_config.LandscapeLightShaftElevation * 0.017453292519943295f);
+			SprintathonLuaSun::get(SprintathonLuaSun::Elevation) * 0.017453292519943295f);
 	}
 	// Draw the view weapon after world-only AO but before other whole-scene
 	// effects, preserving underwater refraction and bloom behavior.
@@ -4222,8 +4248,8 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
     s->setVector4(Shader::U_LiquidSpecLight,0,0,1,0);
     if (renderStep == kDiffuse && mediaType != NONE && mediaType != _media_lava &&
         graphics_preferences->liquid_specular && !current_player->infravision_duration) {
-        const double azimuth=(config.LandscapeLightShaftDirection-90.0)*0.017453292519943295;
-        const double elevation=config.LandscapeLightShaftElevation*0.017453292519943295;
+        const double azimuth=(SprintathonLuaSun::get(SprintathonLuaSun::Azimuth)-90.0)*0.017453292519943295;
+        const double elevation=SprintathonLuaSun::get(SprintathonLuaSun::Elevation)*0.017453292519943295;
         s->setVector4(Shader::U_LiquidSpecLight,
             std::cos(azimuth)*std::cos(elevation),std::sin(azimuth)*std::cos(elevation),
             std::sin(elevation),graphics_preferences->liquid_specular_strength/100.0f);

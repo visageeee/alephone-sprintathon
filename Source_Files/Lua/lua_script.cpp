@@ -57,6 +57,7 @@ LUA_SCRIPT.CPP
  L_Call_* no longer need guarding with #ifdef HAVE_LUA
  */
 
+#include "../RenderMain/SprintathonLuaSun.h"
 #include "cseries.h"
 
 #include "mouse.h"
@@ -2289,6 +2290,7 @@ void LoadReplayNetLua()
 
 void CloseLuaScript()
 {
+    SprintathonLuaSun::reset();
 	// save variables for going into next level
 	PassedLuaState.clear();
 	for (state_map::iterator it = states.begin(); it != states.end(); ++it)

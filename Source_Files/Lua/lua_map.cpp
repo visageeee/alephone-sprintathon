@@ -21,6 +21,8 @@ LUA_MAP.CPP
 */
 
 #include <unordered_map>
+#include "../RenderMain/SprintathonLuaSun.h"
+#include <cstring>
 
 #include "interface.h" // get_game_state
 #include "network.h"   // game_info
@@ -3668,7 +3670,59 @@ static int Lua_Level_Get_Underwater_Fog(lua_State *L)
 	return 1;
 }
 
+
+static int Lua_Sun_Field(const char* key) {
+ const char* names[]={"enabled","azimuth","elevation","size","brightness","shaft_strength","glare_strength","bloom_strength","red","green","blue"};
+ for(int i=0;i<SprintathonLuaSun::Count;++i)if(!std::strcmp(key,names[i]))return i;
+ return -1;
+}
+static int Lua_Sun_Get(lua_State* L) {
+ using namespace SprintathonLuaSun;
+ const char* key=luaL_checkstring(L,2);
+ if(!std::strcmp(key,"color")) {
+  lua_newtable(L);for(int i=0;i<3;++i){lua_pushnumber(L,get(Field(Red+i)));lua_rawseti(L,-2,i+1);}return 1;
+ }
+ int field=Lua_Sun_Field(key);if(field<0)return luaL_error(L,"Unknown sun property: %s",key);
+ if(field==Enabled)lua_pushboolean(L,get(Enabled)!=0);else lua_pushnumber(L,get(Field(field)));
+ return 1;
+}
+static int Lua_Sun_Set(lua_State* L) {
+ lua_getfield(L,LUA_REGISTRYINDEX,"sprintathon_sun_mutable");
+ bool writable=lua_toboolean(L,-1);lua_pop(L,1);
+ if(!writable)return luaL_error(L,"Sun overrides require a level/world script");
+ using namespace SprintathonLuaSun;
+ const char* key=luaL_checkstring(L,2);
+ if(!std::strcmp(key,"color")) {
+  luaL_checktype(L,3,LUA_TTABLE);double rgb[3];
+  for(int i=0;i<3;++i){lua_rawgeti(L,3,i+1);rgb[i]=luaL_checknumber(L,-1);lua_pop(L,1);
+   if(!std::isfinite(rgb[i]) || rgb[i]<0 || rgb[i]>1)return luaL_error(L,"Sun color components must be 0..1");}
+  for(int i=0;i<3;++i)set(Field(Red+i),rgb[i]);return 0;
+ }
+ int field=Lua_Sun_Field(key);if(field<0)return luaL_error(L,"Unknown sun property: %s",key);
+ if(lua_isnil(L,3)){state().set[field]=false;return 0;}
+ if(field==Enabled){luaL_checktype(L,3,LUA_TBOOLEAN);set(Enabled,lua_toboolean(L,3));return 0;}
+ double v=luaL_checknumber(L,3);
+ double low=0,high=4;
+ if(field==Azimuth){low=-36000;high=36000;}
+ if(field==Elevation){low=-90;high=90;}
+ if(field==Size){low=.05;high=20;}
+ if(field>=Red)high=1;
+ if(!std::isfinite(v) || v<low || v>high)return luaL_error(L,"Sun property out of range: %s",key);
+ if(field==Azimuth){v=std::fmod(v,360.0);if(v<0)v+=360.0;}
+ set(Field(field),v);return 0;
+}
+static int Lua_Level_Get_Sun(lua_State* L) {
+ lua_newuserdata(L,1);
+ if(luaL_newmetatable(L,"sprintathon_level_sun")) {
+  lua_pushcfunction(L,Lua_Sun_Get);lua_setfield(L,-2,"__index");
+  lua_pushcfunction(L,Lua_Sun_Set);lua_setfield(L,-2,"__newindex");
+  lua_pushliteral(L,"sun");lua_setfield(L,-2,"__metatable");
+ }
+ lua_setmetatable(L,-2);return 1;
+}
+
 const luaL_Reg Lua_Level_Get[] = {
+    {"sun", Lua_Level_Get_Sun},
 	{"calculate_completion_state", L_TableFunction<Lua_Level_Calculate_Completion_State>},
 	{"completed", Lua_Level_Get_Completed},
 	{"extermination", Lua_Level_Get_Mission_Flag<_mission_extermination>},
@@ -3965,6 +4019,8 @@ int Lua_Map_register(lua_State *L, const LuaMutabilityInterface& m)
     Lua_Level_Stash::Register(L, 0, 0, Lua_Level_Stash_Metatable);
 
 	Lua_Level::Register(L, Lua_Level_Get);
+    lua_pushboolean(L,m.world_mutable());
+    lua_setfield(L,LUA_REGISTRYINDEX,"sprintathon_sun_mutable");
 
 	if (m.world_mutable())
 	{
