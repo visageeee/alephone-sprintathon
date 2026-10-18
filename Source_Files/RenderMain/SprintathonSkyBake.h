@@ -1,6 +1,7 @@
 #ifndef SPRINTATHON_SKY_BAKE_H
 #define SPRINTATHON_SKY_BAKE_H
 #include <map>
+#include "SprintathonLuaSun.h"
 #include <tuple>
 #include <vector>
 #include <array>
@@ -15,7 +16,7 @@ inline V unit(V a){return a*(1.0/std::max(1e-12,std::sqrt(dot(a,a))));}
 inline bool sky(short mode){return mode==_xfer_landscape || mode==_xfer_big_landscape;}
 struct Edge {V a,b,in;int next=-1;bool highSky=false,lowSky=false,panel=false,panelSky=false;};
 struct Room {double floor=0,ceiling=0;bool floorSky=false,ceilingSky=false;V center;std::vector<Edge> edges;};
-struct Map {int layers=1;double low=0,high=0;GLuint texture=0;V u,v;double u0=0,v0=0,us=1,vs=1;};
+struct Map {bool sunPath=false;int layers=1;double low=0,high=0;GLuint texture=0;V u,v;double u0=0,v0=0,us=1,vs=1;};
 static std::vector<Room> rooms;
 static std::map<std::tuple<int,int,int,int>,Map> maps;
 static SDL_GLContext context=nullptr;
@@ -37,7 +38,9 @@ static double actorSpacing=256.0;
 static double sunDirectionSetting=0, sunElevationSetting=0;
 static bool sunReady=false;
 static V sun;
+static void (*pathBakeProgress)()=nullptr;
 inline void updateSun(){
+ if(sunReady && SprintathonLuaSun::state().declared && SprintathonLuaSun::state().locked)return;
  const auto& config=Get_OGL_ConfigureData();
  const double direction=config.LandscapeLightShaftDirection;
  const double elevation=config.LandscapeLightShaftElevation;
@@ -204,14 +207,22 @@ inline void bind(Shader* shader,const polygon_data* polygon,int face,V origin,V 
  auto it=maps.find(key);
  if(it==maps.end()){
   // Missing media atlases must never trigger a gameplay bake.
-  if(mediaFace && shader)return;
+  if(shader && (mediaFace || SprintathonLuaSun::state().declared))return;
   if(maps.size()>=16384)return; // Bounded experimental cache.
   Map m;m.u=u;m.v=v;
   if(mediaFace){m.layers=8;m.low=rooms[room].floor+0.5;m.high=std::max(m.low,rooms[room].ceiling-0.5);}
+  else if(SprintathonLuaSun::state().declared && SprintathonLuaSun::state().locked){m.layers=8;m.sunPath=true;}
   int w=std::max(2,std::min(128,int(std::ceil(width/128.0))+1));int h=std::max(2,std::min(128,int(std::ceil(height/128.0))+1));
   m.us=(w-1.0)/(width*w);m.vs=(h-1.0)/(height*h);m.u0=0.5/w-dot(origin,u)*m.us;m.v0=0.5/h-dot(origin,v)*m.vs;
   std::vector<unsigned char> atlas(size_t(w)*h*3*m.layers);
+  const V configuredSun=sun;
   for(int layer=0;layer<m.layers;++layer){
+   if(m.sunPath){
+    const auto& point=SprintathonLuaSun::state().path[layer];
+    const double a=(point.azimuth-90.0)*0.017453292519943295;
+    const double e=point.elevation*0.017453292519943295;
+    sun=V(std::cos(a)*std::cos(e),std::sin(a)*std::cos(e),std::sin(e));
+   }
    if(mediaFace)origin.z=m.low+(m.high-m.low)*layer/(m.layers-1);
   std::vector<unsigned char> pixels(size_t(w)*h*3);
   for(int y=0;y<h;++y)for(int x=0;x<w;++x){V p=origin+u*(width*x/(w-1))+v*(height*y/(h-1));p=inside(room,p+normal*1.0);p.z=std::max(rooms[room].floor+0.5,std::min(rooms[room].ceiling-0.5,p.z));V c=light(room,p,normal);pixels[3*(y*w+x)]=static_cast<unsigned char>(std::lround(c.x*255));pixels[3*(y*w+x)+1]=static_cast<unsigned char>(std::lround(c.y*255));pixels[3*(y*w+x)+2]=0;}
@@ -239,7 +250,9 @@ inline void bind(Shader* shader,const polygon_data* polygon,int face,V origin,V 
    pixels[3*(y*w+x)]=static_cast<unsigned char>(std::lround(sunlight*coverage*255));
   }
    std::copy(pixels.begin(),pixels.end(),atlas.begin()+size_t(layer)*w*h*3);
+   if(pathBakeProgress)pathBakeProgress();
   }
+  sun=configuredSun;
   GLint active=0,alignment=0;glGetIntegerv(GL_ACTIVE_TEXTURE_ARB,&active);glGetIntegerv(GL_UNPACK_ALIGNMENT,&alignment);glPixelStorei(GL_UNPACK_ALIGNMENT,1);
   glActiveTextureARB(GL_TEXTURE0_ARB+4);glGenTextures(1,&m.texture);glBindTexture(GL_TEXTURE_2D,m.texture);
   glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
@@ -252,7 +265,10 @@ inline void bind(Shader* shader,const polygon_data* polygon,int face,V origin,V 
  shader->setVector4(Shader::U_SkyBakeSun,float(sunColor.x),float(sunColor.y),float(sunColor.z),0);
  shader->setVector4(Shader::U_SkyBakeAmbient,float(ambientColor.x),float(ambientColor.y),float(ambientColor.z),float(ambientFloor()));
  const auto& mediaMap=it->second;
- if(mediaMap.layers>1){
+ if(mediaMap.sunPath){
+  const auto blend=SprintathonLuaSun::pathBlend();
+  shader->setVector4(Shader::U_SkyBakeLayers,float(blend.lo),float(blend.hi),float(blend.fraction),1.0f/8.0f);
+ }else if(mediaMap.layers>1){
   double z=std::max(0.0,std::min(double(mediaMap.layers-1),
       (origin.z-mediaMap.low)/std::max(0.001,mediaMap.high-mediaMap.low)*(mediaMap.layers-1)));
   int lo=int(std::floor(z)),hi=std::min(lo+1,mediaMap.layers-1);
@@ -265,6 +281,7 @@ inline void bind(Shader* shader,const polygon_data* polygon,int face,V origin,V 
 inline void preload(void (*progress)()){
  prepare();
  if(!enabled() || !available)return;
+ pathBakeProgress=progress;
  for(int room=0;room<int(rooms.size());++room){
   const auto* polygon=get_polygon_data(room);const auto& bounds=rooms[room];
   if(polygon->type!=_polygon_is_platform && !bounds.edges.empty()){
@@ -290,6 +307,7 @@ inline void preload(void (*progress)()){
   }
   if(progress)progress();
  }
+ pathBakeProgress=nullptr;
  preloadActors(progress);
  fprintf(stderr,"Sky bake: preloaded %lu actor samples (spacing %.0f).\n",static_cast<unsigned long>(actorSamples.size()),actorSpacing);
  fprintf(stderr,"Sky bake: preloaded %lu static surface lightmaps.\n",static_cast<unsigned long>(maps.size()));

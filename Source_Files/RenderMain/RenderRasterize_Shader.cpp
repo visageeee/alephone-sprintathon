@@ -3188,6 +3188,7 @@ void sprintathon_preload_post_buffers(){
 
 // Reset before texture preparation so the palette captured there survives baking.
 void sprintathon_begin_sky_loading() {
+    SprintathonLuaSun::state().locked=true;
     sprintathon_liquid_palette=SprintathonLiquidPalette{};
     SprintathonSkyBake::reset();
     SprintathonSkyBake::prepare();

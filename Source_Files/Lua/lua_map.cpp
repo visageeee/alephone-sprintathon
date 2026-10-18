@@ -3679,6 +3679,18 @@ static int Lua_Sun_Field(const char* key) {
 static int Lua_Sun_Get(lua_State* L) {
  using namespace SprintathonLuaSun;
  const char* key=luaL_checkstring(L,2);
+ if(!std::strcmp(key,"path")) {
+  if(!state().declared){lua_pushnil(L);return 1;}
+  lua_newtable(L);for(int i=0;i<8;++i){lua_newtable(L);
+   lua_pushnumber(L,state().path[i].azimuth);lua_setfield(L,-2,"azimuth");
+   lua_pushnumber(L,state().path[i].elevation);lua_setfield(L,-2,"elevation");lua_rawseti(L,-2,i+1);}
+  return 1;
+ }
+ if(!std::strcmp(key,"path_position")) {
+  if(!state().declared){lua_pushnil(L);return 1;}
+  auto b=pathBlend();lua_pushnumber(L,(b.lo+b.fraction)/7.0);return 1;
+ }
+
  if(!std::strcmp(key,"color")) {
   lua_newtable(L);for(int i=0;i<3;++i){lua_pushnumber(L,get(Field(Red+i)));lua_rawseti(L,-2,i+1);}return 1;
  }
@@ -3692,6 +3704,29 @@ static int Lua_Sun_Set(lua_State* L) {
  if(!writable)return luaL_error(L,"Sun overrides require a level/world script");
  using namespace SprintathonLuaSun;
  const char* key=luaL_checkstring(L,2);
+ if(!std::strcmp(key,"path")) {
+  if(state().locked)return luaL_error(L,"Declare Level.sun.path at script top level, before lighting loads");
+  if(lua_isnil(L,3)){state().declared=false;return 0;}
+  luaL_checktype(L,3,LUA_TTABLE);Point points[8];
+  for(int i=0;i<8;++i){lua_rawgeti(L,3,i+1);luaL_checktype(L,-1,LUA_TTABLE);
+   lua_getfield(L,-1,"azimuth");double az=luaL_checknumber(L,-1);lua_pop(L,1);
+   lua_getfield(L,-1,"elevation");double el=luaL_checknumber(L,-1);lua_pop(L,2);
+   if(!std::isfinite(az)||!std::isfinite(el)||std::abs(az)>36000||el< -90||el>90)
+    return luaL_error(L,"Invalid sun path angle");
+   points[i].azimuth=std::fmod(az,360.0);if(points[i].azimuth<0)points[i].azimuth+=360.0;
+   points[i].elevation=el;
+  }
+  lua_rawgeti(L,3,9);bool extra=!lua_isnil(L,-1);lua_pop(L,1);
+  if(extra)return luaL_error(L,"Sun path requires exactly eight points");
+  for(int i=0;i<8;++i)state().path[i]=points[i];
+  state().declared=true;pathPosition(0);return 0;
+ }
+ if(!std::strcmp(key,"path_position")) {
+  if(!state().declared)return luaL_error(L,"No sun path declared");
+  double t=luaL_checknumber(L,3);if(!std::isfinite(t)||t<0||t>1)return luaL_error(L,"Sun path position must be 0..1");
+  pathPosition(t);return 0;
+ }
+
  if(!std::strcmp(key,"color")) {
   luaL_checktype(L,3,LUA_TTABLE);double rgb[3];
   for(int i=0;i<3;++i){lua_rawgeti(L,3,i+1);rgb[i]=luaL_checknumber(L,-1);lua_pop(L,1);
