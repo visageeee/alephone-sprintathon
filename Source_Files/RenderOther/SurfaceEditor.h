@@ -11,6 +11,7 @@
 #include "FileHandler.h"
 #include "scenery.h"
 #include "platforms.h"
+#include "monsters.h"
 #include "lightsource.h"
 #include "OGL_Setup.h"
 #include "sdl_dialogs.h"
@@ -28,6 +29,8 @@ short surface_editor_breakable_panel(shape_descriptor texture, short preferred);
 #include <set>
 #include <string>
 
+// Transactional, editor-only spatial-index rebuild.
+bool sprintathon_editor_rebuild_map_indexes();
 namespace surface_editor {
 using surface_editor_geometry::Part;
 using surface_editor_geometry::Hit;
@@ -42,7 +45,11 @@ struct HeightState {
     std::vector<std::pair<short, side_data>> sides;
     int side_count = 0;
 };
+struct WallEndpointChange { short index; world_point2d before,after; };
 struct Change {
+    bool wall=false;
+    std::vector<WallEndpointChange> wall_points;
+    std::vector<short> wall_polygons;
     Hit hit; Texture before, after; int16 old_mode, new_mode;
     bool transparent_geometry = false;
     bool panel = false;
@@ -60,6 +67,7 @@ struct Change {
     bool height = false;
     int old_height = 0, new_height = 0;
     HeightState old_geometry, new_geometry;
+    std::vector<short> height_group; // Frozen at mouse-down; empty for legacy edits.
 };
 std::vector<Texture> textures;
 std::vector<Scenery> scenery;
@@ -84,6 +92,9 @@ void toggle_noclip() {
 bool transparent_surface = false, remove_texture = false;
 bool dragging = false;
 int height_start_y = 0;
+double wall_nx=0,wall_ny=0;
+int wall_step=0;
+bool wall_blocked=false;
 // One transfer mode per surface: scrolling and wobble are mutually exclusive.
 enum Motion { keep_motion, still_motion, scroll_x, scroll_y, reverse_x, reverse_y, wobble_motion, motion_count };
 int texture_motion = keep_motion;
@@ -553,21 +564,235 @@ void expose_height_sides(Hit hit)
     }
     refresh_height_geometry(hit.index);
 }
+// Wall footprint edits change ordinary shared endpoints, never topology.
+void refresh_wall_geometry(const Change& c)
+{
+    std::set<short> lines, endpoints;
+    for(short index:c.wall_polygons) {
+        const auto* p=get_polygon_data(index);
+        for(int i=0;i<p->vertex_count;++i) {
+            lines.insert(p->line_indexes[i]); endpoints.insert(p->endpoint_indexes[i]);
+        }
+    }
+    for(short i:lines) recalculate_redundant_line_data(i);
+    for(short i:c.wall_polygons) recalculate_redundant_polygon_data(i);
+    for(short i:endpoints) recalculate_redundant_endpoint_data(i);
+    init_interpolated_world();
+}
+void apply_wall_points(const Change& c,bool forward)
+{
+    for(const auto& e:c.wall_points) get_endpoint_data(e.index)->vertex=forward?e.after:e.before;
+    refresh_wall_geometry(c);
+}
+using WallPoint=surface_editor_geometry::PlanPoint;
+WallPoint wall_point(short index,const Change& c,bool original=false)
+{
+    auto p=get_endpoint_data(index)->vertex;
+    if(original) for(const auto& e:c.wall_points) if(e.index==index)p=e.before;
+    return {double(p.x),double(p.y)};
+}
+std::vector<WallPoint> wall_polygon(short index,const Change& c,bool original=false)
+{
+    const auto* p=get_polygon_data(index);std::vector<WallPoint> result;
+    for(int i=0;i<p->vertex_count;++i)result.push_back(wall_point(p->endpoint_indexes[i],c,original));
+    return result;
+}
+bool valid_wall_move(const Change& c)
+{
+    using namespace surface_editor_geometry;
+    for(short index:c.wall_polygons) {
+        const auto now=wall_polygon(index,c),old=wall_polygon(index,c,true);
+        if(!valid_plan_polygon(now,old))return false;
+        // Keep occupants and the editor camera inside their current polygon.
+        const auto safe=[&](double x,double y) {
+            for(size_t i=0;i<now.size();++i) {
+                const auto j=(i+1)%now.size();
+                const double margin=std::min(double(WORLD_ONE)/2,plan_edge_distance(old[i],old[j],{x,y}));
+                if(plan_edge_distance(now[i],now[j],{x,y})+0.5<margin)return false;
+            }
+            return plan_contains(now,{x,y});
+        };
+        for(const auto& o:SavedObjectList)
+            if(o.polygon_index==index && !safe(o.location.x,o.location.y))return false;
+        for(int i=0;i<MAXIMUM_OBJECTS_PER_MAP;++i)
+            if(SLOT_IS_USED(&objects[i]) && objects[i].polygon==index && !safe(objects[i].location.x,objects[i].location.y))return false;
+        if(screenshot_polygon==index && !safe(screenshot_origin.x,screenshot_origin.y))return false;
+    }
+    // Existing overlapping spaces are legal. Reject newly created intersections,
+    // rather than treating pre-existing Marathon overlaps as broken geometry.
+    for(int i=0;i<dynamic_world->line_count;++i) {
+        const auto* a=get_line_data(i);bool changed=false;
+        for(const auto& e:c.wall_points)changed|=a->endpoint_indexes[0]==e.index || a->endpoint_indexes[1]==e.index;
+        if(!changed)continue;
+        for(int j=0;j<dynamic_world->line_count;++j) {
+            if(i==j)continue;const auto* b=get_line_data(j);
+            if(a->endpoint_indexes[0]==b->endpoint_indexes[0] || a->endpoint_indexes[0]==b->endpoint_indexes[1] ||
+               a->endpoint_indexes[1]==b->endpoint_indexes[0] || a->endpoint_indexes[1]==b->endpoint_indexes[1])continue;
+            const auto a0=wall_point(a->endpoint_indexes[0],c,true),a1=wall_point(a->endpoint_indexes[1],c,true);
+            const auto n0=wall_point(a->endpoint_indexes[0],c),n1=wall_point(a->endpoint_indexes[1],c);
+            const auto b0=wall_point(b->endpoint_indexes[0],c,true),b1=wall_point(b->endpoint_indexes[1],c,true);
+            if(!plan_intersects(a0,a1,b0,b1) &&
+               (plan_intersects(a0,n0,b0,b1) || plan_intersects(a1,n1,b0,b1)))return false;
+            if(plan_intersects(wall_point(a->endpoint_indexes[0],c),wall_point(a->endpoint_indexes[1],c),
+                wall_point(b->endpoint_indexes[0],c),wall_point(b->endpoint_indexes[1],c)) &&
+               !plan_intersects(wall_point(a->endpoint_indexes[0],c,true),wall_point(a->endpoint_indexes[1],c,true),
+                wall_point(b->endpoint_indexes[0],c,true),wall_point(b->endpoint_indexes[1],c,true)))return false;
+        }
+    }
+    return true;
+}
+void start_wall_drag(Hit hit)
+{
+    const int line_index=hit.line>=0?hit.line:hit.index>=0?get_side_data(hit.index)->line_index:NONE;
+    if(line_index<0)return;
+    const auto* line=get_line_data(line_index);
+    drag_change=Change{};drag_change.hit=hit;drag_change.wall=true;
+    for(int i=0;i<2;++i) {
+        const short index=line->endpoint_indexes[i];const auto p=get_endpoint_data(index)->vertex;
+        drag_change.wall_points.push_back({index,p,p});
+    }
+    for(short i=0;i<dynamic_world->polygon_count;++i) {
+        const auto* p=get_polygon_data(i);bool touches=false;
+        for(int j=0;j<p->vertex_count;++j)for(const auto& e:drag_change.wall_points)touches|=p->endpoint_indexes[j]==e.index;
+        if(touches) {
+            if(POLYGON_IS_DETACHED(p)) {message("Detached polygon boundary cannot be moved.");drag_change=Change{};return;}
+            drag_change.wall_polygons.push_back(i);
+        }
+    }
+    const auto a=wall_point(line->endpoint_indexes[0],drag_change),b=wall_point(line->endpoint_indexes[1],drag_change);
+    const double length=std::hypot(b.x-a.x,b.y-a.y);
+    if(length<1){drag_change=Change{};return;}
+    wall_nx=-(b.y-a.y)/length;wall_ny=(b.x-a.x)/length;
+    const auto* owner=get_polygon_data(hit.polygon);
+    if(wall_nx*(owner->center.x-a.x)+wall_ny*(owner->center.y-a.y)>0){wall_nx=-wall_nx;wall_ny=-wall_ny;}
+    wall_step=0;wall_blocked=false;height_start_y=cursor_y;dragging=true;
+    message("Wall: drag up to push, down to pull; right-click cancels.");
+}
+void update_wall_drag()
+{
+    const int wanted=(height_start_y-cursor_y)/10;
+    if(wanted==wall_step)return;
+    const int direction=wanted>wall_step?1:-1;
+    wall_blocked=false;
+    // Check each step, so a fast mouse movement cannot jump through a boundary.
+    while(wall_step!=wanted) {
+        const int next=wall_step+direction;
+        const double distance=double(next)*WORLD_ONE/10;
+        bool valid=true;
+        for(const auto& e:drag_change.wall_points) {
+            const double x=std::round(e.before.x+wall_nx*distance),y=std::round(e.before.y+wall_ny*distance);
+            if(x<-32768 || x>32767 || y<-32768 || y>32767){valid=false;break;}
+            get_endpoint_data(e.index)->vertex={world_distance(x),world_distance(y)};
+        }
+        if(!valid || !valid_wall_move(drag_change)) {
+            for(const auto& e:drag_change.wall_points)get_endpoint_data(e.index)->vertex=e.after;
+            wall_blocked=true;break;
+        }
+        wall_step=next;
+        for(auto& e:drag_change.wall_points)e.after=get_endpoint_data(e.index)->vertex;
+    }
+    refresh_wall_geometry(drag_change);
+    char text[100];snprintf(text,sizeof(text),"Wall: %+.1f%s",double(wall_step)/10,wall_blocked?" (blocked by geometry or occupant)":"");message(text);
+}
+
+std::vector<short> height_members(const Change& c)
+{
+    return c.height_group.empty()?std::vector<short>{short(c.hit.index)}:c.height_group;
+}
+Hit height_member_hit(const Change& c,short index)
+{
+    Hit h=c.hit;h.index=index;h.polygon=index;return h;
+}
+HeightState capture_height_group(const Change& c)
+{
+    HeightState state;state.side_count=int(SideList.size());
+    std::set<short> lines,sides;
+    for(short index:height_members(c)) {
+        const auto part=capture_geometry(index);
+        for(const auto& e:part.lines)if(lines.insert(e.first).second)state.lines.push_back(e);
+        for(const auto& e:part.sides)if(sides.insert(e.first).second)state.sides.push_back(e);
+    }
+    return state;
+}
+void restore_height_group(const Change& c,const HeightState& state)
+{
+    SideList.resize(state.side_count);dynamic_world->side_count=state.side_count;
+    for(const auto& e:state.lines)*get_line_data(e.first)=e.second;
+    for(const auto& e:state.sides)*get_side_data(e.first)=e.second;
+    for(short index:height_members(c))refresh_height_geometry(index);
+}
+bool set_group_height(const Change& c,int height)
+{
+    const auto members=height_members(c);
+    // Validate the whole operation before moving any occupants or surfaces.
+    for(short index:members) {
+        const auto* p=get_polygon_data(index);
+        const int floor=c.hit.part==Part::floor?height:p->floor_height;
+        const int ceiling=c.hit.part==Part::ceiling?height:p->ceiling_height;
+        if(door_positions.count(index) || p->type==_polygon_is_platform ||
+           height<-32768 || height>32767 || floor>=ceiling || ceiling-floor>32767)return false;
+        if(p->first_object!=NONE && !surface_editor_objects::removable(p->first_object,
+            p->first_object,MAXIMUM_OBJECTS_PER_MAP,
+            [](int i){return SLOT_IS_USED(&objects[i]);},
+            [](int i){return objects[i].next_object;}))return false;
+        if(!legal_polygon_height_change(index,floor,ceiling,nullptr))return false;
+    }
+    std::vector<std::pair<short,int>> applied;
+    for(short index:members) {
+        const auto* p=get_polygon_data(index);
+        const int old=c.hit.part==Part::floor?p->floor_height:p->ceiling_height;
+        if(!set_height(height_member_hit(c,index),height)) {
+            for(auto i=applied.rbegin();i!=applied.rend();++i)set_height(height_member_hit(c,i->first),i->second);
+            return false;
+        }
+        applied.push_back({index,old});
+    }
+    return true;
+}
+
 void start_height_drag()
 {
     const Hit hit = target(picking_ray());
     if (hit.part != Part::floor && hit.part != Part::ceiling) {
-        message("Grab a floor or ceiling to change its height."); return;
+        if(hit.part!=Part::none)start_wall_drag(hit);
+        return;
     }
     const auto* p = get_polygon_data(hit.index);
     if (p->type == _polygon_is_platform) {
         message("Platform heights are controlled by their movement settings."); return;
     }
-    // Reserve the worst-case number of new boundary sides before changing height.
-    if (SideList.size()+2*p->vertex_count > 32767) { message("Map side limit reached."); return; }
     drag_change = Change{}; drag_change.hit = hit; drag_change.height = true;
     drag_change.old_height = drag_change.new_height = hit.part == Part::floor ? p->floor_height : p->ceiling_height;
-    drag_change.old_geometry = capture_geometry(hit.index);
+    const bool grouped=(SDL_GetModState()&KMOD_CTRL)!=0;
+    const int original=drag_change.old_height;
+    drag_change.height_group=surface_editor_geometry::connected_height_group(hit.index,dynamic_world->polygon_count,
+        [&](int index) {
+            const auto* q=get_polygon_data(index);
+            return !POLYGON_IS_DETACHED(q) && q->type!=_polygon_is_platform && !door_positions.count(index) &&
+                (hit.part==Part::floor?q->floor_height:q->ceiling_height)==original;
+        },
+        [&](int index) {
+            std::vector<int> result;
+            if(grouped) {
+                const auto* q=get_polygon_data(index);
+                for(int i=0;i<q->vertex_count;++i)result.push_back(find_adjacent_polygon(index,q->line_indexes[i]));
+            }
+            return result;
+        });
+    if(drag_change.height_group.empty()){drag_change=Change{};message("Cannot change this surface height.");return;}
+    std::set<short> boundaries;
+    for(short index:drag_change.height_group) {
+        const auto* q=get_polygon_data(index);
+        for(int i=0;i<q->vertex_count;++i)boundaries.insert(q->line_indexes[i]);
+    }
+    size_t missing=0;
+    for(short index:boundaries) {
+        const auto* l=get_line_data(index);
+        missing+=l->clockwise_polygon_owner!=NONE && l->clockwise_polygon_side_index==NONE;
+        missing+=l->counterclockwise_polygon_owner!=NONE && l->counterclockwise_polygon_side_index==NONE;
+    }
+    if(SideList.size()+missing>32767){drag_change=Change{};message("Map side limit reached.");return;}
+    drag_change.old_geometry = capture_height_group(drag_change);
     height_start_y = cursor_y;
     dragging = true;
     message("");
@@ -577,9 +802,16 @@ void finish_drag()
     if (!dragging) return;
     dragging = false;
     bool changed = drag_change.height && drag_change.old_height != drag_change.new_height;
+    if(drag_change.wall) {
+        for(const auto& e:drag_change.wall_points)changed|=e.before.x!=e.after.x || e.before.y!=e.after.y;
+        if(changed && !sprintathon_editor_rebuild_map_indexes()) {
+            apply_wall_points(drag_change,false);changed=false;
+            message("Wall edit cancelled: map spatial-index limit reached.");
+        }
+    }
     if (drag_change.height) {
-        if (changed) drag_change.new_geometry = capture_geometry(drag_change.hit.index);
-        else restore_geometry(drag_change.old_geometry, drag_change.hit.index);
+        if (changed) drag_change.new_geometry = capture_height_group(drag_change);
+        else restore_height_group(drag_change, drag_change.old_geometry);
     }
     for (const auto& e : drag_change.offsets)
         changed = changed || e.old_x != e.new_x || e.old_y != e.new_y;
@@ -589,22 +821,36 @@ void finish_drag()
 }
 void update_drag()
 {
+    if(drag_change.wall){update_wall_drag();return;}
     if (drag_change.height) {
-        const auto* p = get_polygon_data(drag_change.hit.index);
-        const bool floor = drag_change.hit.part == Part::floor;
-        const int low = std::max(-32768, floor ? p->ceiling_height-32767 : p->floor_height+1);
-        const int high = std::min(32767, floor ? p->ceiling_height-1 : p->floor_height+32767);
-        const int height = surface_editor_geometry::drag_height(drag_change.old_height,
-            height_start_y-cursor_y, WORLD_ONE, low, high);
-        if (height == drag_change.new_height || !set_height(drag_change.hit, height)) return;
-        drag_change.new_height = height;
-        // Always derive side types/textures from the pre-drag snapshot so a
-        // split -> low -> split excursion cannot replace the upper texture.
-        for (const auto& entry : drag_change.old_geometry.sides)
-            *get_side_data(entry.first) = entry.second;
-        expose_height_sides(drag_change.hit);
-        char text[80];
-        snprintf(text, sizeof(text), "%s: %.3f", floor ? "Floor" : "Ceiling", double(height)/WORLD_ONE);
+        const bool floor=drag_change.hit.part==Part::floor;
+        int low=-32768,high=32767;
+        for(short index:height_members(drag_change)) {
+            const auto* p=get_polygon_data(index);
+            low=std::max(low,floor?p->ceiling_height-32767:p->floor_height+1);
+            high=std::min(high,floor?p->ceiling_height-1:p->floor_height+32767);
+        }
+        if(low>high)return;
+        const int wanted=surface_editor_geometry::drag_height(drag_change.old_height,
+            height_start_y-cursor_y,WORLD_ONE,low,high);
+        if(wanted==drag_change.new_height)return;
+        const int direction=wanted>drag_change.new_height?1:-1;
+        bool blocked=false,moved=false;
+        // Stop at the last valid snap step when an occupant limits any member.
+        int step=int(std::lround(double(drag_change.new_height-drag_change.old_height)*10/WORLD_ONE));
+        while(drag_change.new_height!=wanted) {
+            const int next=drag_change.old_height+int(std::lround(double(step+direction)*WORLD_ONE/10));
+            if(!set_group_height(drag_change,next)){blocked=true;break;}
+            step+=direction;drag_change.new_height=next;moved=true;
+        }
+        if(moved) {
+            for(const auto& entry:drag_change.old_geometry.sides)*get_side_data(entry.first)=entry.second;
+            for(short index:height_members(drag_change))expose_height_sides(height_member_hit(drag_change,index));
+        }
+        char text[120];
+        snprintf(text,sizeof(text),"%s: %.3f (%zu polygon%s)%s",floor?"Floor":"Ceiling",
+            double(drag_change.new_height)/WORLD_ONE,height_members(drag_change).size(),
+            height_members(drag_change).size()==1?"":"s",blocked?" - blocked":"");
         message(text);
         return;
     }
@@ -832,7 +1078,12 @@ void paint(bool sample)
         message("Map light limit reached."); return;
     }
     if (*dst.shape == next.shape && *dst.mode == mode && *dst.light == light) return;
-    Change c{hit, {*dst.shape, *dst.mode == _xfer_landscape}, next, *dst.mode, mode};
+    Change c{};
+    c.hit = hit;
+    c.before = {*dst.shape, *dst.mode == _xfer_landscape};
+    c.after = next;
+    c.old_mode = *dst.mode;
+    c.new_mode = mode;
     c.old_light = *dst.light; c.new_light = light;
     c.texture_enabled = tex; c.lighting_enabled = illumination;
     apply(hit, next, mode, light, tex, illumination);
@@ -1147,15 +1398,20 @@ void history(bool forward)
     auto& to = forward ? undo : redo;
     if (from.empty()) { message(forward ? "Nothing to redo." : "Nothing to undo."); return; }
     Change c = from.back();
-    if (c.transparent_geometry) {
+    if(c.wall) {
+        apply_wall_points(c,forward);
+        if(!sprintathon_editor_rebuild_map_indexes()) {
+            apply_wall_points(c,!forward);message("Cannot rebuild map spatial indexes.");return;
+        }
+    } else if (c.transparent_geometry) {
         restore_geometry(forward ? c.new_geometry : c.old_geometry, c.hit.polygon);
     } else if (c.panel) {
         if (c.hit.index < 0 || c.hit.index >= dynamic_world->side_count) return;
         *get_side_data(c.hit.index) = forward ? c.new_panel : c.old_panel;
         init_interpolated_world();
     } else if (c.height) {
-        if (!set_height(c.hit, forward ? c.new_height : c.old_height)) return;
-        restore_geometry(forward ? c.new_geometry : c.old_geometry, c.hit.index);
+        if (!set_group_height(c, forward ? c.new_height : c.old_height)) { message("Height undo/redo blocked by an occupant."); return; }
+        restore_height_group(c, forward ? c.new_geometry : c.old_geometry);
     } else if (!c.offsets.empty()) { set_offsets(c, forward); init_interpolated_world(); }
     else if (c.scenery) {
         const bool adding = forward != c.erased;
@@ -1357,6 +1613,11 @@ void choose_map_light()
 
 void click(int button, int x, int y)
 {
+    if(button==SDL_BUTTON_RIGHT && dragging && drag_change.wall) {
+        apply_wall_points(drag_change,false);dragging=false;drag_change=Change{};
+        message("Wall move cancelled.");return;
+    }
+
     if (palette_cursor) {
         motion(x, y);
         if (contains(actions_rect(), cursor_x, cursor_y)) {
@@ -1424,11 +1685,11 @@ void click(int button, int x, int y)
         if ((!status.empty() && contains(footer_rect(), cursor_x, cursor_y)) ||
             !contains(Screen::instance()->view_rect(), cursor_x, cursor_y)) return;
     }
-    if (edit_panels && !scenery_brush && button == SDL_BUTTON_LEFT) { edit_control_panel(); return; }
     if (button == SDL_BUTTON_LEFT && (SDL_GetModState() & KMOD_SHIFT)) {
         if (palette_cursor) start_height_drag();
         return;
     }
+    if (edit_panels && !scenery_brush && button == SDL_BUTTON_LEFT) { edit_control_panel(); return; }
     if (button == SDL_BUTTON_LEFT && (SDL_GetModState() & KMOD_CTRL)) {
         if (palette_cursor) start_drag();
         return;
@@ -1439,6 +1700,53 @@ void click(int button, int x, int y)
         else paint(false);
     }
 }
+
+#ifdef HAVE_OPENGL
+bool wall_screen_point(double x,double y,double z,double& sx,double& sy)
+{
+    const double yaw=screenshot_yaw*(6.283185307179586/FULL_CIRCLE);
+    const double pitch=screenshot_pitch*(6.283185307179586/FULL_CIRCLE);
+    const double dx=x-screenshot_origin.x,dy=y-screenshot_origin.y,dz=z-screenshot_origin.z;
+    const double forward=dx*std::cos(yaw)+dy*std::sin(yaw),right=-dx*std::sin(yaw)+dy*std::cos(yaw);
+    const bool sheared=world_view->mimic_sw_perspective;
+    const double depth=sheared?forward:forward*std::cos(pitch)+dz*std::sin(pitch);
+    if(depth<=1)return false;
+    const double up=sheared?dz-forward*std::tan(pitch):-forward*std::sin(pitch)+dz*std::cos(pitch);
+    const double aspect=world_view->screen_width/double(std::max(1,int(world_view->screen_height)));
+    const double tangent=std::tan(world_view->field_of_view*3.141592653589793/360);
+    const double xtan=(View_FOV_FixHorizontalNotVertical()?tangent:tangent*aspect/2)*world_view->real_world_to_screen_x/std::max(1,int(world_view->world_to_screen_x));
+    const double ytan=(View_FOV_FixHorizontalNotVertical()?tangent/aspect:tangent/2)*world_view->real_world_to_screen_y/std::max(1,int(world_view->world_to_screen_y));
+    sx=(pick_viewport.x+(right/depth/xtan+1)*pick_viewport.w/2)*Screen::instance()->width()/MainScreenPixelWidth();
+    sy=(MainScreenPixelHeight()-pick_viewport.y-(up/depth/ytan+1)*pick_viewport.h/2)*Screen::instance()->height()/MainScreenPixelHeight();
+    return std::isfinite(sx)&&std::isfinite(sy);
+}
+void draw_wall_handles()
+{
+    if(!palette_cursor || noclip || pick_viewport.w<=0 || over_ui(cursor_x,cursor_y))return;
+    if(!(dragging && drag_change.wall) && !(SDL_GetModState()&KMOD_SHIFT))return;
+    const Hit h=dragging&&drag_change.wall?drag_change.hit:target(picking_ray());
+    if(h.part==Part::none || h.part==Part::floor || h.part==Part::ceiling || h.polygon<0)return;
+    const int li=h.line>=0?h.line:h.index>=0?get_side_data(h.index)->line_index:NONE;
+    if(li<0)return;
+    const auto* l=get_line_data(li);const auto* p=get_polygon_data(h.polygon);
+    double x[4],y[4];bool visible[4];
+    for(int i=0;i<4;++i) {
+        const auto v=get_endpoint_data(l->endpoint_indexes[i%2])->vertex;
+        visible[i]=wall_screen_point(v.x,v.y,i<2?p->floor_height:p->ceiling_height,x[i],y[i]);
+    }
+    glPushAttrib(GL_ALL_ATTRIB_BITS);
+    glDisable(GL_TEXTURE_2D);glDisable(GL_TEXTURE_RECTANGLE_ARB);glDisable(GL_BLEND);
+    if(dragging&&wall_blocked)glColor3f(1,0.3f,0.2f);else glColor3f(0.3f,1,0.5f);
+    glLineWidth(2);glBegin(GL_LINES);
+    const int pairs[8]={0,1,1,3,3,2,2,0};
+    for(int i=0;i<8;i+=2)if(visible[pairs[i]]&&visible[pairs[i+1]]) {
+        glVertex2d(x[pairs[i]],y[pairs[i]]);glVertex2d(x[pairs[i+1]],y[pairs[i+1]]);
+    }
+    glEnd();glPointSize(7);glBegin(GL_POINTS);
+    for(int i=0;i<4;++i)if(visible[i])glVertex2d(x[i],y[i]);
+    glEnd();glPopAttrib();
+}
+#endif
 
 void draw_panel()
 {
@@ -1464,6 +1772,7 @@ void draw_panel()
         glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity();
         glOrtho(0, Screen::instance()->width(), Screen::instance()->height(), 0, -1, 1);
         glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity();
+        draw_wall_handles();
     }
 #endif
     if (panel_dirty) {

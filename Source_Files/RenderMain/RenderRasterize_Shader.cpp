@@ -96,6 +96,19 @@ class SprintathonWorldDetail {
     SDL_GLContext context = nullptr;
     bool initialized = false, supported = false;
     int current = -1;
+    using CpuClock=std::chrono::steady_clock;
+    CpuClock::time_point cpuStart,cpuMark;
+    bool cpuActive=false;
+    int cpuCategory=4;
+    uint64_t cpuFrame=0;
+    double cpuMs[5]={};
+    unsigned cpuDraws[5]={};
+    void cpuPass(int next) {
+        if(!cpuActive)return;
+        const auto now=CpuClock::now();
+        cpuMs[cpuCategory]+=std::chrono::duration<double,std::milli>(now-cpuMark).count();
+        cpuMark=now;cpuCategory=next;
+    }
 public:
     int category = 4; // opaque, other surfaces, sky, objects, unclassified
     void reset() {
@@ -103,7 +116,7 @@ public:
             for (auto& s : samples) if (s.queries[0]) remove(capacity, s.queries);
         for (auto& s : samples) s = Sample{};
         initialized = supported = false;
-        current = -1;
+        current = -1;cpuActive=false;
     }
     void begin() {
         if (!SprintathonStartupTiming::get().active()) {
@@ -111,6 +124,12 @@ public:
             return;
         }
         if (context != SDL_GL_GetCurrentContext()) reset();
+        const auto frame = SprintathonStartupTiming::get().frame_id;
+        cpuActive=frame==1 || frame%60==0;
+        if(cpuActive){
+            cpuFrame=frame;cpuCategory=4;category=4;cpuStart=cpuMark=CpuClock::now();
+            for(int i=0;i<5;++i){cpuMs[i]=0;cpuDraws[i]=0;}
+        }
         if (!initialized) {
             context = SDL_GL_GetCurrentContext();
             initialized = true;
@@ -119,9 +138,13 @@ public:
             stamp = reinterpret_cast<Stamp>(SDL_GL_GetProcAddress("glQueryCounter"));
             available = reinterpret_cast<Available>(SDL_GL_GetProcAddress("glGetQueryObjectuiv"));
             result = reinterpret_cast<Result>(SDL_GL_GetProcAddress("glGetQueryObjectui64v"));
+            int major=0,minor=0;
+            const char* version=reinterpret_cast<const char*>(glGetString(GL_VERSION));
+            if(version)std::sscanf(version,"%d.%d",&major,&minor);
             supported = gen && remove && stamp && available && result &&
-                SDL_GL_ExtensionSupported("GL_ARB_timer_query");
-            if (!supported) fprintf(stderr, "World detail: timestamp queries unavailable\n");
+                (SDL_GL_ExtensionSupported("GL_ARB_timer_query") || major>3 || (major==3 && minor>=3));
+            fprintf(stderr,"World detail v2: CPU timings enabled; GPU timestamps %s; GL %s\n",
+                supported ? "enabled" : "unavailable",version?version:"unknown");
         }
         if (!supported) return;
         for (auto& s : samples) {
@@ -143,8 +166,10 @@ public:
                 s.draws[0],s.draws[1],s.draws[2],s.draws[3],s.draws[4],s.used-2,int(s.truncated));
             s.pending = false;
         }
-        const auto frame = SprintathonStartupTiming::get().frame_id;
-        if (frame % 60 != 0) return;
+        if (!cpuActive) return;
+        unsigned pending=0;for(const auto& s:samples)if(s.pending)++pending;
+        if(pending==3)fprintf(stderr,"World detail frame %llu: GPU samples still pending; CPU detail remains available\n",
+            static_cast<unsigned long long>(frame));
         for (int i=0;i<3;++i) if (!samples[i].pending) {
             auto& s=samples[i];
             if (!s.queries[0]) gen(capacity,s.queries);
@@ -156,6 +181,7 @@ public:
         }
     }
     void draw() {
+        if(cpuActive){cpuPass(category);++cpuDraws[category];}
         if (current < 0) return;
         auto& s=samples[current];
         ++s.draws[category];
@@ -165,6 +191,14 @@ public:
         stamp(s.queries[s.used++],0x8E28);
     }
     void end() {
+        if(cpuActive){
+            cpuPass(cpuCategory);
+            const double total=std::chrono::duration<double,std::milli>(CpuClock::now()-cpuStart).count();
+            fprintf(stderr,"World CPU detail frame %llu: total %.2f; opaque %.2f other-surfaces %.2f sky %.2f sprites-models %.2f unclassified %.2f ms; draws %u/%u/%u/%u/%u (includes driver waits)\n",
+                static_cast<unsigned long long>(cpuFrame),total,cpuMs[0],cpuMs[1],cpuMs[2],cpuMs[3],cpuMs[4],
+                cpuDraws[0],cpuDraws[1],cpuDraws[2],cpuDraws[3],cpuDraws[4]);
+            cpuActive=false;
+        }
         if (current < 0) return;
         auto& s=samples[current];
         stamp(s.queries[s.used++],0x8E28);
@@ -1285,12 +1319,49 @@ static void sprintathon_draw_landscape_light_shafts(GLuint color_texture,
 	glActiveTextureARB(GL_TEXTURE0_ARB);
 }
 
+
+struct SprintathonFlareBuffers {
+    GLuint framebuffer[2]={0,0}, color[2]={0,0};
+    GLsizei width=0,height=0;
+    bool ready=false;
+};
+static SprintathonFlareBuffers sprintathon_flare_buffers;
+static bool sprintathon_prepare_flare_buffers(GLsizei width,GLsizei height) {
+    const char* override_mode=std::getenv("SPRINTATHON_FLARE_HALF_RES");
+    if(!FBO_Allowed || (override_mode && override_mode[0]=='0') ||
+       !SDL_GL_ExtensionSupported("GL_ARB_texture_float")) return false;
+    auto& t=sprintathon_flare_buffers;
+    const GLsizei w=std::max<GLsizei>(1,(width+1)/2),h=std::max<GLsizei>(1,(height+1)/2);
+    if(t.width==w && t.height==h) return t.ready;
+    GLint previous;glGetIntegerv(GL_FRAMEBUFFER_BINDING_EXT,&previous);
+    if(!t.framebuffer[0])glGenFramebuffersEXT(2,t.framebuffer);
+    if(!t.color[0])glGenTextures(2,t.color);
+    glActiveTextureARB(GL_TEXTURE1_ARB);
+    t.ready=true;
+    for(int i=0;i<2;++i) {
+        glBindTexture(GL_TEXTURE_RECTANGLE_ARB,t.color[i]);
+        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_RECTANGLE_ARB,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_RECTANGLE_ARB,0,0x881A /* RGBA16F */,w,h,0,GL_RGBA,GL_FLOAT,nullptr);
+        glBindFramebufferEXT(GL_FRAMEBUFFER_EXT,t.framebuffer[i]);
+        glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT,GL_COLOR_ATTACHMENT0_EXT,GL_TEXTURE_RECTANGLE_ARB,t.color[i],0);
+        glDrawBuffer(GL_COLOR_ATTACHMENT0_EXT);
+        glReadBuffer(GL_COLOR_ATTACHMENT0_EXT);
+        t.ready=t.ready && glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT)==GL_FRAMEBUFFER_COMPLETE_EXT;
+    }
+    t.width=w;t.height=h;
+    glBindFramebufferEXT(GL_FRAMEBUFFER_EXT,previous);
+    glActiveTextureARB(GL_TEXTURE0_ARB);
+    return t.ready;
+}
+
 static void sprintathon_draw_anamorphic_lens_flare(GLuint color_texture,
 	GLuint depth_texture, GLsizei width, GLsizei height,
 	const GLfloat *projection, float strength, float fog_mode)
 {
-
-
+	if(strength<=0.0f)return;
 	glPushAttrib(GL_ALL_ATTRIB_BITS);
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_BLEND);
@@ -1304,6 +1375,11 @@ static void sprintathon_draw_anamorphic_lens_flare(GLuint color_texture,
 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
+	GLint previous_fbo=0,previous_draw=0,viewport[4];
+	glGetIntegerv(GL_VIEWPORT,viewport);
+	glGetIntegerv(GL_DRAW_BUFFER,&previous_draw);
+	if(FBO_Allowed)glGetIntegerv(GL_FRAMEBUFFER_BINDING_EXT,&previous_fbo);
+	const bool reduced=sprintathon_prepare_flare_buffers(width,height);
 	Shader *shader = Shader::get(Shader::S_AnamorphicLensFlare);
 	shader->enable();
     shader->setFloat(Shader::U_Pass, static_cast<float>(
@@ -1325,12 +1401,38 @@ static void sprintathon_draw_anamorphic_lens_flare(GLuint color_texture,
 	glMatrixMode(GL_MODELVIEW);
 	glPushMatrix();
 	glLoadIdentity();
+	const auto draw_quad=[width,height]() {
 	glBegin(GL_QUADS);
 	glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);
 	glTexCoord2f(static_cast<float>(width), 0.0f); glVertex2f(1.0f, -1.0f);
 	glTexCoord2f(static_cast<float>(width), static_cast<float>(height)); glVertex2f(1.0f, 1.0f);
 	glTexCoord2f(0.0f, static_cast<float>(height)); glVertex2f(-1.0f, 1.0f);
 	glEnd();
+    };
+    if(reduced) {
+        auto& t=sprintathon_flare_buffers;
+        const bool glow=Get_OGL_ConfigureData().LensFlareStyle==2;
+        shader->setFloat(Shader::U_OffsetX,float(t.width));
+        shader->setFloat(Shader::U_OffsetY,float(t.height));
+        glViewport(0,0,t.width,t.height);
+        glBindFramebufferEXT(GL_FRAMEBUFFER_EXT,t.framebuffer[0]);
+        glDrawBuffer(GL_COLOR_ATTACHMENT0_EXT);
+        // Avoid binding an attached render target as a sampled texture.
+        glActiveTextureARB(GL_TEXTURE1_ARB);glBindTexture(GL_TEXTURE_RECTANGLE_ARB,0);
+        glActiveTextureARB(GL_TEXTURE0_ARB);
+        shader->setFloat(Shader::U_Pass,glow?4.0f:3.0f);draw_quad();
+        glBindFramebufferEXT(GL_FRAMEBUFFER_EXT,t.framebuffer[1]);
+        glDrawBuffer(GL_COLOR_ATTACHMENT0_EXT);
+        glActiveTextureARB(GL_TEXTURE1_ARB);glBindTexture(GL_TEXTURE_RECTANGLE_ARB,t.color[0]);
+        glActiveTextureARB(GL_TEXTURE0_ARB);
+        shader->setFloat(Shader::U_Pass,glow?6.0f:5.0f);draw_quad();
+        glBindFramebufferEXT(GL_FRAMEBUFFER_EXT,previous_fbo);
+        glDrawBuffer(previous_draw);
+        glViewport(viewport[0],viewport[1],viewport[2],viewport[3]);
+        glActiveTextureARB(GL_TEXTURE1_ARB);glBindTexture(GL_TEXTURE_RECTANGLE_ARB,t.color[1]);
+        glActiveTextureARB(GL_TEXTURE0_ARB);
+        shader->setFloat(Shader::U_Pass,7.0f);draw_quad();
+    } else draw_quad();
 	glPopMatrix();
 	glMatrixMode(GL_PROJECTION);
 	glPopMatrix();
@@ -3172,10 +3274,12 @@ void sprintathon_preload_post_buffers(){
     GLint active=0;glGetIntegerv(GL_ACTIVE_TEXTURE_ARB,&active);
     glPushAttrib(GL_ALL_ATTRIB_BITS);
     const bool fog=TEST_FLAG(config.Flags,OGL_Flag_Fog);
-    if(config.AmbientOcclusion || config.LandscapeLightShafts || fog){
+    if(config.AmbientOcclusion || config.LandscapeLightShafts || config.AnamorphicLensFlares || fog){
         sprintathon_capture_scene_depth(width,height,false);
         sprintathon_capture_scene_color(width,height,false);
     }
+    if(config.AnamorphicLensFlares && config.AnamorphicLensFlareStrength>0)
+        sprintathon_prepare_flare_buffers(width,height);
     if(config.RefractiveInvisibility)setup_invisibility_refraction(nullptr,width,height,1);
     if(config.AnimatedMediaRipples && TEST_FLAG(config.Flags,OGL_Flag_LiqSeeThru))
         sprintathon_prepare_media_scene(width,height);
@@ -3596,7 +3700,7 @@ void RenderRasterize_Shader::render_tree() {
 			fogmode);
 	}
     gpu_profile.pass(5); startup_frame.pass(6);
-	if (ogl_config.AnamorphicLensFlares)
+	if (ogl_config.AnamorphicLensFlares && ogl_config.AnamorphicLensFlareStrength > 0)
 	{
 		// Detect emitters before deep-haze and drifting-cloud post effects. Fog
 		// added by those passes can therefore cover a flare, but never create one.

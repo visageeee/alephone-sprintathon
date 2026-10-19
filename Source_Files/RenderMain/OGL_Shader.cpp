@@ -358,9 +358,9 @@ void Shader::warmup(void (*progress)()) {
     const auto& config=Get_OGL_ConfigureData();
     for (int i=0;i<NUMBER_OF_SHADER_TYPES;++i) {
         const std::string name=_shader_names[i];
-        if ((name.find("bloom")!=std::string::npos || name=="blur") &&
-            !TEST_FLAG(config.Flags,OGL_Flag_Blur)) continue;
-        if (name.find("bump")!=std::string::npos && !TEST_FLAG(config.Flags,OGL_Flag_BumpMap)) continue;
+        // Shared per-frame uniform setup enables surface bloom/bump variants
+        // even with their effects disabled. Compile them before gameplay.
+        if (name=="blur" && !TEST_FLAG(config.Flags,OGL_Flag_Blur)) continue;
         if (name.find("ambient_occlusion")!=std::string::npos && !config.AmbientOcclusion) continue;
         if ((name.find("landscape_light_shafts")!=std::string::npos || name=="shaft_occlusion") && !config.LandscapeLightShafts) continue;
         if (name=="anamorphic_lens_flare" && !config.AnamorphicLensFlares) continue;
@@ -497,6 +497,12 @@ Shader::Shader(const std::string& name, FileSpecifier& vert, FileSpecifier& frag
 
 void Shader::init() {
     SprintathonStartupWork timing(true);
+    if (SprintathonStartupTiming::extended()) {
+        const char* name="custom";
+        for(size_t i=0;i<_shaders.size();++i)if(this==&_shaders[i]){name=_shader_names[i];break;}
+        fprintf(stderr,"Shader compile: %s (%s)\n",name,
+            SprintathonStartupTiming::get().loading ? "loading" : "GAMEPLAY");
+    }
 
 	std::fill_n(_uniform_locations, static_cast<int>(NUMBER_OF_UNIFORM_LOCATIONS), -2);
 	std::fill_n(_cached_floats, static_cast<int>(NUMBER_OF_UNIFORM_LOCATIONS), 0.0);
@@ -1549,6 +1555,9 @@ void main(void) {
 		defaultVertexPrograms["underwater_ripple"];
 	defaultFragmentPrograms["anamorphic_lens_flare"] = R"(
 uniform sampler2DRect texture0;
+uniform sampler2DRect texture1;
+uniform float offsetx;
+uniform float offsety;
 uniform sampler2DRect texture2;
 uniform float pixelWidth;
 uniform float pixelHeight;
@@ -1605,10 +1614,65 @@ vec3 selectedFlare(vec2 p, vec2 dimensions) {
     return result/max(weights,0.0001);
 }
 
+
+// Evaluate each source pixel before downsampling, so tiny bright lamps survive
+// thresholding with their coverage rather than vanishing into the background.
+vec3 preparedEmitter(vec2 q, vec2 dimensions) {
+    q=clamp(q,vec2(0.5),dimensions-vec2(0.5));
+    vec3 e=flareEmitter(q,dimensions);
+    if(pass<3.5) {
+        vec3 c=texture2DRect(texture0,q).rgb;
+        float peak=max(c.r,max(c.g,c.b));
+        float neutral=1.0-smoothstep(0.08,0.45,peak-min(c.r,min(c.g,c.b)));
+        float energy=max(e.r,max(e.g,e.b));
+        e=mix(e,vec3(0.68,0.84,1.0)*energy,neutral*0.28);
+    }
+    return e;
+}
+
 void main(void) {
 	vec2 p = gl_FragCoord.xy;
 	vec2 dimensions = vec2(pixelWidth, pixelHeight);
-	vec4 scene = texture2DRect(texture0, p);
+
+    vec2 reduced=vec2(offsetx,offsety);
+    if(pass>2.5 && pass<4.5) {
+        vec2 center=p*dimensions/reduced;
+        vec2 delta=0.25*dimensions/reduced;
+        vec3 e=preparedEmitter(center+vec2(-delta.x,-delta.y),dimensions);
+        e+=preparedEmitter(center+vec2(delta.x,-delta.y),dimensions);
+        e+=preparedEmitter(center+vec2(-delta.x,delta.y),dimensions);
+        e+=preparedEmitter(center+vec2(delta.x,delta.y),dimensions);
+        gl_FragColor=vec4(e*0.25,1.0); return;
+    }
+    if(pass>4.5 && pass<6.5) {
+        vec3 result=vec3(0.0); float weights=0.0;
+        if(pass<5.5) {
+            for(int i=-16;i<=16;++i) {
+                float tap=float(i)/16.0;
+                vec2 q=clamp(p+vec2(tap*reduced.x*0.22,0.0),vec2(0.5),reduced-vec2(0.5));
+                float w=exp(-abs(tap)*3.4);
+                result+=texture2DRect(texture1,q).rgb*w; weights+=w;
+            }
+            float core=exp(-abs(p.y-reduced.y*0.5)/max(reduced.y*0.12,0.5));
+            result*=mix(0.62,1.0,core);
+        } else {
+            for(int i=0;i<32;++i) {
+                float n=float(i),r=sqrt((n+0.5)/32.0),a=n*2.39996323;
+                vec2 q=p+vec2(cos(a),sin(a))*r*dimensions.y*0.045*reduced/dimensions;
+                float w=exp(-r*r*3.0);
+                if(q.x>=0.5 && q.y>=0.5 && q.x<=reduced.x-0.5 && q.y<=reduced.y-0.5)
+                    result+=texture2DRect(texture1,q).rgb*w;
+                weights+=w;
+            }
+        }
+        gl_FragColor=vec4(result/max(weights,0.0001),1.0); return;
+    }
+    vec4 scene=texture2DRect(texture0,p);
+    if(pass>6.5) {
+        gl_FragColor=vec4(scene.rgb+texture2DRect(texture1,p*reduced/dimensions).rgb*bloomScale*2.2,scene.a);
+        return;
+    }
+
     if (pass > 0.5) {
         gl_FragColor = vec4(scene.rgb + selectedFlare(p, dimensions)*bloomScale*2.2, scene.a);
         return;

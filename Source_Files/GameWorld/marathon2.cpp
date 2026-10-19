@@ -90,6 +90,10 @@ Feb 8, 2003 (Woody Zenfell):
 #include "network.h"
 #include "scenery.h"
 #include "platforms.h"
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <algorithm>
 #include "lightsource.h"
 #include "media.h"
 #include "Music.h"
@@ -471,9 +475,63 @@ void set_sprintathon_bullet_time(bool active, bool play_transition_sound)
 	}
 }
 
+
+// Diagnostic wall times only: no simulation state or random numbers are changed.
+namespace {
+struct SprintathonTickTrace {
+    using Clock=std::chrono::steady_clock;
+    enum Stage { Lua, Lights, Media, Platforms, Panels, Players, Projectiles,
+        Monsters, Effects, Objects, Sound, Scenery, Ephemera, Items, Textures,
+        Camera, Sensor, Exploration, Network, PostLua, Interpolation, Count };
+    static bool enabled(){static const bool on=[](){const char* p=std::getenv("SPRINTATHON_RENDER_TRACE");return p && p[0]=='1';}();return on;}
+    bool on=enabled();
+    Clock::time_point start;
+    double ms[Count]={};
+    int tick,level;
+    SprintathonTickTrace():tick(dynamic_world->tick_count),level(dynamic_world->current_level_number){if(on)start=Clock::now();}
+    template<class F> void measure(Stage stage,F f){
+        if(!on){f();return;}
+        const auto before=Clock::now();f();
+        ms[stage]+=std::chrono::duration<double,std::milli>(Clock::now()-before).count();
+    }
+    static const char* name(int i){static const char* names[]={"lua","lights","media","platforms","panels","players","projectiles","monsters","effects","objects","sound","scenery","ephemera","items","textures","camera","sensor","exploration","network","post-lua","interpolation"};return names[i];}
+    ~SprintathonTickTrace(){
+        if(!on)return;
+        const double total=std::chrono::duration<double,std::milli>(Clock::now()-start).count();
+        double accounted=0;for(double v:ms)accounted+=v;
+        if(total>=4.0){
+            fprintf(stderr,"Simulation slow tick %d level %d: total %.2f ms;",tick,level,total);
+            for(int i=0;i<Count;++i)fprintf(stderr," %s %.2f",name(i),ms[i]);
+            fprintf(stderr," other %.2f\n",std::max(0.0,total-accounted));
+        }
+        static int lastLevel=-1,lastTick=-1,n=0;
+        static double sum=0,peak=0,stages[Count]={};
+        if(level!=lastLevel || tick<=lastTick){n=0;sum=peak=0;for(double& v:stages)v=0;}
+        lastLevel=level;lastTick=tick;++n;sum+=total;peak=std::max(peak,total);
+        for(int i=0;i<Count;++i)stages[i]+=ms[i];
+        if(n>=30){
+            fprintf(stderr,"Simulation summary tick %d level %d: ticks %d avg/max %.2f/%.2f ms;",tick,level,n,sum/n,peak);
+            for(int i=0;i<Count;++i)fprintf(stderr," %s %.2f",name(i),stages[i]/n);
+            fprintf(stderr,"\n");n=0;sum=peak=0;for(double& v:stages)v=0;
+        }
+    }
+};
+struct SprintathonUpdateTrace {
+    bool on=SprintathonTickTrace::enabled();
+    SprintathonTickTrace::Clock::time_point start;
+    int ticks=0,firstTick=dynamic_world->tick_count;
+    SprintathonUpdateTrace(){if(on)start=SprintathonTickTrace::Clock::now();}
+    ~SprintathonUpdateTrace(){
+        if(!on)return;
+        const double ms=std::chrono::duration<double,std::milli>(SprintathonTickTrace::Clock::now()-start).count();
+        if(ms>=8.0 || ticks>1)fprintf(stderr,"Simulation update from tick %d: %.2f ms; real ticks %d (includes queues, prediction and interface)\n",firstTick,ms,ticks);
+    }
+};
+}
+
 // ZZZ: split out from update_world()'s loop.
 static int
-update_world_elements_one_tick(bool& call_postidle, bool advance_slow_world)
+update_world_elements_one_tick(bool& call_postidle, bool advance_slow_world, SprintathonTickTrace& trace)
 {
 	if (m1_solo_player_in_terminal()) 
 	{
@@ -486,32 +544,32 @@ update_world_elements_one_tick(bool& call_postidle, bool advance_slow_world)
 		call_postidle = advance_slow_world;
 		if (advance_slow_world)
 		{
-			L_Call_Idle();
-			update_lights();
-			update_medias();
-			update_platforms();
-			update_control_panels(); // don't put after update_players
+			trace.measure(SprintathonTickTrace::Lua, [&](){ L_Call_Idle(); });
+			trace.measure(SprintathonTickTrace::Lights, [&](){ update_lights(); });
+			trace.measure(SprintathonTickTrace::Media, [&](){ update_medias(); });
+			trace.measure(SprintathonTickTrace::Platforms, [&](){ update_platforms(); });
+			trace.measure(SprintathonTickTrace::Panels, [&](){ update_control_panels(); }); // don't put after update_players
 		}
-		update_players(GameQueue, false, advance_slow_world);
+		trace.measure(SprintathonTickTrace::Players, [&](){ update_players(GameQueue, false, advance_slow_world); });
 		if (advance_slow_world)
 		{
-			move_projectiles();
-			move_monsters();
-			update_effects();
-			recreate_objects();
-			handle_random_sound_image();
-			animate_scenery();
-			update_ephemera();
+			trace.measure(SprintathonTickTrace::Projectiles, [&](){ move_projectiles(); });
+			trace.measure(SprintathonTickTrace::Monsters, [&](){ move_monsters(); });
+			trace.measure(SprintathonTickTrace::Effects, [&](){ update_effects(); });
+			trace.measure(SprintathonTickTrace::Objects, [&](){ recreate_objects(); });
+			trace.measure(SprintathonTickTrace::Sound, [&](){ handle_random_sound_image(); });
+			trace.measure(SprintathonTickTrace::Scenery, [&](){ animate_scenery(); });
+			trace.measure(SprintathonTickTrace::Ephemera, [&](){ update_ephemera(); });
 			if (film_profile.animate_items)
-				animate_items();
-			AnimTxtr_Update();
+				trace.measure(SprintathonTickTrace::Items, [&](){ animate_items(); });
+			trace.measure(SprintathonTickTrace::Textures, [&](){ AnimTxtr_Update(); });
 		}
-		ChaseCam_Update();
-		motion_sensor_scan();
-		check_m1_exploration();
+		trace.measure(SprintathonTickTrace::Camera, [&](){ ChaseCam_Update(); });
+		trace.measure(SprintathonTickTrace::Sensor, [&](){ motion_sensor_scan(); });
+		trace.measure(SprintathonTickTrace::Exploration, [&](){ check_m1_exploration(); });
 		
 #if !defined(DISABLE_NETWORKING)
-		update_net_game();
+		trace.measure(SprintathonTickTrace::Network, [&](){ update_net_game(); });
 #endif // !defined(DISABLE_NETWORKING)
 	}
 
@@ -541,6 +599,7 @@ update_world_elements_one_tick(bool& call_postidle, bool advance_slow_world)
 std::pair<bool, int16>
 update_world()
 {
+        SprintathonUpdateTrace update_trace;
         short theElapsedTime = 0;
         bool canUpdate = true;
         int theUpdateResult = kUpdateNormalCompletion;
@@ -587,7 +646,8 @@ update_world()
 			break;
 		}
 
-		exit_interpolated_world();
+		SprintathonTickTrace trace;
+		trace.measure(SprintathonTickTrace::Interpolation, [](){ exit_interpolated_world(); });
 
 		// Transition from predictive -> real update mode, if necessary.
 		exit_predictive_mode();
@@ -635,12 +695,13 @@ update_world()
 		else bullet_time_phase= 0;
 
 		theUpdateResult = update_world_elements_one_tick(
-			call_postidle, advance_slow_world);
+			call_postidle, advance_slow_world, trace);
 
 		theElapsedTime++;
+        ++update_trace.ticks;
 		
 		if (call_postidle)
-			L_Call_PostIdle();
+			trace.measure(SprintathonTickTrace::PostLua, [](){ L_Call_PostIdle(); });
 		if(theUpdateResult != kUpdateNormalCompletion || Movie::instance()->IsRecording())
 		{
 			canUpdate = false;

@@ -1,3 +1,4 @@
+#include "SprintathonFrameTrace.h"
 /*
 
 	Copyright (C) 1991-2001 and beyond by Bungie Studios, Inc.
@@ -971,6 +972,11 @@ void main_event_loop(void)
 	short game_state;
 
 	while ((game_state = get_game_state()) != _quit_game) {
+		SprintathonFrameTrace::Scope frame_events(SprintathonFrameTrace::Events);
+		if (SprintathonFrameTrace::get().enabled) {
+			++SprintathonFrameTrace::get().loops;
+			if (game_state != _game_in_progress) SprintathonFrameTrace::get().context(4, -1, 0);
+		}
 		uint64_t cur_time = machine_tick_count();
 		bool yield_time = false;
 		bool poll_event = false;
@@ -1043,8 +1049,10 @@ void main_event_loop(void)
 #endif
 		}
 
-		execute_timer_tasks(machine_tick_count());
-		idle_game_state(machine_tick_count());
+		{ SprintathonFrameTrace::Scope timing(SprintathonFrameTrace::Timers);
+		  execute_timer_tasks(machine_tick_count()); }
+		{ SprintathonFrameTrace::Scope timing(SprintathonFrameTrace::Other);
+		  idle_game_state(machine_tick_count()); }
 
 		auto fps_target = get_fps_target();
 		if (!get_keyboard_controller_status())
@@ -1059,6 +1067,7 @@ void main_event_loop(void)
 
 			if (desired_elapsed_machine_ticks - elapsed_machine_ticks > desired_elapsed_machine_ticks / 3)
 			{
+				SprintathonFrameTrace::Scope timing(SprintathonFrameTrace::Limiter);
 				sleep_for_machine_ticks(1);
 			}
 		}

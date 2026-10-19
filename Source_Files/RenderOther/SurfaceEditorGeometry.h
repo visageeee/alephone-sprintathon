@@ -27,6 +27,53 @@ inline int drag_height(int original, int pixels_up, int world_one, int low, int 
     const int steps = std::max(min_step, std::min(max_step, pixels_up/10));
     return original+int(std::lround(double(steps)*world_one/10));
 }
+struct PlanPoint { double x,y; };
+inline double plan_cross(PlanPoint a,PlanPoint b,PlanPoint c) {return (b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);}
+inline double plan_area(const std::vector<PlanPoint>& p) {
+    double a=0;for(size_t i=0;i<p.size();++i){auto b=p[(i+1)%p.size()];a+=p[i].x*b.y-p[i].y*b.x;}return a;
+}
+inline bool plan_contains(const std::vector<PlanPoint>& p,PlanPoint q) {
+    const double sign=plan_area(p)>0?1:-1;
+    for(size_t i=0;i<p.size();++i)if(sign*plan_cross(p[i],p[(i+1)%p.size()],q)<-0.01)return false;
+    return true;
+}
+inline double plan_edge_distance(PlanPoint a,PlanPoint b,PlanPoint q) {
+    return std::abs(plan_cross(a,b,q))/std::max(1.0,std::hypot(b.x-a.x,b.y-a.y));
+}
+inline bool valid_plan_polygon(const std::vector<PlanPoint>& p,const std::vector<PlanPoint>& old) {
+    if(p.size()<3 || p.size()!=old.size())return false;
+    const double area=plan_area(p),original=plan_area(old);
+    if(area*original<=0 || std::abs(area)<2 || std::abs(area)>4294967294.0)return false;
+    const double sign=original>0?1:-1;
+    for(size_t i=0;i<p.size();++i) {
+        const auto a=p[i],b=p[(i+1)%p.size()];const double length=std::hypot(b.x-a.x,b.y-a.y);
+        if(length<1 || length>32767)return false;
+        for(size_t j=0;j<p.size();++j)if(sign*plan_cross(a,b,p[j])<-0.01)return false;
+    }
+    return true;
+}
+inline bool plan_intersects(PlanPoint a,PlanPoint b,PlanPoint c,PlanPoint d) {
+    if(std::max(a.x,b.x)<std::min(c.x,d.x) || std::max(c.x,d.x)<std::min(a.x,b.x) ||
+       std::max(a.y,b.y)<std::min(c.y,d.y) || std::max(c.y,d.y)<std::min(a.y,b.y))return false;
+    return plan_cross(a,b,c)*plan_cross(a,b,d)<=0 && plan_cross(c,d,a)*plan_cross(c,d,b)<=0;
+}
+
+// Only shared-edge neighbors supplied by neighbors() participate. Eligibility
+// is evaluated before any heights change; the returned component stays fixed.
+template<class Eligible,class Neighbors>
+std::vector<short> connected_height_group(int start,int count,Eligible eligible,Neighbors neighbors)
+{
+    std::vector<short> result;std::vector<bool> seen(std::max(0,count),false);
+    if(start<0 || start>=count || !eligible(start))return result;
+    result.push_back(short(start));seen[start]=true;
+    for(size_t head=0;head<result.size();++head)for(int next:neighbors(result[head])) {
+        if(next<0 || next>=count || seen[next])continue;
+        seen[next]=true;
+        if(eligible(next))result.push_back(short(next));
+    }
+    return result;
+}
+
 struct Ray { double x, y, z, dx, dy, dz; };
 
 // Project onto the original surface plane even when the pointer leaves its

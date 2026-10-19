@@ -109,6 +109,8 @@ static void calculate_adjacent_polygons(short polygon_index, short *polygon_inde
 static void calculate_adjacent_sides(short polygon_index, short *side_indexes);
 static int32 calculate_polygon_area(short polygon_index);
 
+struct SprintathonEditorIndexOverflow {};
+static bool sprintathon_editor_index_rebuild=false;
 static void add_map_index(short index, short *count);
 static void find_intersecting_endpoints_and_lines(short polygon_index, world_distance minimum_separation);
 static int32 intersecting_flood_proc(short source_polygon_index, short line_index,
@@ -1134,10 +1136,43 @@ static void add_map_index(
 	short index,
 	short *count)
 {
+	if(sprintathon_editor_index_rebuild && MapIndexList.size()>=UINT16_MAX)
+		throw SprintathonEditorIndexOverflow{};
 	assert(MapIndexList.size() < UINT16_MAX);
 	MapIndexList.push_back(index);
 	dynamic_world->map_index_count++;
 	*count += 1;
+}
+
+// Rebuild collision/sound neighborhoods after a visual-editor footprint edit.
+// Keep platform endpoint-owner offsets valid too. Restore all old indices if
+// the new geometry exceeds the map format's limit, allowing the editor to undo.
+bool sprintathon_editor_rebuild_map_indexes()
+{
+    const auto old_indexes=MapIndexList;
+    const auto old_count=dynamic_world->map_index_count;
+    std::vector<polygon_data> old_polygons(map_polygons,map_polygons+dynamic_world->polygon_count);
+    std::vector<platform_data> old_platforms;
+    for(int i=0;i<dynamic_world->platform_count;++i)old_platforms.push_back(*get_platform_data(i));
+    sprintathon_editor_index_rebuild=true;
+    try {
+        MapIndexList.clear();dynamic_world->map_index_count=0;
+        precalculate_map_indexes();
+        for(int i=0;i<dynamic_world->platform_count;++i) {
+            auto* platform=get_platform_data(i);const auto* polygon=get_polygon_data(platform->polygon_index);
+            for(int j=0;j<polygon->vertex_count;++j) {
+                auto& owner=platform->endpoint_owners[j];
+                calculate_endpoint_polygon_owners(polygon->endpoint_indexes[j],&owner.first_polygon_index,&owner.polygon_index_count);
+                calculate_endpoint_line_owners(polygon->endpoint_indexes[j],&owner.first_line_index,&owner.line_index_count);
+            }
+        }
+    } catch(const SprintathonEditorIndexOverflow&) {
+        MapIndexList=old_indexes;dynamic_world->map_index_count=old_count;
+        std::copy(old_polygons.begin(),old_polygons.end(),map_polygons);
+        for(int i=0;i<dynamic_world->platform_count;++i)*get_platform_data(i)=old_platforms[i];
+        sprintathon_editor_index_rebuild=false;return false;
+    }
+    sprintathon_editor_index_rebuild=false;return true;
 }
 
 #define ZERO_VOLUME_DISTANCE (10*WORLD_ONE)

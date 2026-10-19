@@ -1,3 +1,4 @@
+#include "../SprintathonFrameTrace.h"
 /*
 	INTERFACE.C
 
@@ -1247,7 +1248,11 @@ bool idle_game_state(uint64_t time)
 	{
 		// ZZZ change: update_world() whether or not get_keyboard_controller_status() is true
 		// This way we won't fill up queues and stall netgames if one player switches out for a bit.
-		std::pair<bool, int16> theUpdateResult= update_world();
+		std::pair<bool, int16> theUpdateResult;
+		{ SprintathonFrameTrace::Scope timing(SprintathonFrameTrace::Update);
+		  theUpdateResult= update_world(); }
+		if (SprintathonFrameTrace::get().enabled)
+			SprintathonFrameTrace::get().ticks += theUpdateResult.second;
 		short ticks_elapsed= theUpdateResult.second;
 		if (ticks_elapsed > 0 && game_state.state == _game_in_progress && get_keyboard_controller_status())
 			sprintathon_checkpoint_update();

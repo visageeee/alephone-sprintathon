@@ -1,3 +1,4 @@
+#include "../SprintathonFrameTrace.h"
 /*
 
 	Copyright (C) 1991-2001 and beyond by Bungie Studios, Inc.
@@ -1482,6 +1483,8 @@ extern bool is_network_pregame;
 
 void render_screen(short ticks_elapsed)
 {
+	SprintathonFrameTrace::get().context(surface_editor_active() ? 3 : screenshot_mode_active() ? 2 : get_keyboard_controller_status() ? 0 : 1, dynamic_world->current_level_number, dynamic_world->tick_count);
+	SprintathonFrameTrace::Scope frame_render(SprintathonFrameTrace::Render);
 	// Make whatever changes are necessary to the world_view structure based on whichever player is frontmost
 	world_view->ticks_elapsed = ticks_elapsed;
 	world_view->tick_count = dynamic_world->tick_count;
@@ -1493,7 +1496,8 @@ void render_screen(short ticks_elapsed)
 
 	auto heartbeat_fraction = get_heartbeat_fraction();
 	world_view->heartbeat_fraction = heartbeat_fraction;
-	update_interpolated_world(heartbeat_fraction);
+	{ SprintathonFrameTrace::Scope timing(SprintathonFrameTrace::Interpolation);
+	  update_interpolated_world(heartbeat_fraction); }
 
 	bool SwitchedModes = false;
 	
@@ -2787,7 +2791,9 @@ bool MainScreenIsOpenGL()
 }
 void MainScreenSwap()
 {
-	SDL_GL_SwapWindow(main_screen);
+	{ SprintathonFrameTrace::Scope timing(SprintathonFrameTrace::Swap);
+	  SDL_GL_SwapWindow(main_screen); }
+	SprintathonFrameTrace::get().present();
 }
 void MainScreenCenterMouse()
 {
