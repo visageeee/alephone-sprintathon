@@ -3707,7 +3707,7 @@ static int Lua_Sun_Set(lua_State* L) {
  if(!std::strcmp(key,"path")) {
   if(state().locked)return luaL_error(L,"Declare Level.sun.path at script top level, before lighting loads");
   if(lua_isnil(L,3)){state().declared=false;return 0;}
-  luaL_checktype(L,3,LUA_TTABLE);Point points[8];
+  luaL_checktype(L,3,LUA_TTABLE);SprintathonLuaSun::Point points[8];
   for(int i=0;i<8;++i){lua_rawgeti(L,3,i+1);luaL_checktype(L,-1,LUA_TTABLE);
    lua_getfield(L,-1,"azimuth");double az=luaL_checknumber(L,-1);lua_pop(L,1);
    lua_getfield(L,-1,"elevation");double el=luaL_checknumber(L,-1);lua_pop(L,2);
@@ -3740,7 +3740,7 @@ static int Lua_Sun_Set(lua_State* L) {
  double low=0,high=4;
  if(field==Azimuth){low=-36000;high=36000;}
  if(field==Elevation){low=-90;high=90;}
- if(field==Size){low=.05;high=20;}
+ if(field==SprintathonLuaSun::Size){low=.05;high=20;}
  if(field>=Red)high=1;
  if(!std::isfinite(v) || v<low || v>high)return luaL_error(L,"Sun property out of range: %s",key);
  if(field==Azimuth){v=std::fmod(v,360.0);if(v<0)v+=360.0;}
