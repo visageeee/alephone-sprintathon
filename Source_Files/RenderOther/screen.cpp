@@ -1316,10 +1316,10 @@ void update_world_view_camera()
 	world_view->origin_polygon_index = current_player->camera_polygon_index;
 
 	// Script-based camera control
+    world_view->virtual_yaw = world_view->yaw * FIXED_ONE;
+    world_view->virtual_pitch = world_view->pitch * FIXED_ONE;
 	auto use_cameras = UseLuaCameras();
 
-	world_view->virtual_yaw = world_view->yaw * FIXED_ONE;
-	world_view->virtual_pitch = world_view->pitch * FIXED_ONE;
 
 	if (!use_cameras)
 	{
@@ -1439,6 +1439,12 @@ static void update_screenshot_camera()
 	const float yaw = screenshot_yaw * (6.28318530718f / FULL_CIRCLE);
 	const float next_x = screenshot_x + speed * (cosf(yaw) * forward - sinf(yaw) * strafe);
 	const float next_y = screenshot_y + speed * (sinf(yaw) * forward + cosf(yaw) * strafe);
+    if(surface_editor_noclip()) {
+        // world_point3d uses signed 16-bit coordinates; never wrap at map limits.
+        screenshot_x=std::max(-32760.0f,std::min(32760.0f,next_x));
+        screenshot_y=std::max(-32760.0f,std::min(32760.0f,next_y));
+        screenshot_z=std::max(-32760.0f,std::min(32760.0f,screenshot_z+speed*climb));
+    } else {
 	world_point2d destination = {static_cast<world_distance>(next_x),
 		static_cast<world_distance>(next_y)};
 	// Follow map connectivity from our current room. A global XY lookup can
@@ -1456,6 +1462,7 @@ static void update_screenshot_camera()
 	const float upper = area->ceiling_height - WORLD_ONE / 16.0f;
 	screenshot_z = upper < lower ? (area->floor_height + area->ceiling_height) / 2.0f :
 		std::max(lower, std::min(upper, screenshot_z + speed * climb));
+    }
 	screenshot_origin.x = static_cast<world_distance>(screenshot_x);
 	screenshot_origin.y = static_cast<world_distance>(screenshot_y);
 	screenshot_origin.z = static_cast<world_distance>(screenshot_z);
@@ -1621,6 +1628,8 @@ void render_screen(short ticks_elapsed)
 	}
 
 	interpolate_world_view(heartbeat_fraction);
+    // Scripted paths own their render-time interpolation, including camera cuts.
+    UseLuaCameras(heartbeat_fraction);
 	if (screenshot_mode_active()) update_screenshot_camera();
 
 #ifdef HAVE_OPENGL

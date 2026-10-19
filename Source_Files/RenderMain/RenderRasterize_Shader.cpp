@@ -19,6 +19,8 @@
 #include "RenderRasterize_Shader.h"
 
 #include "lightsource.h"
+#include "scenery.h"
+#include "interface.h"
 #include "projectiles.h"
 #include "monsters.h"
 #include "effects.h"
@@ -1444,7 +1446,9 @@ static float sprintathon_flare_strength(const SprintathonDroppedFlare& flare)
 // A depth-tested billboard spark at each flare. The shader still lights the world.
 // Experimental camera-facing fog cone approximation, confined to its source sector.
 struct SprintathonFogCone {
-    short object_index;
+    short object_index, polygon_index;
+    int source_shape;
+    float anchor_z;
     float x, y, z, floor, radius, red, green, blue;
 };
 static std::vector<SprintathonFogCone> sprintathon_fog_cones;
@@ -1496,7 +1500,8 @@ static void sprintathon_collect_fog_cone(short index, float z, const float *rgb)
     if (radius < WORLD_ONE*0.03f) return;
     z = std::min(z, float(polygon->ceiling_height)-1);
     if (z <= polygon->floor_height) return;
-    sprintathon_fog_cones.push_back({index, float(object->location.x), float(object->location.y),
+    sprintathon_fog_cones.push_back({index, object->polygon, int(object->shape),
+        float(object->location.z), float(object->location.x), float(object->location.y),
         z, float(polygon->floor_height), radius, rgb[0], rgb[1], rgb[2]});
 }
 
@@ -1512,11 +1517,6 @@ static void sprintathon_draw_fog_cones(const view_data *camera)
         const float dx=c.x-camera->origin.x, dy=c.y-camera->origin.y;
         return dx*dx+dy*dy;
     };
-    std::sort(sprintathon_fog_cones.begin(), sprintathon_fog_cones.end(),
-        [&](const SprintathonFogCone& a, const SprintathonFogCone& b) {
-            const float da=distance2(a), db=distance2(b);
-            return da == db ? a.object_index < b.object_index : da < db;
-        });
     Shader::disable();
     GLint active_texture; glGetIntegerv(GL_ACTIVE_TEXTURE, &active_texture);
     glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_CURRENT_BIT | GL_TEXTURE_BIT);
@@ -1527,11 +1527,12 @@ static void sprintathon_draw_fog_cones(const view_data *camera)
     glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE);
     const float density = fog && fog->IsPresent ? std::min(1.0f, 8.0f/std::max(1.0f, fog->Depth)) : 0.5f;
     const float strength = graphics_preferences->ceiling_fog_cone_strength/100.0f;
-    for (size_t n=0; n<sprintathon_fog_cones.size() && n<8; ++n) {
+    for (size_t n=0; n<sprintathon_fog_cones.size(); ++n) {
         const auto& c=sprintathon_fog_cones[n];
         const float distance=std::sqrt(distance2(c));
-        const float fade=std::max(0.0f, 1.0f-distance/(24.0f*WORLD_ONE));
-        if (distance < 1 || fade <= 0) continue;
+        // Visibility is portal-based, never distance- or nearest-light-based.
+        if (!TEST_RENDER_FLAG(c.polygon_index, _polygon_is_visible)) continue;
+        if (distance < 1) continue;
         const float rx=-(camera->origin.y-c.y)/distance, ry=(camera->origin.x-c.x)/distance;
         const float height=std::min(c.z-c.floor, 5.0f*WORLD_ONE);
         // Smoothly sampled cross-section: transparent edges, no hard base cap.
@@ -1543,7 +1544,7 @@ static void sprintathon_draw_fog_cones(const view_data *camera)
                 const float base_width=std::min(c.radius, WORLD_ONE*0.04f+height*0.28f);
                 const float width=tip_width+(base_width-tip_width)*t;
                 const float noise=0.92f+0.08f*std::sin(t*13+u*4+camera->tick_count/float(TICKS_PER_SECOND)*0.6f);
-                const float alpha=0.32f*strength*density*fade*noise*(1-u*u)*std::sin(t*3.14159265f);
+                const float alpha=0.32f*strength*density*noise*(1-u*u)*std::sin(t*3.14159265f);
                 glColor4f(c.red,c.green,c.blue,alpha);
                 glVertex3f(c.x+rx*u*width,c.y+ry*u*width,c.z-t*height);
             }
@@ -1855,6 +1856,7 @@ struct SprintathonTextureEmitter {
     bool liquid; // Distinguish liquid emission from ordinary bright textures.
     short liquid_type;
     float reflection_radius; // estimated from the rendered scenery frame
+    bool baked;
 };
 static std::vector<SprintathonTextureEmitter> sprintathon_texture_lights;
 static std::vector<SprintathonTextureEmitter> sprintathon_texture_lights_next;
@@ -1932,7 +1934,7 @@ static bool sprintathon_same_emitter(const SprintathonTextureEmitter& a,
                                     float distance_squared = WORLD_ONE * WORLD_ONE)
 {
     if (a.scenery != b.scenery || a.liquid != b.liquid ||
-        a.liquid_type != b.liquid_type) return false;
+        a.liquid_type != b.liquid_type || a.baked != b.baked) return false;
     if (a.scenery)
         return a.scenery_object_index != NONE &&
                a.scenery_object_index == b.scenery_object_index &&
@@ -2047,7 +2049,7 @@ static void sprintathon_refresh_texture_lights()
 static void sprintathon_record_texture_light(TextureManager *texture,
                                              float x, float y, float z, RenderStep step, bool vertical, bool lava = false,
                                              short light_index = NONE, float ambient_delta = 0.0f,
-                                             short scenery_object_index = NONE, short liquid_type = NONE, float reflection_radius = 0.0f)
+                                             short scenery_object_index = NONE, short liquid_type = NONE, float reflection_radius = 0.0f, bool baked = false)
 {
     if (sprintathon_fast_shaft_source()) return;
     if (lava) liquid_type = _media_lava;
@@ -2091,7 +2093,7 @@ static void sprintathon_record_texture_light(TextureManager *texture,
         scenery, machine_tick_count(), light_index, ambient_delta, 1.0f,
         scenery_object_index, static_cast<short>(scenery ? ObjectList[scenery_object_index].permutation : NONE),
         scenery ? float(ObjectList[scenery_object_index].location.z) : 0.0f,
-        liquid_type != NONE, liquid_type, reflection_radius};
+        liquid_type != NONE, liquid_type, reflection_radius, baked};
     // Static surfaces may arrive as different clipped fragments. Scenery already
     // has an exact object position and must never snap to a neighboring fixture.
     if (!scenery) {
@@ -2136,7 +2138,9 @@ static void sprintathon_upload_all_scenery_lights()
     for (const auto& source : sprintathon_texture_lights) {
         if (!sprintathon_is_forced_scenery(source)) continue;
         pixels.insert(pixels.end(), {source.x, source.y, source.z, inverse_radius,
-            source.r * gain, source.g * gain, source.b * gain, source.reflection_radius});
+            source.r * gain, source.g * gain, source.b * gain,
+            SprintathonSkyBake::scenerySourceBaked(source.scenery_object_index) ?
+                -1.0f-source.reflection_radius : source.reflection_radius});
         ++sprintathon_all_scenery_count;
     }
     if (pixels.empty()) return;
@@ -2468,7 +2472,7 @@ static void sprintathon_set_water_scenery(Shader* shader,
     for(int i=0;i<2;++i)if(best[i]>=0) {
         const float* p=&sprintathon_scenery_light_pixels[size_t(best[i])*8];
         shader->setVector4(positions[i],p[0],p[1],p[2],p[3]/3.0f);
-        shader->setVector4(colours[i],p[4],p[5],p[6],-std::max(p[7],32.0f));
+        shader->setVector4(colours[i],p[4],p[5],p[6],-std::max(p[7]<0 ? -p[7]-1.0f : p[7],32.0f));
     }
 }
 
@@ -2563,6 +2567,8 @@ static void sprintathon_set_view_emitters(Shader *shader,
              i >= sprintathon_emitter_slots - sprintathon_flare_capacity)) continue;
         const auto& light = sprintathon_previous_emitters[i];
         if (sprintathon_is_forced_scenery(light)) continue;
+        if((light.baked || (light.scenery && SprintathonSkyBake::scenerySourceBaked(light.scenery_object_index))) && SprintathonSkyBake::textureReceiver && SprintathonSkyBake::textureBakeActive() &&
+           (shader==Shader::get(Shader::S_Wall) || shader==Shader::get(Shader::S_Bump)))continue;
         const float radius = std::max(sprintathon_emitter_radius(light.scenery), 1.0f);
         const float fade = sprintathon_emitter_fade[i] * sprintathon_emitter_gain(light.scenery) * light.shade_gain;
         upload(i, light.x, light.y, light.z, radius,
@@ -3199,6 +3205,48 @@ void sprintathon_preload_sky_palette(const float ambient[3],const float sunlight
 
 // Called while the level-loading progress screen is still active.
 void sprintathon_prebake_sky_lighting(void (*progress)()) {
+    auto emission=[](shape_descriptor shape,float* rgb)->bool{
+        TextureManager texture;texture.ShapeDesc=shape;
+        get_shape_bitmap_and_shading_table(shape,&texture.Texture,&texture.ShadingTables,_shading_normal);
+        if(!texture.Texture)return false;
+        texture.IsShadeless=false;texture.TransferMode=_textured_transfer;texture.TransferData=0;texture.TextureType=OGL_Txtr_Wall;
+        if(!texture.Setup())return false;
+        float u,v;return texture.GetBrightEmission(u,v,rgb);
+    };
+    auto sceneryEmission=[](short index,SprintathonSkyBake::V& position,SprintathonSkyBake::V& color)->bool{
+        const auto* object=&ObjectList[index];short damaged=NONE;
+        if(object->permutation<0 || object->permutation>=scenery_type_count() ||
+           get_damaged_scenery_collection(object->permutation,damaged) ||
+           OBJECT_IS_INVISIBLE(object) || (object->transfer_mode!=NONE && object->transfer_mode!=_xfer_normal))return false;
+        if(object->shape==UNONE || !is_collection_present(GET_COLLECTION(GET_DESCRIPTOR_COLLECTION(object->shape))))return false;
+        const auto* animation=get_shape_animation_data(object->shape);
+        // A fixed frame and view guarantee stable emission and hotspot height.
+        if(!animation || animation->frames_per_view!=1 || (animation->number_of_views!=_unanimated && animation->number_of_views!=_animated1))return false;
+        if(object->transfer_mode==NONE && animation->transfer_mode!=_xfer_normal)return false;
+        const short collection=GET_DESCRIPTOR_COLLECTION(object->shape);
+        const short frame=animation->low_level_shape_indexes[0];
+        if(frame<0 || frame>=get_number_of_collection_frames(GET_COLLECTION(collection)))return false;
+        short modelSequence=0;
+        if(OGL_GetModelData(GET_COLLECTION(collection),GET_DESCRIPTOR_SHAPE(object->shape),modelSequence))return false;
+        const auto* info=extended_get_shape_information(collection,frame);
+        if(!info)return false;
+        TextureManager texture;texture.ShapeDesc=object->shape;texture.LowLevelShape=frame;
+        extended_get_shape_bitmap_and_shading_table(collection,frame,&texture.Texture,&texture.ShadingTables,_shading_normal);
+        if(!texture.Texture)return false;
+        texture.IsShadeless=false;texture.TransferMode=_textured_transfer;texture.TransferData=0;
+        texture.TextureType=OGL_Txtr_Inhabitant;if(!texture.Setup())return false;
+        float u,v,rgb[3];if(!texture.GetBrightEmission(u,v,rgb))return false;
+        const auto scaled=[&](int value){
+            if(object->flags&_object_is_enlarged)return value+(value>>2);
+            if(object->flags&_object_is_tiny)return value>>1;
+            return value;
+        };
+        const int bottom=scaled(info->world_bottom),top=scaled(info->world_top);
+        position=SprintathonSkyBake::V(object->location.x,object->location.y,
+            object->location.z+bottom+(top-bottom)*(1.0f-v));
+        color=SprintathonSkyBake::V(rgb[0],rgb[1],rgb[2]);return true;
+    };
+    SprintathonSkyBake::preloadTextureSources(emission,sceneryEmission,progress);
     SprintathonSkyBake::preload(progress);
 }
 
@@ -3239,12 +3287,45 @@ void RenderRasterize_Shader::render_tree() {
 
     static int cone_pool_level = NONE;
     static int32 cone_pool_tick = -1;
-    if(cone_pool_level != dynamic_world->current_level_number || dynamic_world->tick_count < cone_pool_tick)
+    const bool reset_cones = cone_pool_level != dynamic_world->current_level_number ||
+        dynamic_world->tick_count < cone_pool_tick;
+    if (reset_cones || !graphics_preferences->ceiling_fog_cones) {
         sprintathon_fog_cones.clear();
+        sprintathon_floor_cones.clear();
+    }
+    // Retain discovered fixtures even when their sprites leave the view.
+    // Rebuild geometry once per simulation tick, including moving platforms.
+    if (reset_cones || cone_pool_tick != dynamic_world->tick_count) {
+        std::vector<SprintathonFogCone> known;
+        known.swap(sprintathon_fog_cones);
+        for (const auto& cone : known) {
+            if (cone.object_index < 0 || size_t(cone.object_index) >= ObjectList.size()) continue;
+            const auto* object = &ObjectList[cone.object_index];
+            if (!SLOT_IS_USED(object) || GET_OBJECT_OWNER(object) != _object_is_scenery ||
+                object->polygon != cone.polygon_index || int(object->shape) != cone.source_shape ||
+                object->location.x != cone.x || object->location.y != cone.y) continue;
+            const float rgb[] = {cone.red, cone.green, cone.blue};
+            sprintathon_collect_fog_cone(cone.object_index,
+                cone.z + float(object->location.z) - cone.anchor_z, rgb);
+        }
+    }
+    // Validate also while paused: editor deletion must not leave ghost lights.
+    sprintathon_fog_cones.erase(std::remove_if(sprintathon_fog_cones.begin(),
+        sprintathon_fog_cones.end(), [](const SprintathonFogCone& cone) {
+            if (cone.object_index < 0 || size_t(cone.object_index) >= ObjectList.size()) return true;
+            const auto* object = &ObjectList[cone.object_index];
+            return !SLOT_IS_USED(object) || GET_OBJECT_OWNER(object) != _object_is_scenery ||
+                object->polygon != cone.polygon_index || int(object->shape) != cone.source_shape ||
+                object->location.x != cone.x || object->location.y != cone.y;
+        }), sprintathon_fog_cones.end());
+    // Stable pool slots: camera motion must not change which fixtures light a floor.
+    std::sort(sprintathon_fog_cones.begin(), sprintathon_fog_cones.end(),
+        [](const SprintathonFogCone& a, const SprintathonFogCone& b) {
+            return a.object_index < b.object_index;
+        });
     cone_pool_level = dynamic_world->current_level_number;
     cone_pool_tick = dynamic_world->tick_count;
-    sprintathon_floor_cones.swap(sprintathon_fog_cones);
-    sprintathon_fog_cones.clear();
+    sprintathon_floor_cones = sprintathon_fog_cones;
     sprintathon_visible_scenery.assign(ObjectList.size(), false);
     if (sprintathon_all_scenery_enabled()) {
         for (const auto& node : RSPtr->SortedNodes) {
@@ -3305,6 +3386,7 @@ void RenderRasterize_Shader::render_tree() {
 
 	Shader* s = Shader::get(Shader::S_Invincible);
 	s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
 	s->setFloat(Shader::U_Time, view->tick_count);
 	s->setFloat(Shader::U_LogicalWidth, view->screen_width);
@@ -3314,6 +3396,7 @@ void RenderRasterize_Shader::render_tree() {
 	if (blur.get()) {
 		s = Shader::get(Shader::S_InvincibleBloom);
 		s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
 		s->setFloat(Shader::U_Time, view->tick_count);
 		s->setFloat(Shader::U_LogicalWidth, view->screen_width);
@@ -3419,6 +3502,7 @@ void RenderRasterize_Shader::render_tree() {
 
 	for (auto s : landscape_shaders) {
 		s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
 		s->setFloat(Shader::U_FogMix, fogMix);
 		sprintathon_set_visible_sun(s,view);
@@ -3445,6 +3529,7 @@ void RenderRasterize_Shader::render_tree() {
 	
 	for (auto s : fog_mode_shaders) {
 		s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
 		s->setFloat(Shader::U_FogMode, fogmode);
 		s->setFloat(Shader::U_MediaFogEnabled, media_fog_enabled);
@@ -3894,6 +3979,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 			s = Shader::get(Shader::S_InvincibleBloom);
 		}
 		s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
         s->setVector4(Shader::U_SkyBakeActor,0,0,0,0);
         s->setFloat(Shader::U_TransferFadeOut,((float)((uint16)rect.transfer_data))/(float)((int)FIXED_ONE));
@@ -3902,6 +3988,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 		FindInfravisionVersionRGBA(GET_COLLECTION(GET_DESCRIPTOR_COLLECTION(rect.ShapeDesc)), color);
 		s = Shader::get(Shader::S_SpriteInfravision);
 		s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
         s->setVector4(Shader::U_SkyBakeActor,0,0,0,0);
 	} else if (TMgr->TransferMode == _tinted_transfer) {
@@ -3912,6 +3999,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 			s = Shader::get(Shader::S_InvisibleBloom);
 		}
 		s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
         s->setVector4(Shader::U_SkyBakeActor,0,0,0,0);
 		const float visibility = 1.0f - rect.transfer_data / 32.0f;
@@ -3961,6 +4049,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 			s = Shader::get(Shader::S_SpriteBloom);
 		}
 		s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
         s->setVector4(Shader::U_SkyBakeActor,0,0,0,0);
 	}
@@ -4126,6 +4215,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 			flare = -1;
 			s = Shader::get(renderStep == kGlow ? Shader::S_InvincibleBloom : Shader::S_Invincible);
 			s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
             s->setFloat(Shader::U_TransferFadeOut,0);
 			break;
@@ -4170,6 +4260,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 				}
 			}
 			s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
 			break;
 		default:
@@ -4196,6 +4287,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 			s = Shader::get(renderStep == kGlow ? Shader::S_WallBloom : Shader::S_Wall);
 		}
 		s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
 	}
 
@@ -4437,6 +4529,7 @@ bool setupGlow(struct view_data *view, std::unique_ptr<TextureManager>& TMgr, fl
 		glAlphaFunc(GL_GREATER, 0.001);
 
 		s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
 		s->setVector4(Shader::U_LiquidSpecLight,0,0,1,0);
 		// Glow overlays retain their existing alpha/depth behavior. Also reset
@@ -4475,7 +4568,7 @@ static void sprintathon_set_floor_cone_pools(Shader *shader,
     if(!TEST_FLAG(Get_OGL_ConfigureData().Flags,OGL_Flag_Fog) ||
        ((!fog || !fog->IsPresent) && !TEST_FLAG(Get_OGL_ConfigureData().Flags,OGL_Flag_ForceFog))) return;
     int count=0;
-    // Previous-frame visible cones are available before this frame's floor draw.
+    // Retained fixtures are available even when their sprites are off screen.
     for(const auto& cone:sprintathon_floor_cones) {
         if(count==4)break;
         if(cone.object_index<0 || size_t(cone.object_index)>=ObjectList.size())continue;
@@ -4503,6 +4596,8 @@ static void sprintathon_set_sector_light_edges(Shader *shader,
                                                bool ceiling, const view_data *camera)
 {
     if (!shader) return;
+    SprintathonSkyBake::textureReceiver=false;
+    shader->setFloat(Shader::U_TextureBakeEnabled,0);
     for(int i=0;i<4;++i) shader->setVector4(sprintathon_pool_colors[i],0,0,0,0);
     shader->setFloat(Shader::U_SprintathonSectorBlendWidth,
         std::max(1.0f, 0.44f * WORLD_ONE * graphics_preferences->sector_shading_softness / 100.0f));
@@ -4623,6 +4718,8 @@ static void sprintathon_set_sector_light_edges(Shader *shader,
 
 void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *window,
 	polygon_data *polygon, horizontal_surface_data *surface, bool void_present, bool ceil, RenderStep renderStep) {
+    if(surface_editor_noclip() && ceil && !surface->is_media)return;
+
     const bool batchTransfer=surface->transfer_mode==_xfer_normal ||
         surface->transfer_mode==_xfer_2x || surface->transfer_mode==_xfer_4x;
     if (SprintathonOpaqueBatch::active && (!batchTransfer || void_present)) flush_opaque_batch();
@@ -4702,7 +4799,8 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
         world_surface_pass != WorldSurfacePass::opaque) {
         sprintathon_record_texture_light(TMgr.get(), surface_light_x, surface_light_y,
             surface_light_z, renderStep, false, lava_surface, surface->lightsource_index,
-            0.0f, NONE, surface->is_media ? surface->media_type : NONE);
+            0.0f, NONE, surface->is_media ? surface->media_type : NONE, 0.0f,
+            !surface->is_media && SprintathonSkyBake::textureSourceBaked(polygon,ceil?1:0,texture,surface->lightsource_index));
         if (surface->is_media && polygon && renderStep == kDiffuse) {
             // One emitter at the center of a broad pool cannot reach its banks.
             // The shared emitter limit keeps the added work bounded.
@@ -5082,7 +5180,8 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
     if (graphics_preferences->projectile_lights_per_pixel &&
         world_surface_pass != WorldSurfacePass::opaque)
         sprintathon_record_texture_light(TMgr.get(), surface_light_x, surface_light_y, surface_light_z, renderStep, true, false,
-            surface->lightsource_index, float(surface->ambient_delta));
+            surface->lightsource_index, float(surface->ambient_delta), NONE, NONE, 0.0f,
+            SprintathonSkyBake::textureSourceBaked(surface->blend_polygon,2+surface->blend_edge,texture,surface->lightsource_index));
     // Retain emitter collection even for off-screen surfaces, then avoid
     // sector/pixel-light uniforms, clipping setup, geometry and glow draws.
     if (outside_frustum) {
@@ -5302,6 +5401,7 @@ bool RenderModel(rectangle_definition& RenderRectangle, short Collection,
 			s = Shader::get(Shader::S_InvincibleBloom);
 		}
         s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
         s->setFloat(Shader::U_TransferFadeOut,((float)((uint16)RenderRectangle.transfer_data))/(float)((int)FIXED_ONE));
 	} else if (current_player->infravision_duration) {
@@ -5316,6 +5416,7 @@ bool RenderModel(rectangle_definition& RenderRectangle, short Collection,
 			s = Shader::get(Shader::S_InvisibleBloom);
 		}
 		s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
 		const float visibility =
 			1.0f - RenderRectangle.transfer_data / 32.0f;
@@ -5354,11 +5455,13 @@ bool RenderModel(rectangle_definition& RenderRectangle, short Collection,
 			s = Shader::get(renderStep == kGlow ? Shader::S_WallBloom : Shader::S_Wall);
 		}
 		s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
 	}
 
     if (sprintathon_fast_shaft_source() && renderStep == kDiffuse) {
         s=Shader::get(Shader::S_ShaftOcclusion); s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
         sprintathon_trace_mask_bound();
         s->setFloat(Shader::U_Visibility,RenderRectangle.transfer_mode == _tinted_transfer ?
@@ -5435,6 +5538,7 @@ bool RenderModel(rectangle_definition& RenderRectangle, short Collection,
 		glAlphaFunc(GL_GREATER, 0.001);
 
 		s->enable();
+        s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
 		s->setFloat(Shader::U_Glow, SkinPtr->MinGlowIntensity);
 		if (renderStep == kGlow) {

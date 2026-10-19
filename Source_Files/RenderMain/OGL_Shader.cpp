@@ -64,7 +64,7 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"texture3",
     "waterSceneryPosition0", "waterSceneryColor0",
     "waterSceneryPosition1", "waterSceneryColor1",
-    "skyBakeActor", "skyBakeSun", "skyBakeAmbient", "skyBakeMap", "skyBakeEnabled", "skyBakeLayers", "skyBakeU", "skyBakeV", "skyBakeSectorStrength", "liquidSpecLight", "liquidSpecEye", "liquidSceneAvailable", "liquidSkyMap", "liquidSkyParams", "liquidSkyMode", "liquidFlow", "visibleSun", "visibleSunColor", "visibleSunEye", "scriptSunEffects",
+    "skyBakeActor", "skyBakeSun", "skyBakeAmbient", "textureBakeMap", "textureBakeEnabled", "skyBakeMap", "skyBakeEnabled", "skyBakeLayers", "skyBakeU", "skyBakeV", "skyBakeSectorStrength", "liquidSpecLight", "liquidSpecEye", "liquidSceneAvailable", "liquidSkyMap", "liquidSkyParams", "liquidSkyMode", "liquidFlow", "visibleSun", "visibleSunColor", "visibleSunEye", "scriptSunEffects",
 	"time",
 	"pulsate",
 	"wobble",
@@ -555,6 +555,7 @@ void Shader::init() {
 	glUniform1iARB(getUniformLocation(U_Texture2), 2);
 	glUniform1iARB(getUniformLocation(U_Texture3), 3);
     glUniform1iARB(getUniformLocation(U_SkyBakeMap), 4);
+    glUniform1iARB(getUniformLocation(U_TextureBakeMap), 6);
 
     // Resolve the batching snapshot layout while programs are loaded, not per draw.
     if (opaqueBatchRequested())
@@ -566,6 +567,8 @@ void Shader::init() {
 }
 
 bool Shader::opaqueBatchRequested() {
+    const char* bake=std::getenv("SPRINTATHON_TEXTURE_BAKE");
+    if(bake && bake[0]=='1')return false; // Experimental atlas has a separate texture binding.
     static const bool requested = []() {
         const char* value = std::getenv("SPRINTATHON_OPAQUE_BATCH");
         return value && value[0] == '1';

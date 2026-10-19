@@ -21,6 +21,7 @@ LUA_PLAYER.CPP
 */
 
 #include "ActionQueues.h"
+#include <cmath>
 #include "alephversion.h"
 #include "computer_interface.h"
 #include "Crosshairs.h"
@@ -244,7 +245,9 @@ int Lua_Camera_Activate(lua_State *L)
 	if (player_index == local_player_index)
 	{
 		int camera_index = Lua_Camera::Index(L, 1);
-		lua_cameras[camera_index].time_elapsed = 0;
+		// Optional third argument: false retains constant-speed timeline playback.
+        lua_cameras[camera_index].ease_motion = lua_isnoneornil(L, 3) || lua_toboolean(L, 3);
+        lua_cameras[camera_index].time_elapsed = 0;
 		lua_cameras[camera_index].player_active = player_index;
 		lua_cameras[camera_index].path.current_point_index = 0;
 		lua_cameras[camera_index].path.current_angle_index = 0;
@@ -1677,6 +1680,26 @@ int Lua_Player_Play_Sound(lua_State *L)
 
 extern bool mute_lua;
 
+// player:caption(text, x, y, size, red, green, blue, opacity)
+// Passing nil clears the local player's caption.
+int Lua_Player_Caption(lua_State* L)
+{
+    int player=Lua_Player::Index(L,1);
+    if(player!=local_player_index)return 0;
+    if(lua_isnoneornil(L,2)){SetScriptCaption(player,nullptr);return 0;}
+    size_t length=0;const char* text=luaL_checklstring(L,2,&length);
+    if(length>240 || std::string(text,length).find('\0')!=std::string::npos)
+        return luaL_error(L,"caption: text must be at most 240 bytes without nulls");
+    double values[]={0.5,0.8,1,1,1,1,1};
+    for(int i=0;i<7;++i) {
+        values[i]=luaL_optnumber(L,i+3,values[i]);
+        if(!std::isfinite(values[i]) || values[i]<0 || values[i]>(i==2?4.0:1.0) || (i==2&&values[i]<0.5))
+            return luaL_error(L,"caption: coordinates/colors/opacity must be 0-1 and size 0.5-4");
+    }
+    SetScriptCaption(player,text,values[0],values[1],values[2],values[3],values[4],values[5],values[6]);
+    return 0;
+}
+
 int Lua_Player_Print(lua_State *L)
 {
 	if (mute_lua) return 0;
@@ -2177,6 +2200,7 @@ const luaL_Reg Lua_Player_Get[] = {
 	{"points", Lua_Player_Get_Points},
 	{"polygon", Lua_Player_Get_Polygon},
 	{"print", L_TableFunction<Lua_Player_Print>},
+	{"caption", L_TableFunction<Lua_Player_Caption>},
 	{"team", Lua_Player_Get_Team},
 	{"teleporting", Lua_Player_Get_Teleporting},
 	{"texture_palette", Lua_Player_Get_Texture_Palette},

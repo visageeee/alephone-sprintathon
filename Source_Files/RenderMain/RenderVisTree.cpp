@@ -34,6 +34,7 @@ Oct 13, 2000
 */
 
 #include "cseries.h"
+#include "screen.h"
 
 #include "map.h"
 #include "RenderVisTree.h"
@@ -135,6 +136,23 @@ void RenderVisTreeClass::build_render_tree()
 	
 	/* reset clipping buffers */
 	initialize_clip_data();
+    if(surface_editor_noclip()) {
+        unclipped_portal_windows=true;
+        conservative_full_circle=true;
+        for(int i=0;i<dynamic_world->side_count;++i)SET_RENDER_FLAG(i,_side_is_visible);
+        for(int i=0;i<dynamic_world->polygon_count;++i)
+            if(!POLYGON_IS_DETACHED(get_polygon_data(i)))SET_RENDER_FLAG(i,_polygon_is_visible);
+        for(int i=0;i<dynamic_world->endpoint_count;++i){
+            auto* e=get_endpoint_data(i);e->transformed=e->vertex;
+            transform_overflow_point2d(&e->transformed,&view->origin,view->yaw,&e->flags);
+            long_vector2d v;overflow_short_to_long_2d(e->transformed,e->flags,v);
+            if(v.i>0){int32 x=view->half_screen_width+(v.j*view->world_to_screen_x)/v.i;
+                endpoint_x_coordinates[i]=static_cast<int16>(PIN(x,INT16_MIN,INT16_MAX));
+                SET_RENDER_FLAG(i,_endpoint_has_been_transformed);}
+            SET_RENDER_FLAG(i,_endpoint_has_been_visited);
+        }
+        return;
+    }
 	
 	cast_render_ray(&view->left_edge, NONE, &Nodes.front(), _counterclockwise_bias);
 	cast_render_ray(&view->right_edge, NONE, &Nodes.front(), _clockwise_bias);

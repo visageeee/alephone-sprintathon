@@ -229,6 +229,17 @@ void AnimTxtr_Update()
 
 
 // Does animated-texture translation in place
+bool AnimTxtr_IsAnimated(shape_descriptor texture)
+{
+    if(texture==UNONE)return false;
+    short frame=GET_DESCRIPTOR_SHAPE(texture);
+    short collection=GET_COLLECTION(GET_DESCRIPTOR_COLLECTION(texture));
+    if(collection<0 || collection>=NUMBER_OF_COLLECTIONS)return false;
+    for(auto& animation:AnimTxtrList[collection])
+        if(animation.Translate(frame))return true;
+    return false;
+}
+
 shape_descriptor AnimTxtr_Translate(shape_descriptor Texture)
 {
 	if (Texture == UNONE) return UNONE;

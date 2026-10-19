@@ -355,8 +355,31 @@ void SetScriptHUDSquare(int player, int idx, int _color) {
 }
 /* /SB */
 
+// Separate from the six script HUD slots, so cinematic captions can be
+// positioned and faded with any HUD. Texture data is rebuilt only on text/font changes.
+struct ScriptCaption {
+    std::string text, cached;
+    double x=0.5, y=0.8, size=1, red=1, green=1, blue=1, opacity=1;
+    const font_info* font=nullptr;
+    short style=0, lineSpacing=0;
+    Image_Blitter software;
+#ifdef HAVE_OPENGL
+    OGL_Blitter opengl;
+#endif
+};
+static ScriptCaption script_captions[MAXIMUM_NUMBER_OF_NETWORK_PLAYERS];
+void SetScriptCaption(int player, const char* text, double x, double y, double size,
+                      double red, double green, double blue, double opacity)
+{
+    if(player<0 || player>=MAXIMUM_NUMBER_OF_NETWORK_PLAYERS)return;
+    auto& c=script_captions[player];
+    c.text=text ? std::string(text).substr(0,240) : "";
+    c.x=x; c.y=y; c.size=size; c.red=red; c.green=green; c.blue=blue; c.opacity=opacity;
+}
+
 void reset_messages()
 {
+    for(auto& c:script_captions)c.text.clear();
 	// ZZZ: reset screen_printf's
 	for(int i = 0; i < NumScreenMessages; i++)
 		Messages[i].ExpirationTime = machine_tick_count();
@@ -800,8 +823,53 @@ static void DisplayCheckpointNotice(SDL_Surface *surface)
     SDL_FreeSurface(label);
 }
 
+static void DisplayScriptCaption(SDL_Surface* surface)
+{
+    if(!surface || world_view->terminal_mode_active || local_player_index<0 ||
+       local_player_index>=MAXIMUM_NUMBER_OF_NETWORK_PLAYERS)return;
+    auto& c=script_captions[local_player_index];
+    if(c.text.empty() || c.opacity<=0)return;
+    auto& font=GetOnScreenFont();
+    if(c.cached!=c.text || c.font!=font.Info || c.style!=font.Style || c.lineSpacing!=font.LineSpacing || !c.software.Loaded()) {
+        int width=std::max(1,std::min(8192,int(text_width(c.text.c_str(),font.Info,font.Style,true))+4));
+        int height=std::max(1,std::min(1024,2*int(font.LineSpacing)+4));
+        SDL_Surface* label=SDL_CreateRGBSurface(0,width,height,32,0x00ff0000,0x0000ff00,0x000000ff,0xff000000);
+        if(!label)return;
+        SDL_FillRect(label,nullptr,SDL_MapRGBA(label->format,0,0,0,0));
+        SDL_SetSurfaceBlendMode(label,SDL_BLENDMODE_NONE);
+        draw_text(label,c.text.c_str(),3,font.Ascent+2,SDL_MapRGBA(label->format,0,0,0,255),font.Info,font.Style,true);
+        draw_text(label,c.text.c_str(),1,font.Ascent,SDL_MapRGBA(label->format,255,255,255,255),font.Info,font.Style,true);
+        bool loaded=c.software.Load(*label);
+#ifdef HAVE_OPENGL
+        loaded=c.opengl.Load(*label) && loaded;
+#endif
+        SDL_FreeSurface(label);
+        if(!loaded)return;
+        c.cached=c.text;c.font=font.Info;c.style=font.Style;c.lineSpacing=font.LineSpacing;
+    }
+    // Fit long captions to the view and keep the full label on screen.
+    double width=c.software.UnscaledWidth()*c.size;
+    double height=c.software.UnscaledHeight()*c.size;
+    double fit=std::min(1.0,std::min(surface->w/std::max(1.0,width),surface->h/std::max(1.0,height)));
+    width*=fit;height*=fit;
+    Image_Rect rect(float(std::max(0.0,std::min(surface->w-width,c.x*surface->w-width/2))),
+                    float(std::max(0.0,std::min(surface->h-height,c.y*surface->h-height/2))),float(width),float(height));
+    Image_Blitter* blitter=&c.software;
+#ifdef HAVE_OPENGL
+    bool opengl=OGL_IsActive() && (OGL_MapActive || !world_view->overhead_map_active);
+    if(opengl)blitter=&c.opengl;
+#endif
+    blitter->tint_color_r=float(c.red);blitter->tint_color_g=float(c.green);
+    blitter->tint_color_b=float(c.blue);blitter->tint_color_a=float(c.opacity);
+#ifdef HAVE_OPENGL
+    if(opengl){c.opengl.Draw(rect);return;}
+#endif
+    c.software.Draw(surface,rect);
+}
+
 static void DisplayMessages(SDL_Surface *s)
-{	
+{
+    DisplayScriptCaption(s);
 	FontSpecifier& Font = GetOnScreenFont();
 	
 	DisplayTextDest = s;

@@ -42,7 +42,7 @@ public:
 		U_Texture3,
         U_WaterSceneryPosition0, U_WaterSceneryColor0,
         U_WaterSceneryPosition1, U_WaterSceneryColor1,
-        U_SkyBakeActor, U_SkyBakeSun, U_SkyBakeAmbient, U_SkyBakeMap, U_SkyBakeEnabled, U_SkyBakeLayers, U_SkyBakeU, U_SkyBakeV, U_SkyBakeSectorStrength, U_LiquidSpecLight, U_LiquidSpecEye, U_LiquidSceneAvailable, U_LiquidSkyMap, U_LiquidSkyParams, U_LiquidSkyMode, U_LiquidFlow, U_VisibleSun, U_VisibleSunColor, U_VisibleSunEye, U_ScriptSunEffects,
+        U_SkyBakeActor, U_SkyBakeSun, U_SkyBakeAmbient, U_TextureBakeMap, U_TextureBakeEnabled, U_SkyBakeMap, U_SkyBakeEnabled, U_SkyBakeLayers, U_SkyBakeU, U_SkyBakeV, U_SkyBakeSectorStrength, U_LiquidSpecLight, U_LiquidSpecEye, U_LiquidSceneAvailable, U_LiquidSkyMap, U_LiquidSkyParams, U_LiquidSkyMode, U_LiquidFlow, U_VisibleSun, U_VisibleSunColor, U_VisibleSunEye, U_ScriptSunEffects,
 		U_Time,
 		U_Pulsate,
 		U_Wobble,

@@ -33,6 +33,7 @@ Oct 13, 2000
 */
 
 #include "cseries.h"
+#include "screen.h"
 
 #include "map.h"
 #include "RenderSortPoly.h"
@@ -105,6 +106,26 @@ void RenderSortPolyClass::sort_render_tree()
 	RenderVisTreeClass::NodeList& Nodes = RVPtr->Nodes;
 
 	initialize_sorted_render_tree();
+    if(surface_editor_noclip()) {
+        SortedNodes.reserve(dynamic_world->polygon_count);
+        RVPtr->ClippingWindows.clear();
+        RVPtr->ClippingWindows.reserve(dynamic_world->polygon_count);
+        std::fill(polygon_index_to_sorted_node.begin(),polygon_index_to_sorted_node.end(),nullptr);
+        for(int i=0;i<dynamic_world->polygon_count;++i){
+            if(POLYGON_IS_DETACHED(get_polygon_data(i)))continue;
+            sorted_node_data node={};node.polygon_index=i;
+            node.clipping_windows=build_clipping_windows(nullptr);
+            SortedNodes.push_back(node);
+        }
+        // Back-to-front order for transparent surfaces; opaque geometry uses depth.
+        auto distance=[&](short i){const auto* p=get_polygon_data(i);double x=0,y=0;
+            for(int j=0;j<p->vertex_count;++j){const auto& v=get_endpoint_data(p->endpoint_indexes[j])->vertex;x+=v.x;y+=v.y;}
+            x=x/std::max(1,int(p->vertex_count))-view->origin.x;y=y/std::max(1,int(p->vertex_count))-view->origin.y;
+            return x*x+y*y;};
+        std::stable_sort(SortedNodes.begin(),SortedNodes.end(),[&](const sorted_node_data& a,const sorted_node_data& b){return distance(a.polygon_index)>distance(b.polygon_index);});
+        for(auto& node:SortedNodes)polygon_index_to_sorted_node[node.polygon_index]=&node;
+        return;
+    }
 	
 	leaf= NULL;
 	do

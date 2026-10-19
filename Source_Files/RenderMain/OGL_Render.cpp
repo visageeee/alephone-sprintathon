@@ -667,7 +667,7 @@ bool OGL_StartRun(bool retain_sprites)
 	OGL_SetProgressMessage("preparing level textures");
     sprintathon_begin_sky_loading();
 	PreloadTextures();
-    OGL_SetProgressMessage("baking landscape lighting");
+    OGL_SetProgressMessage("baking static lighting");
     sprintathon_prebake_sky_lighting([] { OGL_ProgressCallback(0); });
     OGL_SetProgressMessage("preparing post-processing buffers");
     sprintathon_preload_post_buffers();

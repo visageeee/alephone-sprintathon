@@ -71,6 +71,16 @@ constexpr int light_steps = 10, light_cell = 57, light_width = 32, header_height
 bool left_collapsed = false, right_collapsed = false;
 bool apply_texture = true, apply_lighting = false, align_adjacent = false;
 bool edit_panels = false;
+bool noclip = false;
+world_point3d noclip_return = {};
+short noclip_return_polygon = NONE;
+void toggle_noclip() {
+    if(graphics_preferences->screen_mode.acceleration!=_opengl_acceleration)return;
+    if(!noclip){noclip_return=screenshot_origin;noclip_return_polygon=screenshot_polygon;}
+    else {screenshot_origin=noclip_return;screenshot_polygon=noclip_return_polygon;
+        screenshot_x=noclip_return.x;screenshot_y=noclip_return.y;screenshot_z=noclip_return.z;}
+    noclip=!noclip;
+}
 bool transparent_surface = false, remove_texture = false;
 bool dragging = false;
 int height_start_y = 0;
@@ -79,7 +89,7 @@ enum Motion { keep_motion, still_motion, scroll_x, scroll_y, reverse_x, reverse_
 int texture_motion = keep_motion;
 bool fast_motion = false;
 const char* motion_names[] = {"Keep", "Still", "Scroll X", "Scroll Y", "Scroll -X", "Scroll -Y", "Wobble"};
-constexpr int controls_height = 297;
+constexpr int controls_height = 330;
 void message(const std::string& text);
 Change drag_change{};
 double drag_u = 0, drag_v = 0;
@@ -208,6 +218,7 @@ Surface surface(Hit hit)
 Hit target(const surface_editor_geometry::Ray& ray, std::vector<std::pair<int, double>>* visited = nullptr)
 {
     using namespace surface_editor_geometry;
+    if (noclip) return {}; // Overview mode cannot safely use a portal-based pick ray.
     if (screenshot_polygon < 0 || screenshot_polygon >= dynamic_world->polygon_count) return {};
     auto room = [](int index) {
         const auto* p = get_polygon_data(index);
@@ -1259,6 +1270,7 @@ void end()
     door_positions.clear();
     door_line_flags.clear();
     SET_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_Fog, original_fog);
+    noclip = false;
     active = false;
     palette_cursor = false;
     thumbnails.clear();
@@ -1375,6 +1387,7 @@ void click(int button, int x, int y)
                 else if (row == 6) { transparent_surface = !transparent_surface; remove_texture = false; edit_panels = false; }
                 else if (row == 7) { remove_texture = !remove_texture; transparent_surface = true; edit_panels = false; }
                 else if (row == 8) { choose_map_light(); return; }
+                else if (row == 9) toggle_noclip();
                 scenery_brush = false; message("");
             }
             return;
@@ -1497,6 +1510,11 @@ void draw_panel()
                 label(220, transparent_surface ? "Surface: Transparent" : "Surface: Solid");
                 label(253, remove_texture ? "Remove texture: On" : "Remove texture");
                 label(286, custom_light == NONE ? "Map light: Choose ID" : "Map light: " + std::to_string(custom_light));
+                SDL_Rect ncbox{10,305,17,17};
+                SDL_FillRect(canvas,&ncbox,SDL_MapRGB(canvas->format,175,180,185));
+                SDL_Rect ncinside{12,307,13,13};
+                SDL_FillRect(canvas,&ncinside,SDL_MapRGB(canvas->format,noclip?255:20,noclip?182:23,noclip?74:27));
+                draw_text(canvas,"Noclip",36,319,SDL_MapRGB(canvas->format,225,229,232),font.Info,font.Style);
                 for (int row = 0; row < 4; ++row) {
                     const bool checked = row == 0 ? apply_texture : row == 1 ? apply_lighting : row == 2 ? align_adjacent : edit_panels;
                     SDL_Rect box{10, (row+2)*33+8, 17, 17};
@@ -1618,6 +1636,7 @@ void draw_target(SDL_Surface* pixels)
 }
 
 bool surface_editor_active() { return surface_editor::active; }
+bool surface_editor_noclip() { return surface_editor::active && surface_editor::noclip; }
 bool surface_editor_palette_cursor() { return surface_editor::active && surface_editor::palette_cursor; }
 void surface_editor_begin() { surface_editor::begin(); }
 void surface_editor_end() { surface_editor::end(); }

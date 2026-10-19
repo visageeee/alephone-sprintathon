@@ -1,6 +1,8 @@
 R"(
 
 uniform sampler2D texture0;
+uniform sampler2D textureBakeMap;
+uniform float textureBakeEnabled;
 uniform sampler2D skyBakeMap;
 uniform vec4 skyBakeLayers;
 vec2 sampleSkyBake(vec2 uv) {
@@ -582,7 +584,10 @@ void sprintathonApplyAllScenery(inout vec3 intensity) {
         vec3 delta = (sprintathonWorldPosition - position.xyz) * position.w;
         float distanceSquared = dot(delta, delta);
         if (distanceSquared < 1.0) {
-            vec3 color = texture2DRect(texture3, coordinate + vec2(1.0, 0.0)).rgb;
+            vec4 emission = texture2DRect(texture3, coordinate + vec2(1.0, 0.0));
+            // Negative alpha marks a source already included in this lightmap.
+            if (textureBakeEnabled > 0.5 && emission.a < 0.0) continue;
+            vec3 color = emission.rgb;
             float falloff = 1.0 - distanceSquared;
             intensity = clamp(intensity + color *
                 (falloff * falloff / (1.0 + 16.0 * distanceSquared)), glow, 1.0);
@@ -997,6 +1002,10 @@ R"(        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPositio
             float lightFalloff = 1.0 - lightDistanceSquared;
             intensity = clamp(intensity + sprintathonLightColor.rgb * (lightFalloff * lightFalloff), glow, 1.0);
         }
+    }
+    if(textureBakeEnabled>0.5){
+        vec4 wp=vec4(sprintathonWorldPosition,1.0);
+        intensity=clamp(intensity+texture2D(textureBakeMap,vec2(dot(wp,skyBakeU),dot(wp,skyBakeV))).rgb,glow,1.0);
     }
     sprintathonApplySurfaceLights(intensity);
     sprintathonApplyAllScenery(intensity);

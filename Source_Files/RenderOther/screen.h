@@ -193,6 +193,7 @@ void screenshot_mode_mouse_look(int dx, int dy);
 
 // Paused, local-only visual texturing editor (Shift+F8).
 bool surface_editor_active();
+bool surface_editor_noclip();
 bool surface_editor_palette_cursor();
 void surface_editor_begin();
 void surface_editor_end();
@@ -264,6 +265,11 @@ short SizeWithoutHUD(short _size);
 // Displays a message on the screen for a second or so; may be good for debugging
 void ShowMessage(char *Text);
 void screen_checkpoint_notice(const char *text);
+// Center-anchored screen caption. Coordinates are fractions of the view;
+// size scales the on-screen font. Opacity allows level Lua to animate fades.
+void SetScriptCaption(int player, const char* text, double x=0.5, double y=0.8,
+                      double size=1, double red=1, double green=1, double blue=1,
+                      double opacity=1);
 
 /* SB: Custom Blizzard-style overlays */
 #define MAXIMUM_NUMBER_OF_SCRIPT_HUD_ELEMENTS 6

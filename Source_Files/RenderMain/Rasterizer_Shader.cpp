@@ -146,8 +146,13 @@ void Rasterizer_Shader_Class::Begin()
 {
 	Rasterizer_OGL_Class::Begin();
 	swapper->activate();
-	if (smear_the_void)
-		swapper->current_contents().draw_full();
+    if(surface_editor_noclip()) {
+        glPushAttrib(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_SCISSOR_BIT);
+        glDisable(GL_SCISSOR_TEST);glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);glDepthMask(GL_TRUE);
+        glClearColor(0.22f,0.22f,0.22f,1.0f);glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glPopAttrib();
+    } else if (smear_the_void)
+        swapper->current_contents().draw_full();
 }
 
 void Rasterizer_Shader_Class::End()

@@ -94,7 +94,7 @@ bool CollectLuaStats(std::map<std::string, std::string>& table, std::map<std::st
 void ToggleLuaMute();
 void ResetLuaMute();
 
-bool UseLuaCameras();
+bool UseLuaCameras(float heartbeat_fraction = 1.0f);
 
 void unpack_lua_states(uint8* data, size_t length);
 size_t save_lua_states();
@@ -163,6 +163,7 @@ struct lua_camera //an expanded version of script_camera; uses Lua's path scheme
     lua_path path;
     int32 time_elapsed;
     int player_active;
+    bool ease_motion = true;
 };
 
 class LuaMutabilityInterface

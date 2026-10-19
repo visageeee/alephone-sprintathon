@@ -59,6 +59,8 @@ LUA_SCRIPT.CPP
 
 #include "../RenderMain/SprintathonLuaSun.h"
 #include "cseries.h"
+#include <algorithm>
+#include <cmath>
 
 #include "mouse.h"
 #include "interface.h"
@@ -2373,7 +2375,7 @@ void UpdateLuaCameras()
 
 		it->time_elapsed++;
 			
-		if (point_index >= 0 && it->time_elapsed - it->path.last_point_time >= it->path.path_points[point_index].delta_time)
+		if (point_index >= 0 && size_t(point_index) < it->path.path_points.size() && it->time_elapsed - it->path.last_point_time >= it->path.path_points[point_index].delta_time)
 		{
 			it->path.current_point_index++;
 			it->path.last_point_time = it->time_elapsed;
@@ -2383,7 +2385,7 @@ void UpdateLuaCameras()
 			}
 		}
 		
-		if (angle_index >= 0 && it->time_elapsed - it->path.last_angle_time >= it->path.path_angles[angle_index].delta_time)
+		if (angle_index >= 0 && size_t(angle_index) < it->path.path_angles.size() && it->time_elapsed - it->path.last_angle_time >= it->path.path_angles[angle_index].delta_time)
 		{
 			it->path.current_angle_index++;
 			it->path.last_angle_time = it->time_elapsed;
@@ -2395,60 +2397,138 @@ void UpdateLuaCameras()
 	}
 }
 
-bool UseLuaCameras()
+// Evaluate the whole track rather than interpolating two quantized tick views.
+// Last-key delta_time is a hold; it does not contribute to travel/easing time.
+namespace {
+struct CameraTrackSample {size_t index; double fraction;};
+template<class Key> CameraTrackSample camera_track_sample(const std::vector<Key>& keys,
+                                                         double elapsed, bool ease)
 {
-	if (!LuaRunning())
-		return false;
+    if(keys.size()<2)return {0,0};
+    double duration=0;
+    for(size_t i=0;i+1<keys.size();++i)duration+=std::max(0, int(keys[i].delta_time));
+    double time=std::max(0.0,std::min(duration,elapsed));
+    if(ease && duration>0){
+        double t=time/duration;
+        // Quintic smootherstep: zero speed and acceleration at both endpoints.
+        time=duration*t*t*t*(t*(t*6-15)+10);
+    }
+    for(size_t i=0;i+1<keys.size();++i){
+        double dt=std::max(0, int(keys[i].delta_time));
+        if(dt>0 && time<dt)return {i,time/dt};
+        time-=dt; // Zero-duration keys remain instant cuts.
+    }
+    return {keys.size()-1,0};
+}
+// Round only the last/first 20% around an interior key. A quadratic
+// Bezier matches both neighboring segment velocities at its boundaries.
+struct CameraCorner {size_t key; double window, t; bool active;};
+template<class Key> CameraCorner camera_corner(const std::vector<Key>& keys,CameraTrackSample sample)
+{
+    size_t i=sample.index;
+    if(i+1>=keys.size())return {0,0,0,false};
+    double dt=keys[i].delta_time;
+    if(dt<=0)return {0,0,0,false};
+    if(i>0 && keys[i-1].delta_time>0){
+        double w=0.2*std::min(double(keys[i-1].delta_time),dt);
+        if(sample.fraction*dt<w)return {i,w,0.5+sample.fraction*dt/(2*w),true};
+    }
+    if(i+2<keys.size() && keys[i+1].delta_time>0){
+        double w=0.2*std::min(dt,double(keys[i+1].delta_time));
+        if((1-sample.fraction)*dt<w)return {i+1,w,0.5-(1-sample.fraction)*dt/(2*w),true};
+    }
+    return {0,0,0,false};
+}
+double camera_delta(double from,double to)
+{
+    double d=std::fmod(to-from,FULL_CIRCLE);
+    if(d>FULL_CIRCLE/2)d-=FULL_CIRCLE;
+    if(d< -FULL_CIRCLE/2)d+=FULL_CIRCLE;
+    return d;
+}
+template<class Key,class Value> double camera_curve(const std::vector<Key>& keys,
+    CameraTrackSample sample,Value value,bool angular)
+{
+    size_t i=sample.index,j=std::min(i+1,keys.size()-1);
+    double a=value(keys[i]),b=value(keys[j]);
+    auto difference=[&](double x,double y){return angular?camera_delta(x,y):y-x;};
+    auto c=camera_corner(keys,sample);
+    if(!c.active)return a+difference(a,b)*sample.fraction;
+    double center=value(keys[c.key]);
+    double entry=center-difference(value(keys[c.key-1]),center)*c.window/keys[c.key-1].delta_time;
+    double exit=center+difference(center,value(keys[c.key+1]))*c.window/keys[c.key].delta_time;
+    double u=1-c.t;
+    return entry*u*u+2*center*u*c.t+exit*c.t*c.t;
+}
+double camera_angle(double from,double to,double t)
+{
+    double delta=std::fmod(to-from,FULL_CIRCLE);
+    if(delta>FULL_CIRCLE/2)delta-=FULL_CIRCLE;
+    if(delta< -FULL_CIRCLE/2)delta+=FULL_CIRCLE;
+    double result=std::fmod(from+delta*t,FULL_CIRCLE);
+    return result<0?result+FULL_CIRCLE:result;
+}
+}
 
-	bool using_lua_cameras = false;
-	for (std::vector<lua_camera>::iterator it = lua_cameras.begin(); it != lua_cameras.end(); ++it)
-	{
-		if (it->player_active != local_player_index)
-		{
-			continue;
-		}
-
-		world_view->show_weapons_in_hand = false;
-		world_view->maximum_depth_intensity = NATURAL_LIGHT_INTENSITY;
-		using_lua_cameras = true;
-		
-		short point_index = it->path.current_point_index;
-		short angle_index = it->path.current_angle_index;
-		
-		if (angle_index >= 0 && angle_index < static_cast<short>(it->path.path_angles.size()))
-		{
-			if (static_cast<size_t>(angle_index) == it->path.path_angles.size() - 1)
-			{
-				world_view->yaw = normalize_angle(it->path.path_angles[angle_index].yaw);
-				world_view->pitch = normalize_angle(it->path.path_angles[angle_index].pitch);
-			}
-			else
-			{
-				world_view->yaw = normalize_angle(static_cast<short>(FindLinearValue(it->path.path_angles[angle_index].yaw, it->path.path_angles[angle_index+1].yaw, it->path.path_angles[angle_index].delta_time, it->time_elapsed - it->path.last_angle_time)));
-				world_view->pitch = normalize_angle(static_cast<short>(FindLinearValue(it->path.path_angles[angle_index].pitch, it->path.path_angles[angle_index+1].pitch, it->path.path_angles[angle_index].delta_time, it->time_elapsed - it->path.last_angle_time)));
-			}
-		}
-
-		if (point_index >= 0 && point_index < static_cast<short>(it->path.path_points.size()))
-		{
-			if (static_cast<size_t>(point_index) == it->path.path_points.size() - 1)
-			{
-				world_view->origin = it->path.path_points[point_index].point;
-				world_view->origin_polygon_index = it->path.path_points[point_index].polygon;
-			}
-			else
-			{
-				world_point3d oldPoint = it->path.path_points[point_index].point;
-				world_view->origin = FindLinearValue(it->path.path_points[point_index].point, it->path.path_points[point_index+1].point, it->path.path_points[point_index].delta_time, it->time_elapsed - it->path.last_point_time);
-				world_point3d newPoint = world_view->origin;
-				short polygon = it->path.path_points[point_index].polygon;
-				ShootForTargetPoint(true, oldPoint, newPoint, polygon);
-				world_view->origin_polygon_index = polygon;
-			}
-		}	
-	}
-
-	return using_lua_cameras;
+bool UseLuaCameras(float heartbeat_fraction)
+{
+    if(!LuaRunning())return false;
+    bool using_lua_cameras=false;
+    for(auto& camera:lua_cameras){
+        if(camera.player_active!=local_player_index)continue;
+        using_lua_cameras=true;
+        world_view->show_weapons_in_hand=false;
+        world_view->maximum_depth_intensity=NATURAL_LIGHT_INTENSITY;
+        // Match the world's previous-to-current tick interpolation. At 30 FPS
+        // fraction is one. Re-activation always starts at time zero, without
+        // blending from the previous camera or player position.
+        double fraction=std::max(0.0,std::min(1.0,double(heartbeat_fraction)));
+        double elapsed=std::max(0.0,double(camera.time_elapsed)-1+fraction);
+        const auto& points=camera.path.path_points;
+        const auto& angles=camera.path.path_angles;
+        bool ease=camera.ease_motion;
+        // Closed spatial paths may be replayed as loops: do not brake at the seam.
+        if(points.size()>2){const auto& a=points.front();const auto& b=points.back();
+            if(a.polygon==b.polygon && a.point.x==b.point.x && a.point.y==b.point.y && a.point.z==b.point.z)ease=false;
+        }
+        if(!angles.empty()){
+            auto sample=camera_track_sample(angles,elapsed,ease);
+            double yaw=camera_angle(0,camera_curve(angles,sample,[](const timed_angle& k){return double(k.yaw);},true),1);
+            double pitch=camera_angle(0,camera_curve(angles,sample,[](const timed_angle& k){return double(k.pitch);},true),1);
+            world_view->yaw=normalize_angle(short(std::lround(yaw)));
+            world_view->pitch=normalize_angle(short(std::lround(pitch)));
+            world_view->virtual_yaw=static_cast<fixed_angle>(std::lround(yaw*FIXED_ONE));
+            world_view->virtual_pitch=static_cast<fixed_angle>(std::lround(pitch*FIXED_ONE));
+        }
+        if(!points.empty()){
+            auto sample=camera_track_sample(points,elapsed,ease);
+            const auto& a=points[sample.index];
+            const auto& b=points[std::min(sample.index+1,points.size()-1)];
+            world_point3d point=a.point;
+            point.x=static_cast<world_distance>(std::lround(a.point.x+(double(b.point.x)-a.point.x)*sample.fraction));
+            point.y=static_cast<world_distance>(std::lround(a.point.y+(double(b.point.y)-a.point.y)*sample.fraction));
+            point.z=static_cast<world_distance>(std::lround(a.point.z+(double(b.point.z)-a.point.z)*sample.fraction));
+            short polygon=a.polygon;
+            world_point3d from=a.point;
+            if(sample.fraction>0)ShootForTargetPoint(true,from,point,polygon);
+            world_point3d curved=point;
+            curved.x=static_cast<world_distance>(std::lround(camera_curve(points,sample,[](const timed_point& k){return double(k.point.x);},false)));
+            curved.y=static_cast<world_distance>(std::lround(camera_curve(points,sample,[](const timed_point& k){return double(k.point.y);},false)));
+            curved.z=static_cast<world_distance>(std::lround(camera_curve(points,sample,[](const timed_point& k){return double(k.point.z);},false)));
+            // Check the rounding offset against geometry. If it crosses a wall,
+            // retain the authored straight path instead of cutting the corner.
+            world_point3d checked=curved,straight=point;
+            short curved_polygon=polygon;
+            if(curved.x!=point.x || curved.y!=point.y || curved.z!=point.z)
+                ShootForTargetPoint(false,straight,checked,curved_polygon);
+            if(checked.x==curved.x && checked.y==curved.y && checked.z==curved.z){
+                point=curved;polygon=curved_polygon;
+            }
+            world_view->origin=point;
+            world_view->origin_polygon_index=polygon;
+        }
+    }
+    return using_lua_cameras;
 }
 
 bool LuaPlayerCanWieldWeapons(short player_index)

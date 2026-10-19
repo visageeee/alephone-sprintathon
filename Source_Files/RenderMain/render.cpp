@@ -821,7 +821,7 @@ static void update_view_data(
 			// LP change: idiot-proofing
 			if (media)
 			{
-				view->under_media_boundary= UNDER_MEDIA(media, view->origin.z);
+				view->under_media_boundary= !surface_editor_noclip() && UNDER_MEDIA(media, view->origin.z);
 				view->under_media_index= polygon->media_index;
 			} else {
 				view->under_media_boundary= false;
