@@ -39,13 +39,15 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
-          pattern: sprintathon-release-*
+          pattern: '*-Sprintathon-*.zip'
+          skip-decompress: true
           merge-multiple: true
           path: release-assets
       - name: Create or update draft
         env:
+          BUILD_DATE: ${{ needs.binaries.outputs.build_date }}
           RELEASE_TAG: ${{ inputs.tag }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

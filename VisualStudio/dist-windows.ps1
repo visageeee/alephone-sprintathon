@@ -9,7 +9,9 @@ param(
 [bool]$m3=$false, #Package Marathon Infinity
 [int]$data=0, #0 or whatever is for building packages with data and without, 1 is build only with data (except for A1), 2 is build only without data
 [string]$input_path="./AlephOne.sln", #Path to the AlephOne solution (must include the solution file in the path)
-[string]$output_path="./" #Path to the directory where save built packages
+[string]$output_path="./", #Path to the directory where save built packages
+[ValidatePattern('^[0-9]{8}$')]
+[string]$package_date=(Get-Date -Format 'yyyyMMdd') #Override with shared CI date
 )
 
 function GetCommonFiles() {
@@ -75,6 +77,7 @@ function Package {
 	$package_version_month = '{0:d2}' -f $package_version.Build
 	$package_version_day = '{0:d2}' -f $package_version.Revision
 	$package_version_string = "${package_version_year}${package_version_month}${package_version_day}"
+	if ($package_name -eq "Sprintathon") { $package_version_string = $package_date }
 	$package_fullname = "${package_name}-${package_version_string}"
 	
 	$output_package_folder = Join-Path -Path $output_path -ChildPath $package_fullname
@@ -116,7 +119,7 @@ function Package {
 		}
 	  }
 	  
-	  $zip_name = "${package_fullname}-Win${os_target}.zip"
+	  $zip_name = if ($package_name -eq "Sprintathon") { "WINDOWS${os_target}-${package_fullname}.zip" } else { "${package_fullname}-Win${os_target}.zip" }
 	  Compress-Archive -Path $output_package_folder -DestinationPath (Join-Path -Path $output_path -ChildPath $zip_name) -Force -ErrorAction Stop
 	}
 	

@@ -3,12 +3,29 @@ name: Sprintathon - build all binaries
 on:
   workflow_dispatch:
   workflow_call:
+    outputs:
+      build_date:
+        description: Shared package date (Europe/Stockholm)
+        value: ${{ jobs.package-date.outputs.date }}
 
 permissions:
   contents: read
 
 jobs:
+  package-date:
+    name: Set package date
+    runs-on: ubuntu-24.04
+    outputs:
+      date: ${{ steps.date.outputs.date }}
+    steps:
+      - id: date
+        shell: bash
+        run: echo "date=$(TZ=Europe/Stockholm date +%Y%m%d)" >> "$GITHUB_OUTPUT"
+
   windows:
+    needs: package-date
+    env:
+      BUILD_DATE: ${{ needs.package-date.outputs.date }}
     name: Windows x64
     runs-on: windows-2022
     timeout-minutes: 120
@@ -26,20 +43,23 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Push-Location VisualStudio
-          ./dist-windows.ps1 -x64 $true -a1 $true -m1 $false -m2 $false -m3 $false -output_path windows-build-archives
+          ./dist-windows.ps1 -x64 $true -a1 $true -m1 $false -m2 $false -m3 $false -output_path windows-build-archives -package_date $env:BUILD_DATE
           Pop-Location
-          $archives = @(Get-ChildItem VisualStudio/windows-build-archives/Sprintathon-*-Win.zip)
+          $archives = @(Get-ChildItem "VisualStudio/windows-build-archives/WINDOWS-Sprintathon-$env:BUILD_DATE.zip")
           if ($archives.Count -ne 1) { throw 'Expected exactly one Sprintathon Windows package' }
           New-Item -ItemType Directory -Force release-assets | Out-Null
-          Copy-Item $archives[0].FullName release-assets/Sprintathon-Windows-x86_64.zip
-      - uses: actions/upload-artifact@v6
+          Copy-Item $archives[0].FullName "release-assets/WINDOWS-Sprintathon-$env:BUILD_DATE.zip"
+      - uses: actions/upload-artifact@v7
         with:
-          name: sprintathon-release-windows
-          path: release-assets/Sprintathon-Windows-x86_64.zip
+          archive: false
+          path: release-assets/WINDOWS-Sprintathon-${{ env.BUILD_DATE }}.zip
           if-no-files-found: error
           retention-days: 30
 
   macos:
+    needs: package-date
+    env:
+      BUILD_DATE: ${{ needs.package-date.outputs.date }}
     name: macOS universal
     runs-on: macos-15
     timeout-minutes: 120
@@ -62,15 +82,18 @@ jobs:
           cp snd/*.ogg "$app/Contents/Resources/snd/"
           codesign --force --deep --sign - --timestamp=none "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
-          ditto -c -k --sequesterRsrc --keepParent "$app" release-assets/Sprintathon-macOS-universal.zip
-      - uses: actions/upload-artifact@v6
+          ditto -c -k --sequesterRsrc --keepParent "$app" "release-assets/MAC-Sprintathon-${BUILD_DATE}.zip"
+      - uses: actions/upload-artifact@v7
         with:
-          name: sprintathon-release-macos
-          path: release-assets/Sprintathon-macOS-universal.zip
+          archive: false
+          path: release-assets/MAC-Sprintathon-${{ env.BUILD_DATE }}.zip
           if-no-files-found: error
           retention-days: 30
 
   linux:
+    needs: package-date
+    env:
+      BUILD_DATE: ${{ needs.package-date.outputs.date }}
     name: Linux x86_64 Flatpak
     runs-on: ubuntu-24.04
     timeout-minutes: 120
@@ -81,7 +104,7 @@ jobs:
       - name: Install Flatpak tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder
+          sudo apt-get install -y flatpak flatpak-builder zip
           # Flatpak's build sandbox needs user namespaces on this ephemeral runner.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
@@ -98,11 +121,12 @@ jobs:
           mkdir -p release-assets
           flatpak build-bundle --arch=x86_64 \
             --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
-            "$RUNNER_TEMP/flatpak-repo" release-assets/Sprintathon-Linux-x86_64.flatpak \
+            "$RUNNER_TEMP/flatpak-repo" "release-assets/LINUX-Sprintathon-${BUILD_DATE}.flatpak" \
             io.github.visageeee.Sprintathon stable
-      - uses: actions/upload-artifact@v6
+          (cd release-assets && zip -j "LINUX-Sprintathon-${BUILD_DATE}.zip" "LINUX-Sprintathon-${BUILD_DATE}.flatpak")
+      - uses: actions/upload-artifact@v7
         with:
-          name: sprintathon-release-linux
-          path: release-assets/Sprintathon-Linux-x86_64.flatpak
+          archive: false
+          path: release-assets/LINUX-Sprintathon-${{ env.BUILD_DATE }}.zip
           if-no-files-found: error
           retention-days: 30

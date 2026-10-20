@@ -25,13 +25,15 @@ fi
 [[ "${1:-}" == check ]] && exit 0
 [[ "${1:-}" == upload ]] || { echo 'Expected check or upload' >&2; exit 1; }
 
-assets=(Sprintathon-Windows-x86_64.zip Sprintathon-macOS-universal.zip Sprintathon-Linux-x86_64.flatpak)
+[[ "${BUILD_DATE:-}" =~ ^[0-9]{8}$ ]] || { echo 'Missing or invalid shared build date.' >&2; exit 1; }
+assets=("WINDOWS-Sprintathon-${BUILD_DATE}.zip" "MAC-Sprintathon-${BUILD_DATE}.zip" "LINUX-Sprintathon-${BUILD_DATE}.zip")
 for asset in "${assets[@]}"; do test -s "release-assets/$asset"; done
 (cd release-assets && sha256sum "${assets[@]}" > SHA256SUMS.txt)
 cat > release-assets/BUILD.txt <<BUILD
 Repository: $GH_REPO
 Commit: $GITHUB_SHA
 Tag: $RELEASE_TAG
+Package date: $BUILD_DATE (Europe/Stockholm)
 Workflow: $GITHUB_SERVER_URL/$GH_REPO/actions/runs/$GITHUB_RUN_ID
 BUILD
 cat > "$RUNNER_TEMP/sprintathon-release-notes.md" <<NOTES
@@ -39,7 +41,7 @@ Sprintathon build from commit $GITHUB_SHA.
 
 - Windows: x86_64 ZIP
 - macOS: universal Intel / Apple Silicon ZIP (ad-hoc signed; not notarized)
-- Linux: x86_64 Flatpak
+- Linux: ZIP containing the x86_64 Flatpak (extract before installing)
 
 Game scenario files are supplied separately. Verify downloads using SHA256SUMS.txt.
 
