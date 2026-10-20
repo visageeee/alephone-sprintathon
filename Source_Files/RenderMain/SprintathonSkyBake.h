@@ -29,17 +29,22 @@ static int textureCheckTick=-1;
 static double textureBakeRadius=0;
 static int textureBakeGain=0,textureBakeReach=0,sceneryBakeGain=0,sceneryBakeReach=0;
 static bool bakedTextures=false,bakedScenery=false;
-inline bool textureBakeRequested(){const char* p=std::getenv("SPRINTATHON_TEXTURE_BAKE");return p && p[0]=='1';}
-inline bool textureBakeActive(){return textureBakeReady && textureBakeValid &&
+// The legacy environment override controls both source classes for diagnostics.
+inline bool bakeTextureSourcesRequested(){const char* p=std::getenv("SPRINTATHON_TEXTURE_BAKE");return p ? p[0]=='1' : graphics_preferences->baked_texture_lights;}
+inline bool bakeScenerySourcesRequested(){const char* p=std::getenv("SPRINTATHON_TEXTURE_BAKE");return p ? p[0]=='1' : graphics_preferences->baked_scenery_lights;}
+inline bool textureBakeRequested(){return bakeTextureSourcesRequested() || bakeScenerySourcesRequested();}
+inline bool bakeTexturesEnabled(){return bakeTextureSourcesRequested() && graphics_preferences->bright_texture_lights;}
+inline bool bakeSceneryEnabled(){return bakeScenerySourcesRequested() && graphics_preferences->bright_scenery_lights;}
+inline bool textureBakeActive(){return textureBakeRequested() && textureBakeReady && textureBakeValid &&
  graphics_preferences->projectile_lights_per_pixel &&
- graphics_preferences->bright_texture_lights==bakedTextures && graphics_preferences->bright_scenery_lights==bakedScenery &&
+ bakeTexturesEnabled()==bakedTextures && bakeSceneryEnabled()==bakedScenery &&
  graphics_preferences->scenery_light_intensity==sceneryBakeGain && graphics_preferences->scenery_light_reach==sceneryBakeReach &&
  graphics_preferences->texture_light_intensity==textureBakeGain && graphics_preferences->texture_light_reach==textureBakeReach;}
 inline bool scenerySourceBaked(short index){
  if(!textureBakeActive())return false;
  return index>=0 && size_t(index)<bakedSceneryObjects.size() && bakedSceneryObjects[index];}
 inline bool textureSourceBaked(const polygon_data* polygon,int face,shape_descriptor shape,short light){
- if(!textureBakeReady || !polygon)return false;
+ if(!textureBakeActive() || !polygon)return false;
  int room=int(polygon-get_polygon_data(0));
  for(const auto& s:textureSources)if(s.room==room && s.face==face && s.shape==shape && s.light==light)return true;
  return false;
@@ -269,13 +274,13 @@ inline V textureLightAt(int room,V p,const std::vector<size_t>& candidates){
 inline void preloadTextureSources(bool (*emission)(shape_descriptor,float*),
  bool (*sceneryEmission)(short,V&,V&),void (*progress)()){
  textureSources.clear();bakedSceneryObjects.clear();textureBakeReady=textureBakeValid=textureReceiver=false;textureBakeBytes=0;textureCheckTick=-1;
- if(!textureBakeRequested() || !enabled() || !available || (!graphics_preferences->bright_texture_lights && !graphics_preferences->bright_scenery_lights) ||
+ if(!textureBakeRequested() || !enabled() || !available || (!bakeTexturesEnabled() && !bakeSceneryEnabled()) ||
     !graphics_preferences->projectile_lights_per_pixel)return;
  GLint units=0;glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS,&units);if(units<7)return;
  textureBakeGain=graphics_preferences->texture_light_intensity;textureBakeReach=graphics_preferences->texture_light_reach;
  textureBakeRadius=(2.0+0.14*textureBakeReach)*WORLD_ONE;
  sceneryBakeGain=graphics_preferences->scenery_light_intensity;sceneryBakeReach=graphics_preferences->scenery_light_reach;
- bakedTextures=graphics_preferences->bright_texture_lights;bakedScenery=graphics_preferences->bright_scenery_lights;
+ bakedTextures=bakeTexturesEnabled();bakedScenery=bakeSceneryEnabled();
  std::vector<bool> controlled(LightList.size(),false);
  // Conservatively exclude all panel-referenced IDs, even when the panel could
  // address a platform rather than a light. False exclusions stay dynamic.

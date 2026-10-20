@@ -1320,6 +1320,8 @@ void handle_preferences(bool in_game)
 	light_fx_page->center_vertically();
 	light_fx_page->min_width(scale_dialog_value(430));
 	w_toggle *baked_landscape_lighting_w = new w_toggle(graphics_preferences->baked_landscape_lighting);
+    w_toggle *baked_texture_lights_w = new w_toggle(graphics_preferences->baked_texture_lights);
+    w_toggle *baked_scenery_lights_w = new w_toggle(graphics_preferences->baked_scenery_lights);
     w_percentage_slider *baked_landscape_ambient_w = new w_percentage_slider(101, graphics_preferences->baked_landscape_ambient);
     w_percentage_slider *baked_landscape_sector_w = new w_percentage_slider(101, graphics_preferences->baked_landscape_sector);
 	w_toggle *liquid_caustics_w = new w_toggle(graphics_preferences->liquid_caustics);
@@ -1342,6 +1344,9 @@ void handle_preferences(bool in_game)
     table_placer *light_fx = make_preferences_table();
     light_fx->dual_add(ogl_bloom_w->label("Bloom Effects"), d); light_fx->dual_add(ogl_bloom_w, d);
     world_lighting->dual_add(baked_landscape_lighting_w->label("Baked Landscape Lighting"), d); world_lighting->dual_add(baked_landscape_lighting_w, d);
+    world_lighting->dual_add(baked_texture_lights_w->label("Baked Texture Lighting"), d); world_lighting->dual_add(baked_texture_lights_w, d);
+    world_lighting->dual_add(baked_scenery_lights_w->label("Baked Scenery Lighting"), d); world_lighting->dual_add(baked_scenery_lights_w, d);
+    world_lighting->dual_add_row(new w_static_text("Baking requires landscape + per-pixel lighting; reload level", LABEL_WIDGET), d);
     world_lighting->dual_add(baked_landscape_ambient_w->label("Baked Ambient Light"), d); world_lighting->dual_add(baked_landscape_ambient_w, d);
     world_lighting->dual_add(baked_landscape_sector_w->label("Sector Light Contribution"), d); world_lighting->dual_add(baked_landscape_sector_w, d);
     world_lighting->dual_add(soft_sector_light_edges_w->label("Blend Sector Shading"), d); world_lighting->dual_add(soft_sector_light_edges_w, d);
@@ -1609,7 +1614,7 @@ void handle_preferences(bool in_game)
 		 fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
 		 fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w,
 		 fog_haze_w, fog_volume_w, fog_drift_intensity_w, texture_light_reach_w,
-         visible_sun_w, visible_sun_size_w, visible_sun_color_w, visible_sun_brightness_w, baked_landscape_lighting_w, baked_landscape_ambient_w, baked_landscape_sector_w, liquid_caustics_w, liquid_specular_w, liquid_sprite_reflections_w, liquid_fluorescence_w, liquid_caustic_strength_w, liquid_specular_strength_w, liquid_reflection_strength_w, ceiling_fog_cones_w, ceiling_fog_cone_strength_w, fog_light_coronas_w,
+         visible_sun_w, visible_sun_size_w, visible_sun_color_w, visible_sun_brightness_w, baked_landscape_lighting_w, baked_texture_lights_w, baked_scenery_lights_w, baked_landscape_ambient_w, baked_landscape_sector_w, liquid_caustics_w, liquid_specular_w, liquid_sprite_reflections_w, liquid_fluorescence_w, liquid_caustic_strength_w, liquid_specular_strength_w, liquid_reflection_strength_w, ceiling_fog_cones_w, ceiling_fog_cone_strength_w, fog_light_coronas_w,
          fog_projectile_coronas_w, fog_scenery_coronas_w, fog_corona_strength_w,
 		 scenery_light_reach_w, light_render_distance_w,
 		 scenery_light_render_distance_w,
@@ -1692,6 +1697,8 @@ void handle_preferences(bool in_game)
 			fog_drift_intensity_w->set_selection(total ? 50 : high_or_better ? 25 : 0);
             ceiling_fog_cones_w->set_selection(high_or_better);
             baked_landscape_lighting_w->set_selection(high_or_better);
+            baked_texture_lights_w->set_selection(true);
+            baked_scenery_lights_w->set_selection(true);
             baked_landscape_ambient_w->set_selection(high_or_better ? 5 : 15);
             baked_landscape_sector_w->set_selection(total ? 20 : 0);
             liquid_caustics_w->set_selection(high_or_better);
@@ -1740,7 +1747,7 @@ void handle_preferences(bool in_game)
 		ogl_anamorphic_lens_flares_w, ogl_vsync_w, ogl_npot_w,
 		ogl_effects_w, ogl_aniso_w, sprite_upscaling_w, wall_upscaling_w,
 		model_quality_w, liquid_transparency_w, underwater_distortion_w,
-		liquid_ripples_w, baked_landscape_lighting_w, liquid_caustics_w, liquid_specular_w, liquid_sprite_reflections_w,
+		liquid_ripples_w, baked_landscape_lighting_w, baked_texture_lights_w, baked_scenery_lights_w, liquid_caustics_w, liquid_specular_w, liquid_sprite_reflections_w,
 		fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
 		fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w, fog_haze_w, fog_volume_w, ceiling_fog_cones_w, fog_light_coronas_w, fog_projectile_coronas_w, fog_scenery_coronas_w
 	};
@@ -1999,6 +2006,8 @@ void handle_preferences(bool in_game)
 	graphics_preferences->OGL_Configure.DeepFogHaze = fog_haze_w->get_selection();
     graphics_preferences->ceiling_fog_cones = ceiling_fog_cones_w->get_selection();
     graphics_preferences->baked_landscape_lighting = baked_landscape_lighting_w->get_selection();
+    graphics_preferences->baked_texture_lights = baked_texture_lights_w->get_selection();
+    graphics_preferences->baked_scenery_lights = baked_scenery_lights_w->get_selection();
     graphics_preferences->baked_landscape_ambient = baked_landscape_ambient_w->get_selection();
     graphics_preferences->baked_landscape_sector = baked_landscape_sector_w->get_selection();
     graphics_preferences->liquid_caustics = liquid_caustics_w->get_selection();
@@ -6305,6 +6314,8 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("sector_shading_softness", graphics_preferences->sector_shading_softness);
     root.put_attr("ceiling_fog_cones", graphics_preferences->ceiling_fog_cones);
     root.put_attr("baked_landscape_lighting", graphics_preferences->baked_landscape_lighting);
+    root.put_attr("baked_texture_lights", graphics_preferences->baked_texture_lights);
+    root.put_attr("baked_scenery_lights", graphics_preferences->baked_scenery_lights);
     root.put_attr("baked_landscape_ambient", graphics_preferences->baked_landscape_ambient);
     root.put_attr("baked_landscape_sector", graphics_preferences->baked_landscape_sector);
     root.put_attr("liquid_caustics", graphics_preferences->liquid_caustics);
@@ -6972,6 +6983,8 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->sector_shading_softness = 50;
     preferences->ceiling_fog_cones = true;
     preferences->baked_landscape_lighting = false;
+    preferences->baked_texture_lights = true;
+    preferences->baked_scenery_lights = true;
     preferences->baked_landscape_ambient = 15;
     preferences->baked_landscape_sector = 0;
     preferences->liquid_caustics = true;
@@ -7545,6 +7558,8 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr_bounded<int16>("sector_shading_softness", graphics_preferences->sector_shading_softness, 0, 100);
     root.read_attr("ceiling_fog_cones", graphics_preferences->ceiling_fog_cones);
     root.read_attr("baked_landscape_lighting", graphics_preferences->baked_landscape_lighting);
+    root.read_attr("baked_texture_lights", graphics_preferences->baked_texture_lights);
+    root.read_attr("baked_scenery_lights", graphics_preferences->baked_scenery_lights);
     root.read_attr_bounded<int16>("baked_landscape_ambient", graphics_preferences->baked_landscape_ambient, 0, 100);
     root.read_attr_bounded<int16>("baked_landscape_sector", graphics_preferences->baked_landscape_sector, 0, 100);
     root.read_attr("liquid_caustics", graphics_preferences->liquid_caustics);

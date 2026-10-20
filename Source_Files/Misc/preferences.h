@@ -126,6 +126,8 @@ struct graphics_preferences_data
 	bool soft_sector_light_edges;
 	int16 sector_shading_softness;
     bool baked_landscape_lighting;
+    bool baked_texture_lights;
+    bool baked_scenery_lights;
     int16 baked_landscape_ambient;
     int16 baked_landscape_sector;
     bool visible_sun;
