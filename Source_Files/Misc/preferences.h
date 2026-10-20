@@ -112,6 +112,7 @@ struct graphics_preferences_data
 	bool bright_texture_lights;
 	bool bright_scenery_lights;
 	bool all_visible_scenery_lights;
+    int16 per_pixel_light_quality; // 0 High (20), 1 Medium (8), 2 Low (4)
 	bool simplify_distant_surfaces;
 	int16 colored_light_intensity;
 	int16 texture_light_intensity;

@@ -1,6 +1,7 @@
 #ifndef SPRINTATHON_SKY_BAKE_H
 #define SPRINTATHON_SKY_BAKE_H
 #include <map>
+#include "SprintathonStartupTiming.h"
 #include "SprintathonLuaSun.h"
 #include <tuple>
 #include <vector>
@@ -88,6 +89,13 @@ inline void reset(){
  textureSources.clear();bakedSceneryObjects.clear();textureBakeReady=textureBakeValid=textureReceiver=false;textureBakeBytes=0;textureCheckTick=-1;
  maps.clear();actorSamples.clear();actorSampleOrder.clear();rooms.clear();actorSpacing=256.0;paletteReady=false;ambientColor=sunColor=V(1,1,1);sunReady=false;checked=available=false;level=lastTick=-1;context=SDL_GL_GetCurrentContext();
 }
+inline void traceTextureBakeInvalidation(const TextureSource& source,const char* reason) {
+ if(!SprintathonStartupTiming::get().active())return;
+ fprintf(stderr,"Light bake invalidated frame %llu tick %ld: %s; object=%d room=%d face=%d light=%d; combined bake disabled, sources=%llu\n",
+  static_cast<unsigned long long>(SprintathonStartupTiming::get().frame_id),long(dynamic_world->tick_count),
+  reason,int(source.object),source.room,source.face,int(source.light),
+  static_cast<unsigned long long>(textureSources.size()));
+}
 inline void prepare(){
  if(!enabled()){if(!rooms.empty())reset();return;}
  if(context!=SDL_GL_GetCurrentContext() || level!=dynamic_world->current_level_number ||
@@ -97,13 +105,13 @@ inline void prepare(){
   textureCheckTick=lastTick;
   for(const auto& s:textureSources){
    if(s.object!=NONE){
-    if(s.object<0 || size_t(s.object)>=ObjectList.size()){textureBakeValid=false;break;}
+    if(s.object<0 || size_t(s.object)>=ObjectList.size()){traceTextureBakeInvalidation(s,"scenery object index invalid");textureBakeValid=false;break;}
     const auto* o=&ObjectList[s.object];short damaged=NONE;
     if(!SLOT_IS_USED(o) || GET_OBJECT_OWNER(o)!=_object_is_scenery ||
        o->polygon!=s.room || o->permutation!=s.type || o->shape!=s.shape ||
        GET_OBJECT_SCALE_FLAGS(o)!=s.scale || OBJECT_IS_INVISIBLE(o) ||
        o->transfer_mode!=s.transfer || get_damaged_scenery_collection(o->permutation,damaged) ||
-       o->location.x!=s.anchor.x || o->location.y!=s.anchor.y || o->location.z!=s.anchor.z){textureBakeValid=false;break;}
+       o->location.x!=s.anchor.x || o->location.y!=s.anchor.y || o->location.z!=s.anchor.z){traceTextureBakeInvalidation(s,"scenery changed, moved or became invalid");textureBakeValid=false;break;}
     continue;
    }
    const auto* p=get_polygon_data(s.room);bool shapeOK=false;
@@ -112,7 +120,7 @@ inline void prepare(){
    else if(p->side_indexes[s.face-2]!=NONE){const auto* side=get_side_data(p->side_indexes[s.face-2]);
     shapeOK=(side->primary_texture.texture==s.shape && side->primary_lightsource_index==s.light) ||
       (side->secondary_texture.texture==s.shape && side->secondary_lightsource_index==s.light);}
-   if(!shapeOK || s.light<0 || size_t(s.light)>=LightList.size() || get_light_intensity(s.light)!=s.intensity){textureBakeValid=false;break;}
+   if(!shapeOK || s.light<0 || size_t(s.light)>=LightList.size() || get_light_intensity(s.light)!=s.intensity){traceTextureBakeInvalidation(s,"texture or map-light intensity changed");textureBakeValid=false;break;}
   }
  }
  if(!checked){GLint n=0;glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS,&n);available=n>=5;checked=true;

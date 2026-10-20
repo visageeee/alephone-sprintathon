@@ -1243,6 +1243,8 @@ void handle_preferences(bool in_game)
 	w_toggle *bright_texture_lights_w = new w_toggle(graphics_preferences->bright_texture_lights);
 	w_toggle *bright_scenery_lights_w = new w_toggle(graphics_preferences->bright_scenery_lights);
 	w_toggle *all_visible_scenery_lights_w = new w_toggle(graphics_preferences->all_visible_scenery_lights);
+    static const char* light_quality_labels[]={"High (20)","Medium (8)","Low (vertex)",nullptr};
+    w_select* per_pixel_light_quality_w=new w_select(graphics_preferences->per_pixel_light_quality,light_quality_labels);
 	w_percentage_slider *colored_light_intensity_w = new w_percentage_slider(201,
 		graphics_preferences->colored_light_intensity);
 	w_percentage_slider *texture_light_intensity_w = new w_percentage_slider(201,
@@ -1376,6 +1378,7 @@ void handle_preferences(bool in_game)
     table_placer *per_pixel = make_preferences_table();
 #define ADD_PER_PIXEL_ROW(caption, widget) \
     per_pixel->dual_add((widget)->label(caption), d); per_pixel->dual_add(widget, d)
+    ADD_PER_PIXEL_ROW("Lighting Quality", per_pixel_light_quality_w);
     ADD_PER_PIXEL_ROW("Projectile Lights", projectile_lights_per_pixel_w);
     ADD_PER_PIXEL_ROW("Bright Texture Lights", bright_texture_lights_w);
     ADD_PER_PIXEL_ROW("Scenery Lights", bright_scenery_lights_w);
@@ -1394,7 +1397,7 @@ void handle_preferences(bool in_game)
     per_pixel_description->set_description(
         "Experimental feature adding \"per-pixel\" colored lighting",
         "emitted from projectiles, bright textures,",
-        "and scenery like light fixtures.");
+        "Low uses vertex lighting; Medium/Low limit scenery.");
     per_pixel_page->dual_add(per_pixel_description, d);
     per_pixel_page->add(per_pixel, true);
     
@@ -1620,7 +1623,7 @@ void handle_preferences(bool in_game)
 		 scenery_light_render_distance_w,
 		 colored_light_intensity_w, texture_light_intensity_w, scenery_light_intensity_w, projectile_lights_per_pixel_w, projectile_motion_blur_w,
 		 texture_light_limit_w, scenery_light_limit_w,
-		 bright_texture_lights_w, bright_scenery_lights_w, all_visible_scenery_lights_w,
+		 bright_texture_lights_w, bright_scenery_lights_w, all_visible_scenery_lights_w, per_pixel_light_quality_w,
 		 player_light_circle_w, soft_sector_light_edges_w, sector_shading_softness_w](w_select*) {
 			const int preset = graphics_preset_w->get_selection();
 			set_graphics_preset_description(preset);
@@ -1638,6 +1641,7 @@ void handle_preferences(bool in_game)
 			bright_texture_lights_w->set_selection(high_or_better);
 			bright_scenery_lights_w->set_selection(high_or_better);
 			all_visible_scenery_lights_w->set_selection(high_or_better);
+            per_pixel_light_quality_w->set_selection(high_or_better ? 0 : (medium_or_better ? 1 : 2));
 			colored_light_intensity_w->set_selection(high_or_better ? 150 : 100);
 			scenery_light_intensity_w->set_selection(high_or_better ? 40 : 100);
 			texture_light_intensity_w->set_selection(high_or_better ? 200 : 100);
@@ -1741,7 +1745,7 @@ void handle_preferences(bool in_game)
 		graphics_bobbing_w, ogl_fader_w, ogl_models_w, ogl_perspective_w,
 		ogl_billboard_w, ogl_bloom_w, ogl_bump_w, simplify_distant_surfaces_w,
 		projectile_motion_blur_w,
-		projectile_lights_per_pixel_w, bright_texture_lights_w, bright_scenery_lights_w, all_visible_scenery_lights_w, player_light_circle_w, soft_sector_light_edges_w,
+		projectile_lights_per_pixel_w, bright_texture_lights_w, bright_scenery_lights_w, all_visible_scenery_lights_w, per_pixel_light_quality_w, player_light_circle_w, soft_sector_light_edges_w,
 		ogl_refractive_invisibility_w, ogl_sprite_shadows_w,
 		ogl_ambient_occlusion_w, ogl_landscape_light_shafts_w,
 		ogl_anamorphic_lens_flares_w, ogl_vsync_w, ogl_npot_w,
@@ -1917,6 +1921,7 @@ void handle_preferences(bool in_game)
 	graphics_preferences->bright_texture_lights = bright_texture_lights_w->get_selection();
 	graphics_preferences->bright_scenery_lights = bright_scenery_lights_w->get_selection();
 	graphics_preferences->all_visible_scenery_lights = all_visible_scenery_lights_w->get_selection();
+    graphics_preferences->per_pixel_light_quality = per_pixel_light_quality_w->get_selection();
 	graphics_preferences->simplify_distant_surfaces = simplify_distant_surfaces_w->get_selection();
 	graphics_preferences->colored_light_intensity = colored_light_intensity_w->get_selection();
 	graphics_preferences->scenery_light_intensity = scenery_light_intensity_w->get_selection();
@@ -2279,6 +2284,11 @@ void handle_preferences(bool in_game)
 		change_screen_mode(&graphics_preferences->screen_mode, true);
 		clear_screen(true);
 	}
+
+#ifdef HAVE_OPENGL
+    extern void sprintathon_refresh_world_shader_preferences();
+    sprintathon_refresh_world_shader_preferences();
+#endif
 
 	if (!in_game)
 		display_main_menu();
@@ -6299,6 +6309,7 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("bright_texture_lights", graphics_preferences->bright_texture_lights);
 	root.put_attr("bright_scenery_lights", graphics_preferences->bright_scenery_lights);
 	root.put_attr("all_visible_scenery_lights", graphics_preferences->all_visible_scenery_lights);
+    root.put_attr("per_pixel_light_quality", graphics_preferences->per_pixel_light_quality);
 	root.put_attr("simplify_distant_surfaces", graphics_preferences->simplify_distant_surfaces);
 	root.put_attr("colored_light_intensity", graphics_preferences->colored_light_intensity);
 	root.put_attr("scenery_light_intensity", graphics_preferences->scenery_light_intensity);
@@ -6968,6 +6979,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->bright_texture_lights = true;
 	preferences->bright_scenery_lights = true;
 	preferences->all_visible_scenery_lights = true;
+    preferences->per_pixel_light_quality = 0;
 	preferences->simplify_distant_surfaces = true;
 	preferences->colored_light_intensity = 150;
 	preferences->scenery_light_intensity = 40;
@@ -7534,6 +7546,7 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	graphics_preferences->bright_scenery_lights = graphics_preferences->bright_texture_lights;
 	root.read_attr("bright_scenery_lights", graphics_preferences->bright_scenery_lights);
 	root.read_attr("all_visible_scenery_lights", graphics_preferences->all_visible_scenery_lights);
+    root.read_attr_bounded<int16>("per_pixel_light_quality", graphics_preferences->per_pixel_light_quality, 0, 2);
 	root.read_attr("simplify_distant_surfaces", graphics_preferences->simplify_distant_surfaces);
 	root.read_attr_bounded<int16>("colored_light_intensity",
 		graphics_preferences->colored_light_intensity, 0, 200);

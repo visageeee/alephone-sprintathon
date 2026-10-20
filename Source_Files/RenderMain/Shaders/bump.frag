@@ -3,6 +3,12 @@ R"(
 uniform sampler2D texture0;
 uniform sampler2D textureBakeMap;
 uniform float textureBakeEnabled;
+#if defined(SPRINTATHON_VERTEX_LIGHTS) && !defined(SPRINTATHON_NO_DYNAMIC_LIGHTS)
+varying vec3 sprintathonVertexLighting;
+#endif
+#ifndef SPRINTATHON_WORLD_LIGHT_BUDGET
+#define SPRINTATHON_WORLD_LIGHT_BUDGET 20
+#endif
 uniform sampler2D skyBakeMap;
 uniform vec4 skyBakeLayers;
 vec2 sampleSkyBake(vec2 uv) {
@@ -29,6 +35,7 @@ uniform sampler2DRect texture2;
 uniform float pulsate;
 uniform float wobble;
 uniform float glow;
+uniform float sprintathonEmitterShade;
 uniform float sprintathonDistantSurfaceDetail;
 uniform float flare;
 uniform float selfLuminosity;
@@ -102,6 +109,27 @@ uniform vec4 sprintathonLightPosition20;
 uniform vec4 sprintathonLightColor20;
 uniform vec4 sprintathonLightPosition21;
 uniform vec4 sprintathonLightColor21;
+uniform vec4 sprintathonLightPlane2;
+uniform vec4 sprintathonLightPlane3;
+uniform vec4 sprintathonLightPlane4;
+uniform vec4 sprintathonLightPlane5;
+uniform vec4 sprintathonLightPlane6;
+uniform vec4 sprintathonLightPlane7;
+uniform vec4 sprintathonLightPlane8;
+uniform vec4 sprintathonLightPlane9;
+uniform vec4 sprintathonLightPlane10;
+uniform vec4 sprintathonLightPlane11;
+uniform vec4 sprintathonLightPlane12;
+uniform vec4 sprintathonLightPlane13;
+uniform vec4 sprintathonLightPlane14;
+uniform vec4 sprintathonLightPlane15;
+uniform vec4 sprintathonLightPlane16;
+uniform vec4 sprintathonLightPlane17;
+uniform vec4 sprintathonLightPlane18;
+uniform vec4 sprintathonLightPlane19;
+uniform vec4 sprintathonLightPlane20;
+uniform vec4 sprintathonLightPlane21;
+
 uniform vec4 sprintathonConePool0;
 uniform vec4 sprintathonConeColor0;
 uniform vec4 sprintathonConePool1;
@@ -145,6 +173,9 @@ float getFogFactor(float distance) {
 
 // Accumulate coloured caustic light separately from texture-multiplied shading.
 vec3 sprintathonCausticRadiance;
+#ifdef SPRINTATHON_NO_CAUSTICS
+float sprintathonLiquidCaustic(float tag, vec3 sourcePosition) { return 0.0; }
+#else
 float sprintathonLiquidCaustic(float tag, vec3 sourcePosition) {
     float phase = tag - (tag >= 10.0 ? 10.0 : 2.0);
     vec3 relativePosition = sprintathonWorldPosition - sourcePosition;
@@ -161,17 +192,31 @@ float sprintathonLiquidCaustic(float tag, vec3 sourcePosition) {
     float sourceGain = tag >= 10.0 ? 0.5 : 1.0;
     return sourceGain * 0.85 * ridge * ridge;
 }
+#endif
 
+
+#ifdef SPRINTATHON_NO_DYNAMIC_LIGHTS
+void sprintathonApplySurfaceLights(inout vec3 intensity) { sprintathonCausticRadiance=vec3(0.0); }
+#elif defined(SPRINTATHON_VERTEX_LIGHTS)
+void sprintathonApplySurfaceLights(inout vec3 intensity) {
+    sprintathonCausticRadiance=vec3(0.0);
+    intensity=clamp(intensity+sprintathonVertexLighting,glow,1.0);
+}
+#else
 void sprintathonApplySurfaceLights(inout vec3 intensity) {
     sprintathonCausticRadiance = vec3(0.0);
     if (sprintathonSurfaceLightCount <= 0.0) return;
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 1
     if (sprintathonLightColor2.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition2.xyz) * sprintathonLightPosition2.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor2.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane2.xyz) + sprintathonLightPlane2.w);
+            vec3 contribution = sprintathonLightColor2.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor2.a >= 2.0) {
                 steadyGain = sprintathonLightColor2.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -185,13 +230,18 @@ void sprintathonApplySurfaceLights(inout vec3 intensity) {
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 2
     if (sprintathonLightColor3.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition3.xyz) * sprintathonLightPosition3.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor3.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane3.xyz) + sprintathonLightPlane3.w);
+            vec3 contribution = sprintathonLightColor3.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor3.a >= 2.0) {
                 steadyGain = sprintathonLightColor3.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -205,13 +255,18 @@ void sprintathonApplySurfaceLights(inout vec3 intensity) {
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 3
     if (sprintathonLightColor4.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition4.xyz) * sprintathonLightPosition4.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor4.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane4.xyz) + sprintathonLightPlane4.w);
+            vec3 contribution = sprintathonLightColor4.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor4.a >= 2.0) {
                 steadyGain = sprintathonLightColor4.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -225,13 +280,18 @@ void sprintathonApplySurfaceLights(inout vec3 intensity) {
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 4
     if (sprintathonLightColor5.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition5.xyz) * sprintathonLightPosition5.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor5.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane5.xyz) + sprintathonLightPlane5.w);
+            vec3 contribution = sprintathonLightColor5.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor5.a >= 2.0) {
                 steadyGain = sprintathonLightColor5.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -245,14 +305,19 @@ void sprintathonApplySurfaceLights(inout vec3 intensity) {
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
     if (sprintathonSurfaceLightCount <= 4.0) return;
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 5
     if (sprintathonLightColor6.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition6.xyz) * sprintathonLightPosition6.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor6.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane6.xyz) + sprintathonLightPlane6.w);
+            vec3 contribution = sprintathonLightColor6.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor6.a >= 2.0) {
                 steadyGain = sprintathonLightColor6.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -266,6 +331,8 @@ void sprintathonApplySurfaceLights(inout vec3 intensity) {
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 6
     if (sprintathonLightColor7.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition7.xyz) * sprintathonLightPosition7.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
@@ -274,7 +341,10 @@ void sprintathonApplySurfaceLights(inout vec3 intensity) {
 R"(            float lightFalloff = 1.0 - lightDistanceSquared;
 )"
 R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor7.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane7.xyz) + sprintathonLightPlane7.w);
+            vec3 contribution = sprintathonLightColor7.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor7.a >= 2.0) {
                 steadyGain = sprintathonLightColor7.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -288,13 +358,18 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 7
     if (sprintathonLightColor8.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition8.xyz) * sprintathonLightPosition8.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor8.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane8.xyz) + sprintathonLightPlane8.w);
+            vec3 contribution = sprintathonLightColor8.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor8.a >= 2.0) {
                 steadyGain = sprintathonLightColor8.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -308,7 +383,9 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
 
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 8
     if (sprintathonLightColor9.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition9.xyz) * sprintathonLightPosition9.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
@@ -316,7 +393,10 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             float lightFalloff = 1.0 - lightDistanceSquared;
 )"
 R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor9.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane9.xyz) + sprintathonLightPlane9.w);
+            vec3 contribution = sprintathonLightColor9.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor9.a >= 2.0) {
                 steadyGain = sprintathonLightColor9.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -330,14 +410,19 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
     if (sprintathonSurfaceLightCount <= 8.0) return;
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 9
     if (sprintathonLightColor10.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition10.xyz) * sprintathonLightPosition10.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor10.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane10.xyz) + sprintathonLightPlane10.w);
+            vec3 contribution = sprintathonLightColor10.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor10.a >= 2.0) {
                 steadyGain = sprintathonLightColor10.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -351,13 +436,18 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 10
     if (sprintathonLightColor11.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition11.xyz) * sprintathonLightPosition11.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor11.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane11.xyz) + sprintathonLightPlane11.w);
+            vec3 contribution = sprintathonLightColor11.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor11.a >= 2.0) {
                 steadyGain = sprintathonLightColor11.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -371,13 +461,18 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 11
     if (sprintathonLightColor12.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition12.xyz) * sprintathonLightPosition12.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor12.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane12.xyz) + sprintathonLightPlane12.w);
+            vec3 contribution = sprintathonLightColor12.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor12.a >= 2.0) {
                 steadyGain = sprintathonLightColor12.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -391,13 +486,18 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 12
     if (sprintathonLightColor13.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition13.xyz) * sprintathonLightPosition13.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor13.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane13.xyz) + sprintathonLightPlane13.w);
+            vec3 contribution = sprintathonLightColor13.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor13.a >= 2.0) {
                 steadyGain = sprintathonLightColor13.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -411,14 +511,19 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
     if (sprintathonSurfaceLightCount <= 12.0) return;
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 13
     if (sprintathonLightColor14.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition14.xyz) * sprintathonLightPosition14.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor14.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane14.xyz) + sprintathonLightPlane14.w);
+            vec3 contribution = sprintathonLightColor14.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor14.a >= 2.0) {
                 steadyGain = sprintathonLightColor14.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -432,13 +537,18 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 14
     if (sprintathonLightColor15.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition15.xyz) * sprintathonLightPosition15.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor15.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane15.xyz) + sprintathonLightPlane15.w);
+            vec3 contribution = sprintathonLightColor15.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor15.a >= 2.0) {
                 steadyGain = sprintathonLightColor15.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -452,13 +562,18 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 15
     if (sprintathonLightColor16.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition16.xyz) * sprintathonLightPosition16.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor16.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane16.xyz) + sprintathonLightPlane16.w);
+            vec3 contribution = sprintathonLightColor16.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor16.a >= 2.0) {
                 steadyGain = sprintathonLightColor16.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -472,13 +587,18 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 16
     if (sprintathonLightColor17.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition17.xyz) * sprintathonLightPosition17.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor17.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane17.xyz) + sprintathonLightPlane17.w);
+            vec3 contribution = sprintathonLightColor17.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor17.a >= 2.0) {
                 steadyGain = sprintathonLightColor17.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -492,7 +612,9 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
     if (sprintathonSurfaceLightCount <= 16.0) return;
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 17
     if (sprintathonLightColor18.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition18.xyz) * sprintathonLightPosition18.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
@@ -500,7 +622,10 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             float lightFalloff = 1.0 - lightDistanceSquared;
 )"
 R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor18.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane18.xyz) + sprintathonLightPlane18.w);
+            vec3 contribution = sprintathonLightColor18.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor18.a >= 2.0) {
                 steadyGain = sprintathonLightColor18.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -514,13 +639,18 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 18
     if (sprintathonLightColor19.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition19.xyz) * sprintathonLightPosition19.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor19.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane19.xyz) + sprintathonLightPlane19.w);
+            vec3 contribution = sprintathonLightColor19.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor19.a >= 2.0) {
                 steadyGain = sprintathonLightColor19.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -534,13 +664,18 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 19
     if (sprintathonLightColor20.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition20.xyz) * sprintathonLightPosition20.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor20.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane20.xyz) + sprintathonLightPlane20.w);
+            vec3 contribution = sprintathonLightColor20.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor20.a >= 2.0) {
                 steadyGain = sprintathonLightColor20.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -554,13 +689,18 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
+#if SPRINTATHON_WORLD_LIGHT_BUDGET >= 20
     if (sprintathonLightColor21.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition21.xyz) * sprintathonLightPosition21.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
             float lightFalloff = 1.0 - lightDistanceSquared;
             float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * lightDistanceSquared);
-            vec3 contribution = sprintathonLightColor21.rgb * attenuation;
+            // Feather mainly in front of the plane; only 1/32 WU behind it.
+            float facing = smoothstep(-32.0, 96.0,
+                dot(sprintathonWorldPosition, sprintathonLightPlane21.xyz) + sprintathonLightPlane21.w);
+            vec3 contribution = sprintathonLightColor21.rgb * (attenuation * facing);
             float steadyGain = 1.0;
             if (sprintathonLightColor21.a >= 2.0) {
                 steadyGain = sprintathonLightColor21.a >= 10.0 ? 1.0 : sprintathonLiquidLightSettings.x;
@@ -574,8 +714,14 @@ R"(            float attenuation = lightFalloff * lightFalloff / (1.0 + 16.0 * l
             intensity = clamp(intensity + contribution * steadyGain, glow, 1.0);
         }
     }
+#endif
 }
+#endif
 
+
+#ifdef SPRINTATHON_NO_ALL_SCENERY
+void sprintathonApplyAllScenery(inout vec3 intensity) {}
+#else
 void sprintathonApplyAllScenery(inout vec3 intensity) {
     for (float i = sprintathonSceneryFirst; i < sprintathonAllSceneryCount; i += 1.0) {
         if (all(greaterThanEqual(intensity, vec3(1.0)))) break;
@@ -594,6 +740,8 @@ void sprintathonApplyAllScenery(inout vec3 intensity) {
         }
     }
 }
+#endif
+
 
 )"
 R"(
@@ -602,6 +750,7 @@ R"(
 
 uniform vec4 visibleSun;
 uniform vec4 visibleSunColor;
+#ifndef SPRINTATHON_NO_WATER_SPECULAR
 vec3 sprintathonSunDisc(vec3 ray) {
     if(visibleSunColor.w<=0.0)return vec3(0.0);
     float alignment=dot(normalize(ray),visibleSun.xyz);
@@ -611,11 +760,14 @@ vec3 sprintathonSunDisc(vec3 ray) {
     float halo=0.035*exp2(-max(0.0,1.0-alignment)/(radius*4.0));
     return visibleSunColor.rgb*visibleSunColor.w*(disc+halo);
 }
+#endif
+
 
 // Texture-based surface normals. RG and BA contain independent seamless
 // slope fields. Rotated scales and balanced motion hide their repeat pattern.
 // Reuse the existing world-space coloured-light uniforms. Liquid emitters
 // are excluded so their fluorescence does not reflect back into itself.
+#ifndef SPRINTATHON_NO_WATER_SPECULAR
 vec3 sprintathonWaterLight(vec4 source,vec4 colour,vec3 normal,vec3 eye,float alpha2) {
     // Negative alpha encodes an extended scenery source radius.
     bool areaSource=colour.a<0.0;
@@ -648,7 +800,10 @@ vec3 sprintathonWaterLight(vec4 source,vec4 colour,vec3 normal,vec3 eye,float al
     float falloff=(1.0-range2)*(1.0-range2)/(1.0+(areaSource ? 2.0 : 16.0)*range2);
     return max(colour.rgb,vec3(0.0))*(distribution*geometry*fresnel*falloff);
 }
+#endif
 
+
+#ifndef SPRINTATHON_NO_WATER_SPECULAR
 vec2 sprintathonFlowingSlopes(vec2 position,float phase,float distanceToEye) {
     vec2 uv=position*(0.24/1024.0);
     // Match the visible ripple cadence more closely; phase already carries
@@ -673,6 +828,8 @@ vec2 sprintathonFlowingSlopes(vec2 position,float phase,float distanceToEye) {
     }
     return slopes;
 }
+#endif
+
 
 void main (void) {
     float viewDistance = length(viewDir);
@@ -689,11 +846,14 @@ R"(        1.0 - smoothstep(16.0 * 1024.0, 32.0 * 1024.0, viewDistance) : 1.0;
 	float wetTextureShade = 1.0;
 	vec2 sceneRefractionOffset = vec2(0.0);
     vec2 liquidSlopes=vec2(0.0);
-    if(liquidSpecLight.w>0.0 && rippleStrength>0.001) {
+    #ifndef SPRINTATHON_NO_WATER_SPECULAR
+if(liquidSpecLight.w>0.0 && rippleStrength>0.001) {
         liquidSlopes=sprintathonFlowingSlopes(sprintathonWorldPosition.xy+liquidFlow.xy,liquidSpecEye.w,viewDistance)
             * clamp(rippleStrength,0.0,1.5);
         // Reflection and refraction share this continuous wave field.
     }
+#endif
+
 	if (rippleStrength > 0.001) {
 		float phase = time;
 		vec2 base = sprintathonWorldPosition.xy / 1024.0;
@@ -723,7 +883,8 @@ R"(        1.0 - smoothstep(16.0 * 1024.0, 32.0 * 1024.0, viewDistance) : 1.0;
 			rippleStrength + rippleFresnel * 0.05 * rippleStrength,
 			0.65, 1.35);
 	}
-    if(liquidSpecLight.w>0.0 && rippleStrength>0.001) {
+    #ifndef SPRINTATHON_NO_WATER_SPECULAR
+if(liquidSpecLight.w>0.0 && rippleStrength>0.001) {
         // Retain the established liquid texture animation above. Only the
         // optical distortion follows the new reflection normal field.
         vec3 viewSlope=gl_NormalMatrix*vec3(liquidSlopes,0.0);
@@ -733,6 +894,8 @@ R"(        1.0 - smoothstep(16.0 * 1024.0, 32.0 * 1024.0, viewDistance) : 1.0;
         rippleHighlight=1.0;
         wetTextureShade=1.0;
     }
+#endif
+
 	vec3 normXY = normalize(viewXY);
 	texCoords += vec3(normXY.y * -pulsate, normXY.x * pulsate, 0.0);
 	texCoords += vec3(normXY.y * -wobble * texCoords.y, wobble * texCoords.y, 0.0);
@@ -793,7 +956,8 @@ R"(        1.0 - smoothstep(16.0 * 1024.0, 32.0 * 1024.0, viewDistance) : 1.0;
     // Each side contributes half of the shade difference at their shared edge.
     // Select one edge per fragment; blending them in sequence creates dark or
     // bright rectangular patches at corners and in small polygons.
-    if (surfaceDetail > 0.0) {
+    #ifndef SPRINTATHON_NO_SECTOR_BLEND
+if (surfaceDetail > 0.0) {
     vec2 sectorPosition = sprintathonWorldPosition.xy;
     if (sprintathonWallBlendAxis.w > 0.5)
         sectorPosition = vec2(dot(sprintathonWorldPosition.xy, sprintathonWallBlendAxis.xy)
@@ -985,6 +1149,8 @@ R"(                float segmentDistance = sqrt(segmentDistanceSquared);
         intensity = mix(intensity, vec3(sectorShadeSum / sectorBlendWeight),
                         min(sectorBlendWeight, 0.5) * surfaceDetail);
     }
+#endif
+
     // Combine live sector brightness with static sky illumination. Surface UVs
     // derive from world coordinates, independent of texture scrolling.
     if (skyBakeEnabled > 0.5) {
@@ -1031,7 +1197,8 @@ R"(                float segmentDistance = sqrt(segmentDistanceSquared);
             intensity = clamp(intensity + sprintathonConeColor3.rgb * falloff, glow, 1.0);
         }
     }
-    if (sprintathonMuzzleColor.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
+    #if !defined(SPRINTATHON_NO_DYNAMIC_LIGHTS) && !defined(SPRINTATHON_VERTEX_LIGHTS)
+if (sprintathonMuzzleColor.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 muzzleDelta = (sprintathonWorldPosition - sprintathonMuzzlePosition.xyz) * sprintathonMuzzlePosition.w;
         float lightDistanceSquared = dot(muzzleDelta, muzzleDelta);
         if (lightDistanceSquared < 1.0) {
@@ -1040,8 +1207,11 @@ R"(                float segmentDistance = sqrt(segmentDistanceSquared);
                               (muzzleFalloff * muzzleFalloff), glow, 1.0);
         }
     }
+#endif
+
     // A uniform branch skips the distance math for unlit surfaces and when the option is off.
-    if (sprintathonLightColor.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
+    #if !defined(SPRINTATHON_NO_DYNAMIC_LIGHTS) && !defined(SPRINTATHON_VERTEX_LIGHTS)
+if (sprintathonLightColor.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
         vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPosition.xyz) * sprintathonLightPosition.w;
         float lightDistanceSquared = dot(lightDelta, lightDelta);
         if (lightDistanceSquared < 1.0) {
@@ -1049,6 +1219,8 @@ R"(                float segmentDistance = sqrt(segmentDistanceSquared);
             intensity = clamp(intensity + sprintathonLightColor.rgb * (lightFalloff * lightFalloff), glow, 1.0);
         }
     }
+#endif
+
     if(textureBakeEnabled>0.5){
         vec4 wp=vec4(sprintathonWorldPosition,1.0);
         intensity=clamp(intensity+texture2D(textureBakeMap,vec2(dot(wp,skyBakeU),dot(wp,skyBakeV))).rgb,glow,1.0);
@@ -1059,6 +1231,14 @@ R"(                float segmentDistance = sqrt(segmentDistanceSquared);
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)
 #endif
+    // Bright fixture texels retain their assigned map-light animation even
+    // when received lighting saturates. Dark casing keeps received lighting.
+    float emitterMask = smoothstep(0.55, 0.90, max(color.r, max(color.g, color.b)));
+    float emitterShade = clamp(sprintathonEmitterShade, 0.0, 1.0);
+#ifdef GAMMA_CORRECTED_BLENDING
+    emitterShade *= emitterShade;
+#endif
+    intensity = mix(intensity, min(intensity, vec3(emitterShade)), emitterMask);
 	vec3 shadedColor = clamp(color.rgb * intensity, 0.0, 1.0);
 	float fogFactor = getFogFactor(viewDistance);
 	if (mediaFogEnabled > 0.0) {
@@ -1068,7 +1248,8 @@ R"(                float segmentDistance = sqrt(segmentDistanceSquared);
 	}
     vec3 liquidReflection=vec3(0.0), liquidDirect=vec3(0.0);
     float liquidReflectWeight=0.0;
-    if (liquidSpecLight.w > 0.0) {
+    #ifndef SPRINTATHON_NO_WATER_SPECULAR
+if (liquidSpecLight.w > 0.0) {
         vec3 eyeDelta = liquidSpecEye.xyz - sprintathonWorldPosition;
         vec3 eye = eyeDelta / max(length(eyeDelta),0.0001);
         if (eye.z > 0.0) {
@@ -1141,6 +1322,8 @@ R"(                float segmentDistance = sqrt(segmentDistanceSquared);
             liquidDirect=specular+localRadiance/(vec3(1.0)+localRadiance)*sunGain*0.75;
         }
     }
+#endif
+
     // Preserve surface detail through luminance, without tinting orange light
     // green on green textures. One shared headroom factor preserves RGB ratios.
     vec3 caustic = sprintathonCausticRadiance * dot(color.rgb, vec3(0.299, 0.587, 0.114));

@@ -82,6 +82,7 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"depth",
 	"strictDepthMode",
 	"glow",
+    "sprintathonEmitterShade",
 	"landscapeInverseMatrix",
 	"scalex",
 	"scaley",
@@ -144,6 +145,27 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"sprintathonLightColor20",
 	"sprintathonLightPosition21",
 	"sprintathonLightColor21",
+    "sprintathonLightPlane2",
+    "sprintathonLightPlane3",
+    "sprintathonLightPlane4",
+    "sprintathonLightPlane5",
+    "sprintathonLightPlane6",
+    "sprintathonLightPlane7",
+    "sprintathonLightPlane8",
+    "sprintathonLightPlane9",
+    "sprintathonLightPlane10",
+    "sprintathonLightPlane11",
+    "sprintathonLightPlane12",
+    "sprintathonLightPlane13",
+    "sprintathonLightPlane14",
+    "sprintathonLightPlane15",
+    "sprintathonLightPlane16",
+    "sprintathonLightPlane17",
+    "sprintathonLightPlane18",
+    "sprintathonLightPlane19",
+    "sprintathonLightPlane20",
+    "sprintathonLightPlane21",
+
 	"sprintathonConePool0",
 	"sprintathonConeColor0",
 	"sprintathonConePool1",
@@ -298,6 +320,34 @@ void parseFile(FileSpecifier& fileSpec, std::string& s) {
 }
 
 
+// Compile disabled optional world effects out of the built-in shaders.
+// Custom MML shaders retain their source unchanged.
+static unsigned sprintathon_shader_features() {
+    const char* full=std::getenv("SPRINTATHON_FULL_WORLD_SHADER");
+    if(full && full[0]=='1')return 31;
+    if(!graphics_preferences)return 31;
+    const auto& p=*graphics_preferences;
+    return (p.projectile_lights_per_pixel ? 1u : 0u) |
+        (p.projectile_lights_per_pixel && p.bright_scenery_lights && p.all_visible_scenery_lights && p.per_pixel_light_quality==0 ? 2u : 0u) |
+        (p.liquid_specular ? 4u : 0u) |
+        (p.soft_sector_light_edges ? 8u : 0u) |
+        (p.liquid_caustics ? 16u : 0u) | (unsigned(p.per_pixel_light_quality)<<5);
+}
+static unsigned sprintathon_compiled_features=~0u;
+static std::string sprintathon_specialize_world_shader(const std::string& source) {
+    const unsigned mask=sprintathon_shader_features();
+    const unsigned quality=(mask>>5)&3;
+    std::string prefix=quality==0 ? "#define SPRINTATHON_WORLD_LIGHT_BUDGET 20\n" :
+        (quality==1 ? "#define SPRINTATHON_WORLD_LIGHT_BUDGET 8\n" : "#define SPRINTATHON_WORLD_LIGHT_BUDGET 4\n");
+    if(!(mask&1))prefix+="#define SPRINTATHON_NO_DYNAMIC_LIGHTS\n";
+    if(!(mask&2))prefix+="#define SPRINTATHON_NO_ALL_SCENERY\n";
+    if(!(mask&4))prefix+="#define SPRINTATHON_NO_WATER_SPECULAR\n";
+    if(!(mask&8))prefix+="#define SPRINTATHON_NO_SECTOR_BLEND\n";
+    if(!(mask&16) || quality==2)prefix+="#define SPRINTATHON_NO_CAUSTICS\n";
+    if(quality==2)prefix+="#define SPRINTATHON_VERTEX_LIGHTS\n";
+    return prefix+source;
+}
+
 GLhandleARB parseShader(const GLcharARB* str, GLenum shaderType) {
 
 	GLint status;
@@ -356,6 +406,12 @@ void Shader::loadAll() {
 
 void Shader::warmup(void (*progress)()) {
     loadAll();
+    const unsigned features=sprintathon_shader_features();
+    if(sprintathon_compiled_features!=features) {
+        disable();
+        unloadAll();
+        sprintathon_compiled_features=features;
+    }
     const auto& config=Get_OGL_ConfigureData();
     for (int i=0;i<NUMBER_OF_SHADER_TYPES;++i) {
         const std::string name=_shader_names[i];
@@ -371,6 +427,11 @@ void Shader::warmup(void (*progress)()) {
         if (progress) progress();
     }
     disable();
+}
+
+void sprintathon_refresh_world_shader_preferences() {
+    if(SDL_GL_GetCurrentContext() && sprintathon_compiled_features!=sprintathon_shader_features())
+        Shader::warmup(nullptr);
 }
 
 void Shader::warmupDraws() {
@@ -514,8 +575,21 @@ void Shader::init() {
 
 	_programObj = glCreateProgramObjectARB();
 
+    std::string vertexSource=_vert,fragmentSource=_frag;
+    bool specialized=false;
+    for(const char* name : {"wall","bump"}) {
+        const auto fragment=defaultFragmentPrograms.find(name);
+        const auto vertex=defaultVertexPrograms.find(name);
+        if(fragment!=defaultFragmentPrograms.end() && vertex!=defaultVertexPrograms.end() &&
+            _frag==fragment->second && _vert==vertex->second) {
+            // Vertex-light varyings must be compiled consistently in both stages.
+            vertexSource=sprintathon_specialize_world_shader(_vert);
+            fragmentSource=sprintathon_specialize_world_shader(_frag);
+            specialized=true;break;
+        }
+    }
 	assert(!_vert.empty());
-	GLhandleARB vertexShader = parseShader(_vert.c_str(), GL_VERTEX_SHADER_ARB);
+	GLhandleARB vertexShader = parseShader(vertexSource.c_str(), GL_VERTEX_SHADER_ARB);
     if(!vertexShader) {
         _vert = defaultVertexPrograms["error"];
         vertexShader = parseShader(_vert.c_str(), GL_VERTEX_SHADER_ARB);
@@ -525,7 +599,9 @@ void Shader::init() {
 	glDeleteObjectARB(vertexShader);
 
 	assert(!_frag.empty());
-	GLhandleARB fragmentShader = parseShader(_frag.c_str(), GL_FRAGMENT_SHADER_ARB);
+    if(specialized && SprintathonStartupTiming::extended())
+        fprintf(stderr,"World shader variant: mask=%u (dynamic=1 all-scenery=2 water-specular=4 sector-blend=8 caustics=16 quality=bits5-6)\n",sprintathon_shader_features());
+    GLhandleARB fragmentShader = parseShader(fragmentSource.c_str(), GL_FRAGMENT_SHADER_ARB);
 	if(!fragmentShader) {
         _frag = defaultFragmentPrograms["error"];
         fragmentShader = parseShader(_frag.c_str(), GL_FRAGMENT_SHADER_ARB);
