@@ -86,7 +86,20 @@ inline void begin() {
     active=Shader::opaqueBatchRequested() && SprintathonOpaqueGeometry::enabled() &&
         SprintathonOpaqueGeometry::buffer &&
         SprintathonOpaqueGeometry::context==SDL_GL_GetCurrentContext();
-    if (!active) return;
+    const char* requested=std::getenv("SPRINTATHON_OPAQUE_BATCH");
+    const char* bake=std::getenv("SPRINTATHON_TEXTURE_BAKE");
+    const bool bakeRequested=bake ? bake[0]=='1' :
+        (graphics_preferences->baked_texture_lights || graphics_preferences->baked_scenery_lights);
+    const auto traceFrame=SprintathonStartupTiming::get().frame_id;
+    const bool trace=SprintathonStartupTiming::get().active() && (traceFrame==1 || traceFrame%120==0);
+    if(trace)std::fprintf(stderr,"Opaque batch status frame %llu: env-requested=%d effective-request=%d bake-requested=%d geometry-enabled=%d buffer=%u context-match=%d\n",
+        static_cast<unsigned long long>(traceFrame),int(requested && requested[0]=='1'),
+        int(Shader::opaqueBatchRequested()),int(bakeRequested),int(SprintathonOpaqueGeometry::enabled()),
+        unsigned(SprintathonOpaqueGeometry::buffer),int(SprintathonOpaqueGeometry::context==SDL_GL_GetCurrentContext()));
+    if (!active) {
+        if(trace)std::fprintf(stderr,"Opaque batch: inactive; queued=0 draws=0 fallback=0\n");
+        return;
+    }
     if (procContext!=SDL_GL_GetCurrentContext()) {
         procContext=SDL_GL_GetCurrentContext();
         multiDraw=reinterpret_cast<MultiDraw>(SDL_GL_GetProcAddress("glMultiDrawArrays"));
@@ -94,6 +107,7 @@ inline void begin() {
             multiDraw=reinterpret_cast<MultiDraw>(SDL_GL_GetProcAddress("glMultiDrawArraysEXT"));
     }
     active=multiDraw!=nullptr;
+    if(trace)std::fprintf(stderr,"Opaque batch activation: active=%d multidraw=%d\n",int(active),int(multiDraw!=nullptr));
 }
 
 template<class Clip, class Trace> void flush(Clip clip, Trace trace) {

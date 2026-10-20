@@ -64,7 +64,11 @@ namespace {
 #define SPRINTATHON_GL_CALL
 #endif
 // Sample category transitions without changing portal/blending draw order.
-// Timestamp queries can coexist with the outer elapsed-time query.
+// Detailed elapsed queries use dedicated sampled frames, without the outer query.
+static bool sprintathon_detail_frame() {
+    const auto frame=SprintathonStartupTiming::get().frame_id;
+    return SprintathonStartupTiming::get().active() && (frame==1 || frame%60==0);
+}
 #if defined(_WIN32) || defined(__WIN32__)
 #define WORLD_GL_CALL __stdcall
 #elif defined(APIENTRY)
@@ -75,7 +79,8 @@ namespace {
 class SprintathonWorldDetail {
     using Gen = void (WORLD_GL_CALL *)(GLsizei, GLuint*);
     using Delete = void (WORLD_GL_CALL *)(GLsizei, const GLuint*);
-    using Stamp = void (WORLD_GL_CALL *)(GLuint, GLenum);
+    using Begin = void (WORLD_GL_CALL *)(GLenum, GLuint);
+    using End = void (WORLD_GL_CALL *)(GLenum);
     using Available = void (WORLD_GL_CALL *)(GLuint, GLenum, GLuint*);
     using Result = void (WORLD_GL_CALL *)(GLuint, GLenum, uint64_t*);
 #undef WORLD_GL_CALL
@@ -90,7 +95,8 @@ class SprintathonWorldDetail {
     } samples[3];
     Gen gen = nullptr;
     Delete remove = nullptr;
-    Stamp stamp = nullptr;
+    Begin beginQuery = nullptr;
+    End endQuery = nullptr;
     Available available = nullptr;
     Result result = nullptr;
     SDL_GLContext context = nullptr;
@@ -135,15 +141,16 @@ public:
             initialized = true;
             gen = reinterpret_cast<Gen>(SDL_GL_GetProcAddress("glGenQueries"));
             remove = reinterpret_cast<Delete>(SDL_GL_GetProcAddress("glDeleteQueries"));
-            stamp = reinterpret_cast<Stamp>(SDL_GL_GetProcAddress("glQueryCounter"));
+            beginQuery = reinterpret_cast<Begin>(SDL_GL_GetProcAddress("glBeginQuery"));
+            endQuery = reinterpret_cast<End>(SDL_GL_GetProcAddress("glEndQuery"));
             available = reinterpret_cast<Available>(SDL_GL_GetProcAddress("glGetQueryObjectuiv"));
             result = reinterpret_cast<Result>(SDL_GL_GetProcAddress("glGetQueryObjectui64v"));
             int major=0,minor=0;
             const char* version=reinterpret_cast<const char*>(glGetString(GL_VERSION));
             if(version)std::sscanf(version,"%d.%d",&major,&minor);
-            supported = gen && remove && stamp && available && result &&
+            supported = gen && remove && beginQuery && endQuery && available && result &&
                 (SDL_GL_ExtensionSupported("GL_ARB_timer_query") || major>3 || (major==3 && minor>=3));
-            fprintf(stderr,"World detail v2: CPU timings enabled; GPU timestamps %s; GL %s\n",
+            fprintf(stderr,"World detail v3: CPU timings enabled; isolated GPU elapsed queries %s; GL %s\n",
                 supported ? "enabled" : "unavailable",version?version:"unknown");
         }
         if (!supported) return;
@@ -151,19 +158,21 @@ public:
             if (!s.pending) continue;
             GLuint ready = 0;
             available(s.queries[s.used-1], 0x8867, &ready);
-            if (!ready) continue;
+            if (!ready) {
+                if(frame>s.frame+240) {
+                    fprintf(stderr,"World detail: GPU query timeout for frame %llu; disabling detailed GPU queries (CPU and whole-pass timers remain available)\n",static_cast<unsigned long long>(s.frame));
+                    supported=false;return;
+                }
+                continue;
+            }
             double ms[5] = {};
-            uint64_t previous = 0;
-            result(s.queries[0], 0x8866, &previous);
-            for (int i=1; i<s.used; ++i) {
-                uint64_t now = 0;
-                result(s.queries[i], 0x8866, &now);
-                if (now >= previous) ms[s.category[i-1]] += double(now-previous)/1000000.0;
-                previous = now;
+            for (int i=0; i<s.used; ++i) {
+                uint64_t ns=0;result(s.queries[i],0x8866,&ns);
+                ms[s.category[i]]+=double(ns)/1000000.0;
             }
             fprintf(stderr, "World detail frame %llu: GPU opaque %.2f other-surfaces %.2f sky %.2f sprites-models %.2f unclassified %.2f ms; draws %u/%u/%u/%u/%u; transitions %d truncated %d\n",
                 static_cast<unsigned long long>(s.frame), ms[0],ms[1],ms[2],ms[3],ms[4],
-                s.draws[0],s.draws[1],s.draws[2],s.draws[3],s.draws[4],s.used-2,int(s.truncated));
+                s.draws[0],s.draws[1],s.draws[2],s.draws[3],s.draws[4],s.used-1,int(s.truncated));
             s.pending = false;
         }
         if (!cpuActive) return;
@@ -176,7 +185,7 @@ public:
             s.used=1;s.frame=frame;s.truncated=false;
             for (auto& n:s.draws)n=0;
             s.category[0]=4;category=4;current=i;
-            stamp(s.queries[0],0x8E28);
+            beginQuery(0x88BF,s.queries[0]);
             break;
         }
     }
@@ -188,7 +197,8 @@ public:
         if (category == s.category[s.used-1]) return;
         if (s.used >= capacity-1) {s.truncated=true;return;}
         s.category[s.used]=category;
-        stamp(s.queries[s.used++],0x8E28);
+        endQuery(0x88BF);
+        beginQuery(0x88BF,s.queries[s.used++]);
     }
     void end() {
         if(cpuActive){
@@ -201,7 +211,7 @@ public:
         }
         if (current < 0) return;
         auto& s=samples[current];
-        stamp(s.queries[s.used++],0x8E28);
+        endQuery(0x88BF);
         s.pending=true;current=-1;
     }
 };
@@ -273,6 +283,7 @@ public:
                 for (auto& sample : samples) gen(pass_count, sample.queries);
         }
         if (!sprintathon_gpu_timings.supported) return;
+        if(sprintathon_detail_frame()) { current=-1; return; }
         for (auto& sample : samples) {
             if (!sample.pending) continue;
             GLuint ready = 0;
