@@ -29,6 +29,13 @@
 
 #include "cseries.h"
 #include <math.h>
+#include <cmath>
+#include <algorithm>
+#include <cstdlib>
+#include <cstdio>
+#include "interface.h"
+#include "../Videos/Movie.h"
+#include "vbl.h"
 
 #include "mouse.h"
 #include "player.h"
@@ -43,6 +50,98 @@ static fixed_yaw_pitch mouselook_delta = {0, 0};
 static fixed_yaw_pitch previous_sprintathon_mouselook_delta = {0, 0};
 static _fixed snapshot_delta_scrollwheel;
 static int snapshot_delta_x, snapshot_delta_y;
+static fixed_yaw_pitch frame_mouse_pending = {0, 0};
+static double frame_mouse_lag_x = 0, frame_mouse_lag_y = 0;
+static double frame_mouse_remainder_x = 0, frame_mouse_remainder_y = 0;
+static Uint64 frame_mouse_time = 0;
+static bool frame_mouse_was_enabled = false;
+
+bool sprintathon_frame_mouse_enabled()
+{
+    static const bool requested = [] {
+        const char* value = std::getenv("SPRINTATHON_FRAME_MOUSE");
+        return !value || value[0] != '0';
+    }();
+    return requested && mouse_active && input_preferences->sprintathon_enabled &&
+        input_preferences->input_device == _mouse_yaw_pitch &&
+        input_preferences->mouse_accel_type == _mouse_accel_none &&
+        input_preferences->extra_mouse_precision &&
+        !game_is_networked && !game_is_being_replayed() &&
+        !Movie::instance()->IsRecording() && get_keyboard_controller_status() &&
+        local_player && !PLAYER_IS_DEAD(local_player);
+}
+
+static void reset_frame_mouse()
+{
+    frame_mouse_pending = {0, 0};
+    frame_mouse_lag_x = frame_mouse_lag_y = 0;
+    frame_mouse_remainder_x = frame_mouse_remainder_y = 0;
+    frame_mouse_time = SDL_GetPerformanceCounter();
+    frame_mouse_was_enabled = false;
+}
+
+// Exact first-order integration for movement spread over this sampling interval.
+// Unlike a fixed blend per frame, a constant mouse speed has the same response
+// at 60, 144, or variable FPS. Retain sub-fixed-unit rounding error.
+static fixed_angle filter_frame_axis(double delta, double dt, double tau,
+                                    double& lag, double& remainder)
+{
+    if (tau <= 0)
+    {
+        const double output = lag + delta + remainder;
+        const fixed_angle result = static_cast<fixed_angle>(output);
+        remainder = output - result;
+        lag = 0;
+        return result;
+    }
+    const double retained = exp(-dt / tau);
+    const double new_lag = retained * lag + delta * (tau / dt) * (1 - retained);
+    const double output = lag + delta - new_lag + remainder;
+    const fixed_angle result = static_cast<fixed_angle>(output);
+    remainder = output - result;
+    lag = new_lag;
+    return result;
+}
+
+void sprintathon_update_frame_mouse()
+{
+    const Uint64 now = SDL_GetPerformanceCounter();
+    if (!sprintathon_frame_mouse_enabled())
+    {
+        reset_frame_mouse();
+        return;
+    }
+    const bool just_enabled = !frame_mouse_was_enabled;
+    if (just_enabled)
+    {
+        previous_sprintathon_mouselook_delta = {0, 0};
+        frame_mouse_was_enabled = true;
+    }
+    const double dt = double(now - frame_mouse_time) / SDL_GetPerformanceFrequency();
+    frame_mouse_time = now;
+    if (dt <= 0) return;
+    const double tau = std::max(0, std::min(40,
+        int(input_preferences->sprintathon_mouse_smoothing_ms))) / 1000.0;
+    if (just_enabled)
+        std::fprintf(stderr, "Sprintathon frame mouse: active, %.1f ms smoothing\n", tau * 1000.0);
+    double dx = snapshot_delta_x;
+    double dy = -snapshot_delta_y;
+    snapshot_delta_x = snapshot_delta_y = 0;
+    if (TEST_FLAG(input_preferences->modifiers, _inputmod_invert_mouse)) dy = -dy;
+    dx *= (128 / 66.0) * input_preferences->sens_horizontal;
+    dy *= (128 / 66.0) * input_preferences->sens_vertical *
+        (input_preferences->classic_vertical_aim ? 0.25 : 1.0);
+    frame_mouse_pending.yaw += filter_frame_axis(dx, dt, tau,
+        frame_mouse_lag_x, frame_mouse_remainder_x);
+    frame_mouse_pending.pitch += filter_frame_axis(dy, dt, tau,
+        frame_mouse_lag_y, frame_mouse_remainder_y);
+}
+
+fixed_yaw_pitch sprintathon_pending_frame_mouse()
+{
+    return frame_mouse_pending;
+}
+
 
 
 /*
@@ -57,6 +156,7 @@ void enter_mouse(short type)
 		SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_MODE_WARP, input_preferences->raw_mouse_input ? "0" : "1");
 		SDL_SetRelativeMouseMode(SDL_TRUE);
 		mouse_active = true;
+		reset_frame_mouse();
 		mouselook_delta = {0, 0};
 		previous_sprintathon_mouselook_delta = {0, 0};
 		snapshot_delta_scrollwheel = 0;
@@ -75,6 +175,7 @@ void exit_mouse(short type)
 	if (type != _keyboard_or_game_pad) {
 		SDL_SetRelativeMouseMode(SDL_FALSE);
 		mouse_active = false;
+		reset_frame_mouse();
 	}
 }
 
@@ -101,6 +202,12 @@ static inline float MIX(float start, float end, float factor)
 
 void mouse_idle(short type)
 {
+    if (sprintathon_frame_mouse_enabled())
+    {
+        mouselook_delta = frame_mouse_pending;
+        frame_mouse_pending = {0, 0};
+        return;
+    }
 	if (mouse_active) {
 
 		// Calculate axis deltas

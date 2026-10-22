@@ -20,6 +20,7 @@ struct Room {double floor=0,ceiling=0;bool floorSky=false,ceilingSky=false;V cen
 struct Map {bool sunPath=false;int layers=1;double low=0,high=0;GLuint texture=0,textureLight=0;V u,v;double u0=0,v0=0,us=1,vs=1;};
 static std::vector<Room> rooms;
 static std::map<std::tuple<int,int,int,int>,Map> maps;
+static unsigned long long mapGeneration=0;
 struct TextureSource {int room,face;shape_descriptor shape;short light;V position,color;double intensity;
  short object=NONE,type=NONE;int scale=0,transfer=NONE;V anchor;double radius=0;};
 static std::vector<TextureSource> textureSources;
@@ -78,7 +79,7 @@ inline void updateSun(){
  if(sunReady && direction==sunDirectionSetting && elevation==sunElevationSetting)return;
  // Only lighting changes; retain the level's original geometry snapshot.
  for(auto& p:maps){if(p.second.texture)glDeleteTextures(1,&p.second.texture);if(p.second.textureLight)glDeleteTextures(1,&p.second.textureLight);}
- maps.clear();actorSamples.clear();actorSampleOrder.clear();
+ ++mapGeneration;maps.clear();actorSamples.clear();actorSampleOrder.clear();
  sunDirectionSetting=direction;sunElevationSetting=elevation;sunReady=true;
  const double a=(direction-90.0)*0.017453292519943295;
  const double h=elevation*0.017453292519943295;
@@ -87,7 +88,7 @@ inline void updateSun(){
 inline void reset(){
  if(context==SDL_GL_GetCurrentContext())for(auto& p:maps){if(p.second.texture)glDeleteTextures(1,&p.second.texture);if(p.second.textureLight)glDeleteTextures(1,&p.second.textureLight);}
  textureSources.clear();bakedSceneryObjects.clear();textureBakeReady=textureBakeValid=textureReceiver=false;textureBakeBytes=0;textureCheckTick=-1;
- maps.clear();actorSamples.clear();actorSampleOrder.clear();rooms.clear();actorSpacing=256.0;paletteReady=false;ambientColor=sunColor=V(1,1,1);sunReady=false;checked=available=false;level=lastTick=-1;context=SDL_GL_GetCurrentContext();
+ ++mapGeneration;maps.clear();actorSamples.clear();actorSampleOrder.clear();rooms.clear();actorSpacing=256.0;paletteReady=false;ambientColor=sunColor=V(1,1,1);sunReady=false;checked=available=false;level=lastTick=-1;context=SDL_GL_GetCurrentContext();
 }
 inline void traceTextureBakeInvalidation(const TextureSource& source,const char* reason) {
  if(!SprintathonStartupTiming::get().active())return;

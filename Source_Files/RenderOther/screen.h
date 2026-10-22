@@ -296,6 +296,8 @@ extern SprintathonGpuTimings sprintathon_gpu_timings;
 
 // CPU scene preparation, excluding rendering and presentation.
 struct SprintathonCpuSceneTimings {
+    bool world_ready = false;
+    double world_submission_ms = 0;
     bool ready = false;
     double milliseconds[3] = {};
     size_t portal_nodes = 0;

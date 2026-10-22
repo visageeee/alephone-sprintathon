@@ -199,6 +199,7 @@ struct embedded_controls_state
 	w_slider *mouse_v_sensitivity;
 	w_toggle *invert_vertical_aim;
 	w_select *mouselook_range;
+	w_slider *mouse_smoothing = nullptr;
 };
 
 static placeable *build_embedded_controls(
@@ -341,6 +342,80 @@ private:
 	size_t m_chosen;
 };
 
+// Footer stretches across the dialog with fixed outer margins.
+class preferences_footer : public widget_placer {
+    placeable* meter;widget_placer* buttons;
+public:
+    preferences_footer(placeable* m,widget_placer* b):meter(m),buttons(b){assume_ownership(b);}
+    int min_width(){return meter->min_width()+buttons->min_width()+scale_dialog_value(48);}
+    int min_height(){return std::max(meter->min_height(),buttons->min_height())+scale_dialog_value(8);}
+    void place(const SDL_Rect& r,placement_flags = kDefault){
+        const int pad=scale_dialog_value(16);
+        SDL_Rect left={r.x+pad,r.y+(r.h-meter->min_height())/2,meter->min_width(),meter->min_height()};
+        SDL_Rect right={r.x+r.w-pad-buttons->min_width(),r.y+(r.h-buttons->min_height())/2,buttons->min_width(),buttons->min_height()};
+        meter->place(left);buttons->place(right);
+    }
+};
+static void preferences_effect(table_placer* table,const char* title,widget* toggle,widget* strength,dialog& d){
+    table->dual_add(toggle->label(title),d);
+    auto* row=new horizontal_placer(scale_dialog_value(8));
+    row->dual_add(toggle,d);row->dual_add(strength,d);table->add(row,true);
+}
+static void preferences_help(table_placer* table,const char* text,dialog& d){
+    table->last_row_space(scale_dialog_value(2));
+    // Keep descriptions within the content column without widening the dialog.
+    std::string remaining(text);
+    while(!remaining.empty()) {
+        size_t count=remaining.size();
+        if(count>64) {
+            size_t space=remaining.rfind(' ',64);
+            if(space!=std::string::npos)count=space;
+        }
+        table->dual_add_row(new w_static_text(remaining.substr(0,count).c_str(),MESSAGE_WIDGET),d);
+        remaining.erase(0,count);
+        if(!remaining.empty() && remaining[0]==' ')remaining.erase(0,1);
+        if(!remaining.empty())table->last_row_space(0);
+    }
+}
+
+// Relative settings estimates, not measured hardware utilisation or FPS.
+class w_preferences_load : public widget {
+public:
+    explicit w_preferences_load(std::function<std::pair<int,int>()> estimate)
+        : widget(LABEL_WIDGET), estimate_(estimate) {
+        saved_min_width=scale_dialog_value(205);
+        saved_min_height=2*(font->get_ascent()+scale_dialog_value(5));
+    }
+    bool is_selectable() const override { return false; }
+    bool is_dirty() override { return dirty || estimate_()!=last_; }
+    void draw(SDL_Surface* s) const override {
+        last_=estimate_();SDL_Rect background=rect;
+        SDL_FillRect(s,&background,SDL_MapRGB(s->format,0,0,0));
+        const int line=font->get_ascent()+scale_dialog_value(5);
+        const int top=rect.y+std::max(0,(rect.h-2*line)/2);
+        for(int row=0;row<2;++row){
+            draw_text(s,row?"Est. GPU":"Est. CPU",rect.x,top+row*line+font->get_ascent(),
+                SDL_MapRGB(s->format,170,170,170),font,style);
+            const int score=row?last_.second:last_.first;
+            char value[16];std::snprintf(value,sizeof(value),"%d",score);
+            draw_text(s,value,rect.x+scale_dialog_value(178),top+row*line+font->get_ascent(),
+                SDL_MapRGB(s->format,170,170,170),font,style);
+            const int filled=std::max(0,std::min(10,(score+9)/10));
+            for(int i=0;i<10;++i){
+                SDL_Rect segment={rect.x+scale_dialog_value(74+i*10),
+                    top+row*line+scale_dialog_value(4),scale_dialog_value(8),scale_dialog_value(5)};
+                const Uint32 color=i>=filled?SDL_MapRGB(s->format,44,44,44):
+                    i<4?SDL_MapRGB(s->format,100,165,105):
+                    i<7?SDL_MapRGB(s->format,195,165,80):SDL_MapRGB(s->format,220,120,65);
+                SDL_FillRect(s,&segment,color);
+            }
+        }
+    }
+private:
+    std::function<std::pair<int,int>()> estimate_;
+    mutable std::pair<int,int> last_{-1,-1};
+};
+
 // Graphics choices share the tab theme: a white frame and a filled selection.
 class w_graphics_choice_button : public w_button
 {
@@ -425,6 +500,21 @@ public:
 	{
 		return std::to_string(get_selection() + 10) + "%";
 	}
+};
+
+class w_mouse_smoothing_slider : public w_slider
+{
+public:
+    explicit w_mouse_smoothing_slider(int milliseconds) :
+        w_slider(41, std::max(0, std::min(40, milliseconds)))
+    {
+        init_formatted_value();
+    }
+
+    std::string formatted_value(void) override
+    {
+        return get_selection() == 0 ? "Off" : std::to_string(get_selection()) + " ms";
+    }
 };
 
 class w_embedded_fov_slider : public w_slider
@@ -513,7 +603,7 @@ void handle_preferences(bool in_game)
 	write_preferences();
 	struct preferences_theme_guard
 	{
-		preferences_theme_guard() { load_builtin_dialog_theme(); }
+		preferences_theme_guard() { load_builtin_dialog_theme(true); }
 		~preferences_theme_guard() { load_dialog_theme(true); }
 	} theme_guard;
 	struct preferences_resolution_guard
@@ -524,8 +614,9 @@ void handle_preferences(bool in_game)
 
 	dialog d;
 	vertical_placer *root = new vertical_placer(get_theme_space(ITEM_WIDGET));
+    root->min_width(scale_dialog_value(610));
 
-	tab_placer *pages = new tab_placer;
+	tab_placer *pages = new tab_placer(true);
 	const vector<string> categories = {
 		"Sprintathon", "Controls", "Graphics", "HUD", "Sound", "Environment",
 		"Player Look", "Difficulty", "Online Play", "Plugins"
@@ -536,6 +627,7 @@ void handle_preferences(bool in_game)
 	w_preferences_sidebar *sidebar =
 		new w_preferences_sidebar(categories, &d, pages, category_pages);
 	d.add(sidebar);
+	const size_t scroll_content_first = d.widget_count();
 
 	/* Embedded Player Appearance page. */
 	vertical_placer *player_page =
@@ -613,11 +705,11 @@ void handle_preferences(bool in_game)
 	/* Begin embedding Graphics with its most frequently used display options. */
 	vertical_placer *graphics_page =
 		new vertical_placer(scale_dialog_value(3));
-	graphics_page->center_vertically();
+	graphics_page->fill_last_child();
 	graphics_page->min_width(scale_dialog_value(430));
 	table_placer *graphics_display =
 		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
-	graphics_display->row_space(scale_dialog_value(4));
+	graphics_display->row_space(scale_dialog_value(14));
 	graphics_display->col_flags(0, placeable::kAlignRight);
 	static const char *embedded_renderer_labels[] = {
 		"Software", "OpenGL", nullptr
@@ -639,6 +731,7 @@ void handle_preferences(bool in_game)
 #endif
 	graphics_display->dual_add(graphics_renderer_w->label("Rendering System"), d);
 	graphics_display->dual_add(graphics_renderer_w, d);
+    preferences_help(graphics_display,"Software renders on the CPU; OpenGL uses the GPU and enables advanced effects.",d);
 	w_select_popup *graphics_resolution_w = new w_select_popup();
 	graphics_resolution_w->set_labels(build_resolution_labels());
 	graphics_resolution_w->set_selection(
@@ -647,6 +740,7 @@ void handle_preferences(bool in_game)
 			graphics_preferences->screen_mode.height) + 1);
 	graphics_display->dual_add(graphics_resolution_w->label("Display Resolution"), d);
 	graphics_display->dual_add(graphics_resolution_w, d);
+    preferences_help(graphics_display,"Higher resolutions draw more pixels and increase GPU work. Automatic uses the desktop resolution.",d);
 	static const char *render_scale_labels[] = {"50%", "67%", "75%", "85%", "100% (Native)", nullptr};
 	const int render_scale_values[] = {50, 67, 75, 85, 100};
 	int render_scale_index = 4;
@@ -656,11 +750,13 @@ void handle_preferences(bool in_game)
 	w_select *graphics_render_scale_w = new w_select(render_scale_index, render_scale_labels);
 	graphics_display->dual_add(graphics_render_scale_w->label("3D Render Scale (OpenGL)"), d);
 	graphics_display->dual_add(graphics_render_scale_w, d);
+    preferences_help(graphics_display,"Renders the 3D world at a lower resolution to reduce GPU work. Menus and HUD remain sharp.",d);
 	static const char *upscale_labels[] = {"Smooth", "Nearest (pixelated)", nullptr};
 	w_select *graphics_upscale_w = new w_select(
 		graphics_preferences->sprintathon_nearest_upscale, upscale_labels);
 	graphics_display->dual_add(graphics_upscale_w->label("3D Upscaling"), d);
 	graphics_display->dual_add(graphics_upscale_w, d);
+    preferences_help(graphics_display,"Smooth blends enlarged pixels; Nearest keeps hard pixel edges. Used below native render scale.",d);
 #ifndef HAVE_OPENGL
 	graphics_render_scale_w->set_enabled(false);
 	graphics_upscale_w->set_enabled(false);
@@ -669,10 +765,12 @@ void handle_preferences(bool in_game)
 		!graphics_preferences->screen_mode.fullscreen);
 	graphics_display->dual_add(graphics_windowed_w->label("Windowed Mode"), d);
 	graphics_display->dual_add(graphics_windowed_w, d);
+    preferences_help(graphics_display,"Runs in a window instead of fullscreen.",d);
 	w_select *graphics_gamma_w = new w_select(
 		graphics_preferences->screen_mode.gamma_level, embedded_gamma_labels);
 	graphics_display->dual_add(graphics_gamma_w->label("Brightness"), d);
 	graphics_display->dual_add(graphics_gamma_w, d);
+    preferences_help(graphics_display,"Adjusts image brightness without adding lighting effects.",d);
 	int embedded_fps_index = 3;
 	const int16_t embedded_fps_values[] = {30, 60, 120, 0};
 	for (int i = 0; i < 4; ++i)
@@ -682,24 +780,26 @@ void handle_preferences(bool in_game)
 		embedded_fps_index, embedded_fps_labels);
 	graphics_display->dual_add(graphics_fps_w->label("Framerate Target"), d);
 	graphics_display->dual_add(graphics_fps_w, d);
+    preferences_help(graphics_display,"Limits displayed frames per second. Higher targets need more work each second; the meters estimate work per frame.",d);
 	w_toggle *graphics_skip_intro_w = new w_toggle(
 		graphics_preferences->skip_intro);
 	graphics_display->dual_add(
 		graphics_skip_intro_w->label("Skip Intros and Fades"), d);
 	graphics_display->dual_add(graphics_skip_intro_w, d);
+    preferences_help(graphics_display,"Skips introduction sequences and transition fades.",d);
 	w_toggle *player_light_circle_w = new w_toggle(graphics_preferences->player_light_circle);
-	graphics_display->dual_add(player_light_circle_w->label("Player Light Circle"), d);
-	graphics_display->dual_add(player_light_circle_w, d);
+
 
 	table_placer *graphics_view =
 		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
-	graphics_view->row_space(scale_dialog_value(4));
+	graphics_view->row_space(scale_dialog_value(14));
 	graphics_view->col_flags(0, placeable::kAlignRight);
 	w_toggle *graphics_limit_vertical_w = new w_toggle(
 		!graphics_preferences->screen_mode.fix_h_not_v);
 	graphics_view->dual_add(
 		graphics_limit_vertical_w->label("Limit Vertical View"), d);
 	graphics_view->dual_add(graphics_limit_vertical_w, d);
+    preferences_help(graphics_view,"Limits the vertical view when adapting the image to your display shape.",d);
 	w_toggle *graphics_override_fov_w = new w_toggle(
 		graphics_preferences->screen_mode.fov != 0);
 	const int initial_fov = graphics_preferences->screen_mode.fov == 0 ?
@@ -720,6 +820,7 @@ void handle_preferences(bool in_game)
 	graphics_fov_row->dual_add(graphics_override_fov_w, d);
 	graphics_fov_row->dual_add(graphics_fov_w, d);
 	graphics_view->add(graphics_fov_row);
+    preferences_help(graphics_view,"Overrides the scenario field of view. Wider views show more of the world and can increase rendering work.",d);
 	graphics_view->dual_add_row(new w_static_text(
 		"*may interfere with third-party scenario effects", LABEL_WIDGET), d);
 	static const char *embedded_bobbing_labels[] = {
@@ -730,7 +831,8 @@ void handle_preferences(bool in_game)
 		embedded_bobbing_labels);
 	graphics_view->dual_add(graphics_bobbing_w->label("View Bobbing"), d);
 	graphics_view->dual_add(graphics_bobbing_w, d);
-	tab_placer *graphics_tabs = new tab_placer;
+    preferences_help(graphics_view,"Chooses whether walking moves the camera, the held weapon, or both.",d);
+	tab_placer *graphics_tabs = new tab_placer(true);
 	int graphics_active_tab = 0;
 	struct graphics_tab_action {
 		tab_placer *tabs;
@@ -741,7 +843,7 @@ void handle_preferences(bool in_game)
 	graphics_tab_action graphics_tab_actions[9];
 	const char *graphics_tab_labels[] = {
 		"PRESETS", "DISPLAY", "RENDERING", "WORLD LIGHTING",
-		"LIQUID EFFECTS", "LIGHT FX", "DYNAMIC LIGHTING", "TEXTURES", "FOG"
+		"LIQUIDS", "LIGHT FX", "DYNAMIC LIGHTS", "TEXTURES", "FOG"
 	};
 	auto add_graphics_tab_button = [&](horizontal_placer *row, int index) {
 		graphics_tab_actions[index] = { graphics_tabs, &d, &graphics_active_tab, index };
@@ -754,17 +856,15 @@ void handle_preferences(bool in_game)
 			}, &graphics_tab_actions[index],
 			[&, index]() { return graphics_active_tab == index; }), d);
 	};
-	horizontal_placer *preset_tab_row = new horizontal_placer;
-	add_graphics_tab_button(preset_tab_row, 0);
-	graphics_page->add(preset_tab_row, true);
-	for (int first = 1; first < 9; first += 3)
-	{
-		horizontal_placer *row =
-			new horizontal_placer(scale_dialog_value(3));
-		for (int i = first; i < first + 3 && i < 9; ++i)
-			add_graphics_tab_button(row, i);
-		graphics_page->add(row, true);
-	}
+    // Two compact rows; tab indices keep their existing page mapping.
+    const int graphics_tab_rows[2][5]={{0,1,2,7,8},{3,4,5,6,-1}};
+    const size_t graphics_header_first=d.widget_count();
+    for(const auto& indices:graphics_tab_rows){
+        auto* row=new horizontal_placer(scale_dialog_value(4));
+        for(int index:indices)if(index>=0)add_graphics_tab_button(row,index);
+        graphics_page->add(row,true);
+    }
+    d.pin_widgets_since(graphics_header_first);
 	vertical_placer *graphics_presets_page =
 		new vertical_placer(get_theme_space(ITEM_WIDGET));
 	graphics_presets_page->center_vertically();
@@ -861,7 +961,7 @@ void handle_preferences(bool in_game)
 	sound_page->min_width(scale_dialog_value(430));
 	table_placer *sound_table =
 		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
-	sound_table->row_space(scale_dialog_value(4));
+	sound_table->row_space(scale_dialog_value(14));
 	sound_table->col_flags(0, placeable::kAlignRight);
 	static const char *embedded_channel_labels[] = {
 		"Mono", "Stereo", "Quad", "5.1", "6.1", "7.1", nullptr
@@ -880,52 +980,68 @@ void handle_preferences(bool in_game)
 		embedded_channel_index, embedded_channel_labels);
 	sound_table->dual_add(sound_channels_w->label("Channels"), d);
 	sound_table->dual_add(sound_channels_w, d);
+    preferences_help(sound_table,"Maximum number of sounds that can play simultaneously.",d);
 #define ADD_EMBEDDED_SOUND_TOGGLE(widget, flag, label_text) \
 	w_toggle *widget = new w_toggle(TEST_FLAG(sound_preferences->flags, flag)); \
 	sound_table->dual_add(widget->label(label_text), d); \
 	sound_table->dual_add(widget, d)
 	ADD_EMBEDDED_SOUND_TOGGLE(sound_dynamic_w, _dynamic_tracking_flag,
 		"Active Panning");
+    preferences_help(sound_table,"Updates left/right panning as sound sources move.",d);
 	ADD_EMBEDDED_SOUND_TOGGLE(sound_3d_w, _3d_sounds_flag, "3D Sounds");
+    preferences_help(sound_table,"Positions sounds in three-dimensional space.",d);
 	ADD_EMBEDDED_SOUND_TOGGLE(sound_hrtf_w, _hrtf_flag, "HRTF (Headphones)");
+    preferences_help(sound_table,"Uses headphone spatialisation for directional sound.",d);
 	ADD_EMBEDDED_SOUND_TOGGLE(sound_quality_w, _16bit_sound_flag,
 		"16-bit Source");
+    preferences_help(sound_table,"Uses higher-quality source audio when available.",d);
 	ADD_EMBEDDED_SOUND_TOGGLE(sound_ambient_w, _ambient_sound_flag,
 		"Ambient Sounds");
+    preferences_help(sound_table,"Plays environmental background sounds.",d);
 	ADD_EMBEDDED_SOUND_TOGGLE(sound_more_w, _more_sounds_flag, "More Sounds");
+    preferences_help(sound_table,"Enables additional scenario sound variants.",d);
 	ADD_EMBEDDED_SOUND_TOGGLE(sound_rapid_w, _lower_restart_delay,
 		"Rapid-fire Sounds");
+    preferences_help(sound_table,"Allows sounds to restart sooner during rapid firing.",d);
 	ADD_EMBEDDED_SOUND_TOGGLE(sound_cavern_echo_w, _cavern_echo_flag,
 		"Cavern Echo (Experimental)");
+    preferences_help(sound_table,"Adds reverberation in enclosed spaces.",d);
 #undef ADD_EMBEDDED_SOUND_TOGGLE
     w_toggle *footsteps_w = new w_toggle(input_preferences->sprintathon_footsteps);
     sound_table->dual_add(footsteps_w->label("Footstep Sounds"), d);
     sound_table->dual_add(footsteps_w, d);
+    preferences_help(sound_table,"Plays footfalls as you move.",d);
     w_percentage_slider *footstep_volume_w = new w_percentage_slider(
         101, input_preferences->sprintathon_footstep_volume_percent);
     sound_table->dual_add(footstep_volume_w->label("Footstep Volume"), d);
     sound_table->dual_add(footstep_volume_w, d);
+    preferences_help(sound_table,"Adjusts footfalls separately from other sounds.",d);
 
 	w_percentage_slider *sound_volume_w = new w_percentage_slider(
 		21, static_cast<int>(sound_preferences->volume_db / 2 + 20));
 	sound_table->dual_add(sound_volume_w->label("Master Volume"), d);
 	sound_table->dual_add(sound_volume_w, d);
+    preferences_help(sound_table,"Overall sound-effects volume.",d);
 	w_percentage_slider *sound_music_w = new w_percentage_slider(
 		41, sound_preferences->music_db + 20);
 	sound_table->dual_add(sound_music_w->label("Music Volume"), d);
 	sound_table->dual_add(sound_music_w, d);
+    preferences_help(sound_table,"Music playback volume.",d);
 	w_percentage_slider *sound_pickup_w = new w_percentage_slider(
 		101, sound_preferences->pickup_volume_percent);
 	sound_table->dual_add(sound_pickup_w->label("Item Pickup Volume"), d);
 	sound_table->dual_add(sound_pickup_w, d);
+    preferences_help(sound_table,"Volume of item-pickup feedback.",d);
 	w_toggle *sound_buttons_w = new w_toggle(
 		TEST_FLAG(input_preferences->modifiers, _inputmod_use_button_sounds));
 	sound_table->dual_add(sound_buttons_w->label("In-game Interface Sounds"), d);
 	sound_table->dual_add(sound_buttons_w, d);
+    preferences_help(sound_table,"Volume of sounds from in-game interface actions.",d);
 	w_toggle *sound_dialogs_w = new w_toggle(
 		!TEST_FLAG(sound_preferences->flags, _mute_dialogs));
 	sound_table->dual_add(sound_dialogs_w->label("Dialog Sounds"), d);
 	sound_table->dual_add(sound_dialogs_w, d);
+    preferences_help(sound_table,"Volume of menu and dialog feedback.",d);
 	sound_page->add(sound_table, true);
 	pages->add(sound_page, true);
 
@@ -945,14 +1061,16 @@ void handle_preferences(bool in_game)
 	/* Embedded Environment page. */
 	vertical_placer *environment_page =
 		new vertical_placer(get_theme_space(ITEM_WIDGET));
-	environment_page->center_vertically();
+	environment_page->fill_last_child();
 	environment_page->min_width(scale_dialog_value(430));
-	tab_placer *environment_tabs = new tab_placer;
+	tab_placer *environment_tabs = new tab_placer(true);
 	const vector<string> environment_tab_labels = {
 		"GAME FILES", "FILMS & OPTIONS"
 	};
+    const size_t environment_header_first=d.widget_count();
 	environment_page->dual_add(
 		new w_tab(environment_tab_labels, environment_tabs), d);
+    d.pin_widgets_since(environment_header_first);
 	vertical_placer *environment_files_page = new vertical_placer;
 	environment_files_page->center_vertically();
 	table_placer *environment_files =
@@ -1084,25 +1202,27 @@ void handle_preferences(bool in_game)
 	/* Keep Sprintathon options in short, focused pages. */
 	vertical_placer *sprintathon_page =
 		new vertical_placer(get_theme_space(ITEM_WIDGET));
-	sprintathon_page->center_vertically();
+	sprintathon_page->fill_last_child();
 	sprintathon_page->min_width(scale_dialog_value(430));
 	auto make_sprintathon_table = []() {
 		auto *table = new table_placer(2, get_theme_space(ITEM_WIDGET), false);
-		table->row_space(scale_dialog_value(4));
+		table->row_space(scale_dialog_value(14));
 		table->col_flags(0, placeable::kAlignRight);
 		return table;
 	};
+    const size_t sprintathon_header_first=d.widget_count();
 	table_placer *sprintathon_master = make_sprintathon_table();
 	w_toggle *enabled_w = new w_toggle(input_preferences->sprintathon_enabled);
 	sprintathon_master->dual_add(enabled_w->label("Enable Sprintathon Movement"), d);
 	sprintathon_master->dual_add(enabled_w, d);
 	sprintathon_page->add(sprintathon_master, true);
-	tab_placer *sprintathon_tabs = new tab_placer;
+	tab_placer *sprintathon_tabs = new tab_placer(true);
 	const vector<string> sprintathon_tab_labels = {
 		"MOVEMENT", "PARKOUR", "COMBAT", "EFFECTS", "STAMINA"
 	};
 	sprintathon_page->dual_add(
 		new w_tab(sprintathon_tab_labels, sprintathon_tabs), d);
+    d.pin_widgets_since(sprintathon_header_first);
 	auto add_sprintathon_page = [&](table_placer *table) {
 		auto *page = new vertical_placer;
 		page->center_vertically();
@@ -1115,28 +1235,45 @@ void handle_preferences(bool in_game)
 	table->dual_add(widget, d)
 	table_placer *sprintathon_movement = make_sprintathon_table();
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_movement, jump_w, sprintathon_jump, "Jumping");
+    preferences_help(sprintathon_movement,"Allows jumping with the assigned jump control.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_movement, crouch_w, sprintathon_crouch, "Crouch / Kick / Slide");
+    preferences_help(sprintathon_movement,"Enables crouching and the related kick and slide actions.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_movement, sprint_w, sprintathon_sprint, "Sprinting");
+    preferences_help(sprintathon_movement,"Allows faster movement using the sprint control.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_movement, slide_w, sprintathon_slide, "Sprint Sliding");
+    preferences_help(sprintathon_movement,"Press crouch while sprinting to do a slide tackle.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_movement, dodge_w, sprintathon_dodge, "Dodging");
+    preferences_help(sprintathon_movement,"Quick evasions by double tapping in a direction.",d);
 	add_sprintathon_page(sprintathon_movement);
 
 	table_placer *sprintathon_parkour = make_sprintathon_table();
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_parkour, long_jump_w, sprintathon_long_jump, "Crouch Long-Jump");
+    preferences_help(sprintathon_parkour,"Crouching before a jump enables a longer leap.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_parkour, wall_run_w, sprintathon_wall_run, "Wall-Running");
+    preferences_help(sprintathon_parkour,"Hold sprint while jumping at wall at an angle to do a wall-run.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_parkour, wall_jump_w, sprintathon_wall_jump, "Wall-Jumping");
+    preferences_help(sprintathon_parkour,"Press jump while wall-running to launch yourself perpendicular to the wall.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_parkour, swimming_w, sprintathon_swimming, "Modern Swimming");
+    preferences_help(sprintathon_parkour,"No bobbing your head and get out of the water easy.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_parkour, ledge_grab_w, sprintathon_ledge_grab, "Ledge-Grabbing");
+    preferences_help(sprintathon_parkour,"Grab a ledge and heave yourself up by pressing jump while facing it in the air",d);
 	add_sprintathon_page(sprintathon_parkour);
 
 	table_placer *sprintathon_combat = make_sprintathon_table();
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, enhanced_ai_w, sprintathon_enhanced_enemy_ai, "Enhanced enemy AI");
+    preferences_help(sprintathon_combat,"Adds improved enemy steering and combat movement.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, ricochet_w, sprintathon_bullet_ricochet, "Bullet Ricochets");
+    preferences_help(sprintathon_combat,"Allows supported bullets to bounce off surfaces.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, corpses_w, sprintathon_physics_corpses, "Physics Corpses");
+    preferences_help(sprintathon_combat,"Lets dead bodies react with physics movement.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, checkpoints_w, sprintathon_safe_checkpoints, "Checkpoint save system");
+    preferences_help(sprintathon_combat,"Creates automatic saves at suitable safe moments.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, bullet_time_w, sprintathon_bullet_time, "Bullet Time");
+    preferences_help(sprintathon_combat,"Allows slowing time with the assigned control.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, dodge_bullet_time_w, sprintathon_dodge_bullet_time, "Automatic Dodge Bullet Time");
+    preferences_help(sprintathon_combat,"Automatically slows time during dodges.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, pistol_scope_w, sprintathon_pistol_scope, "Pistol Scope");
+    preferences_help(sprintathon_combat,"Enables zooming with the pistol scope.",d);
 	add_sprintathon_page(sprintathon_combat);
 
 	table_placer *sprintathon_effects = make_sprintathon_table();
@@ -1144,9 +1281,13 @@ void handle_preferences(bool in_game)
 	sprintathon_effects->dual_add(projectile_motion_blur_w->label("Projectile Motion Blur"), d);
 	sprintathon_effects->dual_add(projectile_motion_blur_w, d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, bullet_time_blur_w, sprintathon_bullet_time_blur, "Bullet Time Blur");
+    preferences_help(sprintathon_effects,"Adds motion blur during bullet time.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, bullet_time_heavy_blur_w, sprintathon_bullet_time_heavy_blur, "Heavy Bullet Time Blur");
+    preferences_help(sprintathon_effects,"Uses a stronger bullet-time blur.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, pistol_scope_blur_w, sprintathon_pistol_scope_blur, "Pistol Scope Blur");
+    preferences_help(sprintathon_effects,"Blurs the surroundings when using the pistol scope.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, level_timer_w, sprintathon_level_timer, "Level Timer");
+    preferences_help(sprintathon_effects,"Shows elapsed time for the current level.",d);
 #undef ADD_EMBEDDED_SPRINTATHON_TOGGLE
 	add_sprintathon_page(sprintathon_effects);
 
@@ -1161,6 +1302,7 @@ void handle_preferences(bool in_game)
 	sprintathon_stamina_settings->dual_add(widget->label(label_text), d); \
 	sprintathon_stamina_settings->dual_add(widget, d)
 	ADD_EMBEDDED_STAMINA_TOGGLE(no_vacuum_drain_w, sprintathon_no_vacuum_drain, "No oxygen drain in vacuum levels");
+    preferences_help(sprintathon_stamina_settings,"Prevents vacuum exposure from consuming oxygen.",d);
 	ADD_EMBEDDED_STAMINA_TOGGLE(stamina_sprint_w, sprintathon_stamina_sprint, "Sprinting Drains Stamina");
 	ADD_EMBEDDED_STAMINA_TOGGLE(stamina_jump_w, sprintathon_stamina_jump, "Jumping Drains Stamina");
 	ADD_EMBEDDED_STAMINA_TOGGLE(stamina_kick_w, sprintathon_stamina_kick, "Kicks Drain Stamina");
@@ -1171,10 +1313,12 @@ void handle_preferences(bool in_game)
 		input_preferences->sprintathon_sprint_drain_percent);
 	sprintathon_stamina_settings->dual_add(sprint_drain_w->label("Sprint Drain Rate"), d);
 	sprintathon_stamina_settings->dual_add(sprint_drain_w, d);
+    preferences_help(sprintathon_stamina_settings,"How quickly sprinting consumes stamina.",d);
 	w_slider *oxygen_recovery_w = new w_sprintathon_rate_slider(
 		input_preferences->sprintathon_oxygen_recovery_percent);
 	sprintathon_stamina_settings->dual_add(oxygen_recovery_w->label("Stamina Recovery Rate"), d);
 	sprintathon_stamina_settings->dual_add(oxygen_recovery_w, d);
+    preferences_help(sprintathon_stamina_settings,"How quickly stamina replenishes.",d);
 	sprintathon_stamina_page->add(sprintathon_stamina_settings, true);
 	sprintathon_tabs->add(sprintathon_stamina_page, true);
 	sprintathon_page->add(sprintathon_tabs, true);
@@ -1207,6 +1351,7 @@ void handle_preferences(bool in_game)
 	rendering_page->center_vertically();
 	rendering_page->min_width(scale_dialog_value(430));
 	table_placer *rendering = make_preferences_table();
+    rendering->row_space(scale_dialog_value(14));
 	static const char *graphics_preset_labels[] = {
 		"Custom", "Low", "Medium", "High", "Total Sprintathon", nullptr
 	};
@@ -1266,6 +1411,8 @@ void handle_preferences(bool in_game)
 	w_toggle *soft_sector_light_edges_w = new w_toggle(graphics_preferences->soft_sector_light_edges);
 	w_toggle *ogl_bump_w = new w_toggle(ogl_flag(OGL_Flag_BumpMap));
 	w_toggle *simplify_distant_surfaces_w = new w_toggle(graphics_preferences->simplify_distant_surfaces);
+	w_toggle *batched_world_rendering_w = new w_toggle(graphics_preferences->batched_world_rendering);
+	w_toggle *reuse_refraction_capture_w = new w_toggle(graphics_preferences->reuse_refraction_capture);
 	w_toggle *ogl_refractive_invisibility_w = new w_toggle(
 		graphics_preferences->OGL_Configure.RefractiveInvisibility);
 	w_toggle *ogl_sprite_shadows_w = new w_toggle(
@@ -1290,6 +1437,8 @@ void handle_preferences(bool in_game)
         graphics_preferences->OGL_Configure.AnamorphicLensFlares ?
         (graphics_preferences->OGL_Configure.LensFlareStyle == 2 ? 2 : 1) : 0,
         lens_flare_labels);
+    w_toggle* lens_flares_enabled_w=new w_toggle(ogl_anamorphic_lens_flares_w->get_selection()!=0);
+    size_t last_lens_flare_style=std::max(size_t(1),ogl_anamorphic_lens_flares_w->get_selection());
 	w_percentage_slider *ogl_anamorphic_lens_flare_strength_w = new w_percentage_slider(
 		101, graphics_preferences->OGL_Configure.AnamorphicLensFlareStrength);
 	w_toggle *ogl_vsync_w = new w_toggle(graphics_preferences->OGL_Configure.WaitForVSync);
@@ -1304,16 +1453,32 @@ void handle_preferences(bool in_game)
 #define ADD_RENDERING_ROW(caption, widget) \
 	rendering->dual_add((widget)->label(caption), d); rendering->dual_add(widget, d)
 	ADD_RENDERING_ROW("Color Effects", ogl_fader_w);
+    preferences_help(rendering,"Screen colour flashes for damage, pickups and other effects.",d);
 	ADD_RENDERING_ROW("3D Models", ogl_models_w);
+    preferences_help(rendering,"Uses replacement 3D models when a scenario provides them.",d);
 	ADD_RENDERING_ROW("3D Perspective", ogl_perspective_w);
+    preferences_help(rendering,"Uses full perspective rather than the classic software look.",d);
 	ADD_RENDERING_ROW("Tilt Sprites with Camera", ogl_billboard_w);
+    preferences_help(rendering,"Lets sprites tilt with the camera when looking up or down.",d);
 	ADD_RENDERING_ROW("Bump Mapping", ogl_bump_w);
+    preferences_help(rendering,"Adds surface relief using normal and height maps.",d);
 	ADD_RENDERING_ROW("Simplify Distant Surfaces", simplify_distant_surfaces_w);
+    preferences_help(rendering,"Reduces fine surface detail at long distances.",d);
+	ADD_RENDERING_ROW("Batched World Rendering (Experimental)", batched_world_rendering_w);
+    preferences_help(rendering,"Groups compatible opaque surfaces to reduce drawing overhead.",d);
+	preferences_help(rendering,"Reload the level after changing this option. Meter savings are estimates and depend on the scene.",d);
+	ADD_RENDERING_ROW("Reuse Refraction Capture", reuse_refraction_capture_w);
+    preferences_help(rendering,"Reuses the scene capture for refractive effects.",d);
 	ADD_RENDERING_ROW("Refractive Invisibility", ogl_refractive_invisibility_w);
+    preferences_help(rendering,"Distorts the background through invisible characters.",d);
 	ADD_RENDERING_ROW("Scripted Effects Quality", ogl_effects_w);
+    preferences_help(rendering,"Controls the amount of script-generated visual effects.",d);
 	ADD_RENDERING_ROW("VSync", ogl_vsync_w);
+    preferences_help(rendering,"Synchronises frames with the display to reduce tearing. Does not change the estimated work per frame.",d);
 	ADD_RENDERING_ROW("Anisotropic Filtering", ogl_aniso_w);
+    preferences_help(rendering,"Keeps textures sharper when viewed at shallow angles.",d);
 	ADD_RENDERING_ROW("Non-Power-of-Two Textures", ogl_npot_w);
+    preferences_help(rendering,"Allows texture sizes that are not powers of two.",d);
 #undef ADD_RENDERING_ROW
 	rendering_page->add(rendering, true);
 	graphics_tabs->add(rendering_page, true);
@@ -1343,30 +1508,46 @@ void handle_preferences(bool in_game)
     world_lighting_page->center_vertically();
     world_lighting_page->min_width(scale_dialog_value(430));
     table_placer *world_lighting = make_preferences_table();
+    world_lighting->row_space(scale_dialog_value(14));
     table_placer *light_fx = make_preferences_table();
+    light_fx->row_space(scale_dialog_value(14));
+    light_fx->dual_add(player_light_circle_w->label("Player Light Circle"),d);light_fx->dual_add(player_light_circle_w,d);
+    preferences_help(light_fx,"Adds the classic view-centred pool of brightness.",d);
     light_fx->dual_add(ogl_bloom_w->label("Bloom Effects"), d); light_fx->dual_add(ogl_bloom_w, d);
     world_lighting->dual_add(baked_landscape_lighting_w->label("Baked Landscape Lighting"), d); world_lighting->dual_add(baked_landscape_lighting_w, d);
+    preferences_help(world_lighting,"Precomputes sunlight from sky openings during level loading.",d);
     world_lighting->dual_add(baked_texture_lights_w->label("Baked Texture Lighting"), d); world_lighting->dual_add(baked_texture_lights_w, d);
+    preferences_help(world_lighting,"Precomputes lighting from static bright textures.",d);
     world_lighting->dual_add(baked_scenery_lights_w->label("Baked Scenery Lighting"), d); world_lighting->dual_add(baked_scenery_lights_w, d);
-    world_lighting->dual_add_row(new w_static_text("Baking requires landscape + per-pixel lighting; reload level", LABEL_WIDGET), d);
+    preferences_help(world_lighting,"Precomputes lighting from eligible static scenery lights.",d);
+    preferences_help(world_lighting,"Baking requires landscape + per-pixel lighting; reload level.",d);
     world_lighting->dual_add(baked_landscape_ambient_w->label("Baked Ambient Light"), d); world_lighting->dual_add(baked_landscape_ambient_w, d);
+    preferences_help(world_lighting,"Minimum illumination where baked sunlight does not reach.",d);
     world_lighting->dual_add(baked_landscape_sector_w->label("Sector Light Contribution"), d); world_lighting->dual_add(baked_landscape_sector_w, d);
-    world_lighting->dual_add(soft_sector_light_edges_w->label("Blend Sector Shading"), d); world_lighting->dual_add(soft_sector_light_edges_w, d);
-    world_lighting->dual_add(sector_shading_softness_w->label("Sector Shading Softness"), d); world_lighting->dual_add(sector_shading_softness_w, d);
+    preferences_help(world_lighting,"Keeps the map's original shading alongside baked light.",d);
+    preferences_effect(world_lighting,"Blend Sector Shading",soft_sector_light_edges_w,sector_shading_softness_w,d);
+    preferences_help(world_lighting,"Softens boundaries between differently lit sectors.",d);
     world_lighting->dual_add(ogl_sprite_shadows_w->label("Sprite Shadows"), d); world_lighting->dual_add(ogl_sprite_shadows_w, d);
-    world_lighting->dual_add(ogl_ambient_occlusion_w->label("Ambient Occlusion"), d); world_lighting->dual_add(ogl_ambient_occlusion_w, d);
-    world_lighting->dual_add(ogl_ambient_occlusion_strength_w->label("AO Strength"), d); world_lighting->dual_add(ogl_ambient_occlusion_strength_w, d);
-    light_fx->dual_add(visible_sun_w->label("Visible Sun"),d); light_fx->dual_add(visible_sun_w,d);
+    preferences_effect(world_lighting,"Ambient Occlusion",ogl_ambient_occlusion_w,ogl_ambient_occlusion_strength_w,d);
+    preferences_help(world_lighting,"Adds soft contact shadows in corners and creases.",d);
+    preferences_effect(light_fx,"Visible Sun",visible_sun_w,visible_sun_brightness_w,d);
+    preferences_help(light_fx,"Shows the sun in the landscape sky.",d);
+    light_fx->last_row_space(scale_dialog_value(4));
     light_fx->dual_add(visible_sun_size_w->label("Sun Diameter"),d); light_fx->dual_add(visible_sun_size_w,d);
-    light_fx->dual_add(visible_sun_brightness_w->label("Sun Brightness"),d); light_fx->dual_add(visible_sun_brightness_w,d);
+    light_fx->last_row_space(scale_dialog_value(4));
     light_fx->dual_add(visible_sun_color_w->label("Sun Colour"),d); light_fx->dual_add(visible_sun_color_w,d);
-    light_fx->dual_add(ogl_landscape_light_shafts_w->label("Landscape Light Shafts"), d); light_fx->dual_add(ogl_landscape_light_shafts_w, d);
-    light_fx->dual_add(ogl_landscape_light_shaft_strength_w->label("Shaft Strength"), d); light_fx->dual_add(ogl_landscape_light_shaft_strength_w, d);
+    preferences_effect(light_fx,"Landscape Light Shafts",ogl_landscape_light_shafts_w,ogl_landscape_light_shaft_strength_w,d);
+    preferences_help(light_fx,"Adds sunbeams through landscape openings.",d);
+    light_fx->last_row_space(scale_dialog_value(4));
     light_fx->dual_add(ogl_landscape_light_shaft_length_w->label("Shaft Length"), d); light_fx->dual_add(ogl_landscape_light_shaft_length_w, d);
-    world_lighting->dual_add_row(new w_static_text("Sun: shared by baked lighting and shafts", LABEL_WIDGET), d);
+    preferences_help(world_lighting,"Sun direction is shared by baked lighting and shafts.",d);
     world_lighting->dual_add(ogl_landscape_light_shaft_direction_w->label("Sun Direction"), d); world_lighting->dual_add(ogl_landscape_light_shaft_direction_w, d);
     world_lighting->dual_add(ogl_landscape_light_shaft_elevation_w->label("Sun Elevation"), d); world_lighting->dual_add(ogl_landscape_light_shaft_elevation_w, d);
+    light_fx->dual_add(lens_flares_enabled_w->label("Lens Flares"),d);light_fx->dual_add(lens_flares_enabled_w,d);
+    preferences_help(light_fx,"Adds optical streaks or halos around bright sources.",d);
+    light_fx->last_row_space(scale_dialog_value(4));
     light_fx->dual_add(ogl_anamorphic_lens_flares_w->label("Lens Flare Style"), d); light_fx->dual_add(ogl_anamorphic_lens_flares_w, d);
+    light_fx->last_row_space(scale_dialog_value(4));
     light_fx->dual_add(ogl_anamorphic_lens_flare_strength_w->label("Lens Flare Strength"), d); light_fx->dual_add(ogl_anamorphic_lens_flare_strength_w, d);
     world_lighting_page->add(world_lighting, true);
     light_fx->dual_add_row(new w_static_text("Sun direction: World Lighting", LABEL_WIDGET), d);
@@ -1376,22 +1557,34 @@ void handle_preferences(bool in_game)
     per_pixel_page->center_vertically();
     per_pixel_page->min_width(scale_dialog_value(430));
     table_placer *per_pixel = make_preferences_table();
+    per_pixel->row_space(scale_dialog_value(14));
 #define ADD_PER_PIXEL_ROW(caption, widget) \
     per_pixel->dual_add((widget)->label(caption), d); per_pixel->dual_add(widget, d)
+    w_toggle* all_dynamic_lights_w=new w_toggle(false);
+    ADD_PER_PIXEL_ROW("All Dynamic Lights", all_dynamic_lights_w);
+    preferences_help(per_pixel,"Switches projectile, bright-texture and scenery lights together.",d);
     ADD_PER_PIXEL_ROW("Lighting Quality", per_pixel_light_quality_w);
-    ADD_PER_PIXEL_ROW("Projectile Lights", projectile_lights_per_pixel_w);
-    ADD_PER_PIXEL_ROW("Bright Texture Lights", bright_texture_lights_w);
-    ADD_PER_PIXEL_ROW("Scenery Lights", bright_scenery_lights_w);
-    ADD_PER_PIXEL_ROW("All Visible Scenery Lights", all_visible_scenery_lights_w);
-    ADD_PER_PIXEL_ROW("Projectile / Flare Intensity", colored_light_intensity_w);
-    ADD_PER_PIXEL_ROW("Texture Light Intensity", texture_light_intensity_w);
-    ADD_PER_PIXEL_ROW("Scenery Light Intensity", scenery_light_intensity_w);
-    ADD_PER_PIXEL_ROW("Texture Light Reach", texture_light_reach_w);
-    ADD_PER_PIXEL_ROW("Scenery Light Reach", scenery_light_reach_w);
-    ADD_PER_PIXEL_ROW("Texture Render Distance", light_render_distance_w);
-    ADD_PER_PIXEL_ROW("Scenery Render Distance", scenery_light_render_distance_w);
-    ADD_PER_PIXEL_ROW("Max Texture Lights (0-20)", texture_light_limit_w);
-    ADD_PER_PIXEL_ROW("Max Scenery Lights (0-20)", scenery_light_limit_w);
+    preferences_help(per_pixel,"High uses more lights; Low uses cheaper vertex lighting.",d);
+    preferences_effect(per_pixel,"Projectile Lights",projectile_lights_per_pixel_w,colored_light_intensity_w,d);
+    preferences_help(per_pixel,"Projectiles and flares cast coloured light onto surfaces.",d);
+    preferences_effect(per_pixel,"Bright Texture Lights",bright_texture_lights_w,texture_light_intensity_w,d);
+    preferences_help(per_pixel,"Bright wall textures illuminate nearby surfaces.",d);
+    preferences_effect(per_pixel,"Scenery Lights",bright_scenery_lights_w,scenery_light_intensity_w,d);
+    preferences_help(per_pixel,"Luminous scenery objects illuminate nearby surfaces.",d);
+    per_pixel->dual_add(all_visible_scenery_lights_w->label("All Visible Scenery Lights"),d);per_pixel->dual_add(all_visible_scenery_lights_w,d);
+    preferences_help(per_pixel,"Includes visible scenery sources beyond the usual selected set.",d);
+    per_pixel->dual_add(texture_light_reach_w->label("Texture Light Reach"),d);per_pixel->dual_add(texture_light_reach_w,d);
+    preferences_help(per_pixel,"Changes how far each texture light spreads.",d);
+    per_pixel->dual_add(scenery_light_reach_w->label("Scenery Light Reach"),d);per_pixel->dual_add(scenery_light_reach_w,d);
+    preferences_help(per_pixel,"Changes how far each scenery light spreads.",d);
+    per_pixel->dual_add(light_render_distance_w->label("Texture Render Distance"),d);per_pixel->dual_add(light_render_distance_w,d);
+    preferences_help(per_pixel,"Controls how far away texture light sources are considered.",d);
+    per_pixel->dual_add(scenery_light_render_distance_w->label("Scenery Render Distance"),d);per_pixel->dual_add(scenery_light_render_distance_w,d);
+    preferences_help(per_pixel,"Controls how far away scenery light sources are considered.",d);
+    per_pixel->dual_add(texture_light_limit_w->label("Max Texture Lights (0-20)"),d);per_pixel->dual_add(texture_light_limit_w,d);
+    preferences_help(per_pixel,"Limits selected texture lights; lower values reduce cost.",d);
+    per_pixel->dual_add(scenery_light_limit_w->label("Max Scenery Lights (0-20)"),d);per_pixel->dual_add(scenery_light_limit_w,d);
+    preferences_help(per_pixel,"Limits selected scenery lights; lower values reduce cost.",d);
 #undef ADD_PER_PIXEL_ROW
     w_preset_description *per_pixel_description = new w_preset_description;
     per_pixel_description->set_description(
@@ -1432,6 +1625,7 @@ void handle_preferences(bool in_game)
 		return result;
 	};
 	textures->dual_add_row(new w_static_text("Replacement Texture Quality", LABEL_WIDGET), d);
+    preferences_help(textures,"Caps replacement texture resolution; higher uses more memory.",d);
 	for (int i = 0; i < OGL_NUMBER_OF_TEXTURE_TYPES; ++i)
 	{
 		texture_quality_w[i] = new w_select(quality_selection(
@@ -1443,11 +1637,15 @@ void handle_preferences(bool in_game)
 		graphics_preferences->OGL_Configure.ModelConfig.MaxSize, 256), texture_quality_labels);
 	textures->dual_add(model_quality_w->label("3D Model Skins"), d);
 	textures->dual_add(model_quality_w, d);
+    preferences_help(textures,"Maximum resolution of replacement model textures.",d);
 	textures->dual_add_row(new w_static_text("Texture Filtering", LABEL_WIDGET), d);
+    preferences_help(textures,"Near filters magnified textures; Far reduces distant shimmer.",d);
 	textures->dual_add(sprite_upscaling_w->label("Sprite Upscaling"), d);
 	textures->dual_add(sprite_upscaling_w, d);
+    preferences_help(textures,"Smooths low-resolution character and scenery artwork.",d);
 	textures->dual_add(wall_upscaling_w->label("Wall Texture Upscaling"), d);
 	textures->dual_add(wall_upscaling_w, d);
+    preferences_help(textures,"Smooths low-resolution wall textures.",d);
 	for (int i = 0; i < OGL_NUMBER_OF_TEXTURE_TYPES; ++i)
 	{
 		texture_near_w[i] = new w_select(
@@ -1469,6 +1667,7 @@ void handle_preferences(bool in_game)
 	vertical_placer *liquids_page = new vertical_placer(get_theme_space(ITEM_WIDGET));
 	liquids_page->center_vertically(); liquids_page->min_width(scale_dialog_value(430));
 	table_placer *liquids = make_preferences_table();
+    liquids->row_space(scale_dialog_value(14));
 	w_toggle *liquid_transparency_w = new w_toggle(ogl_flag(OGL_Flag_LiqSeeThru));
 	w_toggle *underwater_distortion_w = new w_toggle(
 		graphics_preferences->OGL_Configure.UnderwaterDistortion);
@@ -1487,24 +1686,25 @@ void handle_preferences(bool in_game)
 		&graphics_preferences->OGL_Configure.AnimatedJjaroRippleSpeed};
 	int16 pending_liquid_speeds[5];
 	for (int i = 0; i < 5; ++i) pending_liquid_speeds[i] = *liquid_speeds[i];
-    liquids->dual_add(liquid_caustics_w->label("Liquid Caustics"), d); liquids->dual_add(liquid_caustics_w, d);
-    liquids->dual_add(liquid_specular_w->label("Liquid Specular Highlights"), d); liquids->dual_add(liquid_specular_w, d);
-    liquids->dual_add(liquid_sprite_reflections_w->label("Liquid Sprite Reflections"), d); liquids->dual_add(liquid_sprite_reflections_w, d);
-    liquids->dual_add(liquid_caustic_strength_w->label("Caustic Strength"), d); liquids->dual_add(liquid_caustic_strength_w, d);
-    liquids->dual_add(liquid_specular_strength_w->label("Specular Strength"), d); liquids->dual_add(liquid_specular_strength_w, d);
-    liquids->dual_add(liquid_reflection_strength_w->label("Reflection Strength"), d); liquids->dual_add(liquid_reflection_strength_w, d);
+    preferences_effect(liquids,"Liquid Caustics",liquid_caustics_w,liquid_caustic_strength_w,d);
+    preferences_help(liquids,"Moving light patterns on nearby walls.",d);
+    preferences_effect(liquids,"Liquid Highlights",liquid_specular_w,liquid_specular_strength_w,d);
+    preferences_help(liquids,"Shimmering reflections of bright light sources.",d);
+    preferences_effect(liquids,"Sprite Reflections",liquid_sprite_reflections_w,liquid_reflection_strength_w,d);
+    preferences_help(liquids,"Reflects characters and scenery in non-lava liquids.",d);
     liquids->dual_add(liquid_fluorescence_w->label("Liquid Fluorescence"), d); liquids->dual_add(liquid_fluorescence_w, d);
-	liquids->dual_add(liquid_transparency_w->label("Transparent Liquids"), d); liquids->dual_add(liquid_transparency_w, d);
+    preferences_help(liquids,"Lets bright non-lava liquids illuminate their surroundings.",d);
+    preferences_effect(liquids,"Transparent Liquids",liquid_transparency_w,liquid_opacity_w,d);
 	liquids->dual_add(underwater_distortion_w->label("Underwater Distortion"), d); liquids->dual_add(underwater_distortion_w, d);
-	liquids->dual_add(liquid_opacity_w->label("Liquid Opacity"), d); liquids->dual_add(liquid_opacity_w, d);
-	liquids->dual_add(liquid_ripples_w->label("Animated Media Ripples"), d); liquids->dual_add(liquid_ripples_w, d);
-	liquids->dual_add(liquid_strength_w->label("Ripple Strength"), d); liquids->dual_add(liquid_strength_w, d);
+    preferences_effect(liquids,"Liquid Ripples",liquid_ripples_w,liquid_strength_w,d);
+    liquids->last_row_space(scale_dialog_value(4));
 	liquids->dual_add(liquid_wetness_w->label("Wet Texture Strength"), d); liquids->dual_add(liquid_wetness_w, d);
 	liquids_page->add(liquids, true); 
 
 	vertical_placer *fog_page = new vertical_placer(get_theme_space(ITEM_WIDGET));
 	fog_page->center_vertically(); fog_page->min_width(scale_dialog_value(430));
 	table_placer *fog = make_preferences_table();
+    fog->row_space(scale_dialog_value(14));
 	w_toggle *fog_enabled_w = new w_toggle(ogl_flag(OGL_Flag_Fog));
 	w_toggle *fog_force_w = new w_toggle(ogl_flag(OGL_Flag_ForceFog));
 	w_toggle *fog_media_w = new w_toggle(graphics_preferences->OGL_Configure.ForceFogMediaRelative);
@@ -1525,19 +1725,42 @@ void handle_preferences(bool in_game)
 	w_percentage_slider *fog_drift_intensity_w = new w_percentage_slider(
 		201, graphics_preferences->OGL_Configure.DriftingFogIntensity);
 #define ADD_FOG_ROW(caption, widget) fog->dual_add((widget)->label(caption), d); fog->dual_add(widget, d)
-	ADD_FOG_ROW("Fog", fog_enabled_w); ADD_FOG_ROW("Fog in All Levels", fog_force_w);
-	ADD_FOG_ROW("Media-relative Forced Fog", fog_media_w); ADD_FOG_ROW("Weather Preset", fog_weather_w);
-	ADD_FOG_ROW("Animated Density", fog_animated_w); ADD_FOG_ROW("Density Increases with Depth", fog_depth_w);
-	ADD_FOG_ROW("Black Fog", fog_black_w); ADD_FOG_ROW("Darken with Distance", fog_darken_w);
+	ADD_FOG_ROW("Fog", fog_enabled_w);
+    preferences_help(fog,"Enables fog supported by the level.",d);
+ fog->dual_add(fog_force_w->label("Fog in All Levels"),d);fog->dual_add(fog_force_w,d);
+    preferences_help(fog,"Adds fog even to levels without their own fog settings.",d);
+
+	fog->dual_add(fog_media_w->label("Media-relative Forced Fog"),d);fog->dual_add(fog_media_w,d);
+    preferences_help(fog,"Positions forced fog relative to liquid heights.",d);
+ fog->dual_add(fog_weather_w->label("Weather Preset"),d);fog->dual_add(fog_weather_w,d);
+    preferences_help(fog,"Chooses the colour and character of forced fog.",d);
+
+	ADD_FOG_ROW("Animated Density", fog_animated_w);
+    preferences_help(fog,"Varies fog density over time.",d);
+ fog->dual_add(fog_depth_w->label("Density Increases with Depth"),d);fog->dual_add(fog_depth_w,d);
+    preferences_help(fog,"Makes forced fog denser with depth.",d);
+
+	fog->dual_add(fog_black_w->label("Black Fog"),d);fog->dual_add(fog_black_w,d);
+    preferences_help(fog,"Uses black for forced fog.",d);
+ fog->dual_add(fog_darken_w->label("Darken with Distance"),d);fog->dual_add(fog_darken_w,d);
+    preferences_help(fog,"Darkens distant scenery.",d);
+
 	ADD_FOG_ROW("Volumetric Fog (Experimental)", fog_volume_w);
+    preferences_help(fog,"Adds world-space fog density and depth variation.",d);
+
 	ADD_FOG_ROW("Deep Fog Haze", fog_haze_w);
-    ADD_FOG_ROW("Ceiling Scenery Fog Cones", ceiling_fog_cones_w);
-    ADD_FOG_ROW("Fog Cone Strength", ceiling_fog_cone_strength_w);
-    light_fx->dual_add(fog_light_coronas_w->label("Fog Light Coronas"), d); light_fx->dual_add(fog_light_coronas_w, d);
+    preferences_help(fog,"Adds an extra layer of atmospheric haze.",d);
+
+    preferences_effect(fog,"Ceiling Fog Cones",ceiling_fog_cones_w,ceiling_fog_cone_strength_w,d);
+    preferences_effect(light_fx,"Fog Light Coronas",fog_light_coronas_w,fog_corona_strength_w,d);
+    preferences_help(light_fx,"Soft halos around lights in fog.",d);
+    light_fx->last_row_space(scale_dialog_value(4));
     light_fx->dual_add(fog_projectile_coronas_w->label("Projectile Coronas"), d); light_fx->dual_add(fog_projectile_coronas_w, d);
+    light_fx->last_row_space(scale_dialog_value(4));
     light_fx->dual_add(fog_scenery_coronas_w->label("Scenery Coronas"), d); light_fx->dual_add(fog_scenery_coronas_w, d);
-    light_fx->dual_add(fog_corona_strength_w->label("Fog Corona Strength"), d); light_fx->dual_add(fog_corona_strength_w, d);
 	ADD_FOG_ROW("Drifting Fog Intensity", fog_drift_intensity_w);
+    preferences_help(fog,"Controls the strength of drifting fog variations.",d);
+
 #undef ADD_FOG_ROW
 	fog_page->add(fog, true); 
 
@@ -1550,6 +1773,10 @@ void handle_preferences(bool in_game)
     graphics_tabs->add(fog_page, true);
 
     auto update_light_controls = [&]() {
+        lens_flares_enabled_w->set_selection(ogl_anamorphic_lens_flares_w->get_selection()!=0);
+        if(ogl_anamorphic_lens_flares_w->get_selection())last_lens_flare_style=ogl_anamorphic_lens_flares_w->get_selection();
+        all_dynamic_lights_w->set_selection(projectile_lights_per_pixel_w->get_selection() ||
+            bright_texture_lights_w->get_selection() || bright_scenery_lights_w->get_selection());
         baked_landscape_ambient_w->set_enabled(baked_landscape_lighting_w->get_selection());
         baked_landscape_sector_w->set_enabled(baked_landscape_lighting_w->get_selection());
         sector_shading_softness_w->set_enabled(soft_sector_light_edges_w->get_selection());
@@ -1735,15 +1962,31 @@ void handle_preferences(bool in_game)
 		}
 	};
 	auto custom_select_changed = [&](w_select*) { update_light_controls(); select_custom_preset(); d.draw(); };
-	auto custom_slider_changed = [&](w_slider*) { select_custom_preset(); };
+    graphics_resolution_w->set_popup_callback([&](void*) {
+        select_custom_preset(); d.draw();
+    }, nullptr);
+    all_dynamic_lights_w->set_selection_changed_callback([&](w_select*) {
+        const bool on=all_dynamic_lights_w->get_selection();
+        projectile_lights_per_pixel_w->set_selection(on);
+        bright_texture_lights_w->set_selection(on);
+        bright_scenery_lights_w->set_selection(on);
+        update_light_controls();select_custom_preset();d.draw();
+    });
+    lens_flares_enabled_w->set_selection_changed_callback([&](w_select*) {
+        ogl_anamorphic_lens_flares_w->set_selection(lens_flares_enabled_w->get_selection()?last_lens_flare_style:0);
+        update_light_controls();select_custom_preset();d.draw();
+    });
+	auto custom_slider_changed = [&](w_slider*) { select_custom_preset(); d.draw(); };
 
 	// Any manual edit outside the Presets page makes the active setup Custom.
 	w_select *graphics_select_widgets[] = {
+        graphics_renderer_w, graphics_render_scale_w, graphics_upscale_w,
         visible_sun_w, visible_sun_size_w, visible_sun_color_w,
 		graphics_windowed_w, graphics_gamma_w, graphics_fps_w,
 		graphics_skip_intro_w, graphics_limit_vertical_w,
 		graphics_bobbing_w, ogl_fader_w, ogl_models_w, ogl_perspective_w,
 		ogl_billboard_w, ogl_bloom_w, ogl_bump_w, simplify_distant_surfaces_w,
+	batched_world_rendering_w, reuse_refraction_capture_w,
 		projectile_motion_blur_w,
 		projectile_lights_per_pixel_w, bright_texture_lights_w, bright_scenery_lights_w, all_visible_scenery_lights_w, per_pixel_light_quality_w, player_light_circle_w, soft_sector_light_edges_w,
 		ogl_refractive_invisibility_w, ogl_sprite_shadows_w,
@@ -1789,7 +2032,7 @@ void handle_preferences(bool in_game)
 	graphics_override_fov_w->set_selection_changed_callback(
 		[&, graphics_override_fov_w, graphics_fov_w](w_select*) {
 			graphics_fov_w->set_enabled(graphics_override_fov_w->get_selection());
-			select_custom_preset();
+			select_custom_preset();d.draw();
 		});
 	// These pages received controls after they were registered with their tabs.
 	// Hide the completed pages so late-added widgets cannot draw over another
@@ -1802,17 +2045,95 @@ void handle_preferences(bool in_game)
 	body->add_flags(placeable::kFill);
 	body->add(sidebar);
 	body->add_flags(placeable::kDefault);
-	body->add(pages, true);
+	body->add(d.scrollable_content(pages, scroll_content_first), true);
 	root->add(body, true);
 
 	horizontal_placer *footer = new horizontal_placer;
 	footer->dual_add(new w_button(
-		in_game ? "SAVE AND RETURN TO GAME" : "SAVE SETTINGS",
+		in_game ? "SAVE SETTINGS AND RETURN TO GAME" : "SAVE SETTINGS",
 		dialog_ok, &d), d);
 	footer->dual_add(new w_button(
-		in_game ? "CANCEL AND RETURN TO GAME" : "CANCEL",
+		"CANCEL",
 		dialog_cancel, &d), d);
-	root->add(footer, true);
+    SDL_DisplayMode meter_desktop_mode{};
+    int meter_desktop_width=graphics_preferences->screen_mode.width;
+    int meter_desktop_height=graphics_preferences->screen_mode.height;
+    SDL_Window* meter_window=SDL_GetKeyboardFocus();
+    int meter_display=meter_window?SDL_GetWindowDisplayIndex(meter_window):0;
+    if(SDL_GetDesktopDisplayMode(std::max(0,meter_display),&meter_desktop_mode)==0) {
+        meter_desktop_width=meter_desktop_mode.w;meter_desktop_height=meter_desktop_mode.h;
+    }
+    auto* load_meter=new w_preferences_load([&]() -> std::pair<int,int> {
+        // Deliberately coarse weights. Scene complexity and hardware are unknown.
+        const bool perPixel=projectile_lights_per_pixel_w->get_selection();
+        const double quality=per_pixel_light_quality_w->get_selection()==0?1.0:
+            per_pixel_light_quality_w->get_selection()==1?0.65:0.3;
+        double cpu=12,gpu=12;
+        if(perPixel){
+            cpu+=5;gpu+=5*quality;
+            auto emitters=[&](bool on,int limit,bool baked){
+                if(!on || limit<=0)return;
+                const double weight=std::min(20,limit)/20.0;
+                cpu+=weight*(baked?5:12);
+                gpu+=weight*quality*(baked?6:16);
+            };
+            emitters(bright_texture_lights_w->get_selection(),texture_light_limit_w->get_selection(),baked_texture_lights_w->get_selection());
+            emitters(bright_scenery_lights_w->get_selection(),scenery_light_limit_w->get_selection(),baked_scenery_lights_w->get_selection());
+        }
+        if(soft_sector_light_edges_w->get_selection()){cpu+=5;gpu+=4;}
+        if(ogl_bump_w->get_selection())gpu+=8;
+        if(ogl_anamorphic_lens_flares_w->get_selection()){cpu+=4;gpu+=4;}
+        if(visible_sun_w->get_selection())gpu+=2;
+        if(ogl_bloom_w->get_selection()){cpu+=7;gpu+=8;}
+        if(ogl_ambient_occlusion_w->get_selection())gpu+=9;
+        if(ogl_landscape_light_shafts_w->get_selection()){cpu+=7;gpu+=7;}
+        if(fog_enabled_w->get_selection()){
+            gpu+=2;if(fog_haze_w->get_selection()){cpu+=3;gpu+=12;}
+        }
+        if(liquid_ripples_w->get_selection()){
+            gpu+=4;if(liquid_wetness_w->get_selection()>0)gpu+=3;
+        }
+        if(liquid_transparency_w->get_selection())gpu+=4;
+        if(underwater_distortion_w->get_selection())gpu+=3;
+        if(perPixel && liquid_fluorescence_w->get_selection()>0){cpu+=2;gpu+=3;}
+        if(fog_enabled_w->get_selection() && fog_volume_w->get_selection()){cpu+=2;gpu+=8;}
+        if(liquid_specular_w->get_selection())gpu+=5;
+        if(liquid_sprite_reflections_w->get_selection()){cpu+=5;gpu+=5;}
+        if(liquid_caustics_w->get_selection())gpu+=4;
+        if(ogl_refractive_invisibility_w->get_selection())gpu+=3;
+        const int scaleIndex=std::max(0,std::min(4,int(graphics_render_scale_w->get_selection())));
+        const double scale=render_scale_values[scaleIndex]/100.0;
+        // Conditional costs and conservative savings; scene-dependent estimates.
+        if(ogl_models_w->get_selection()){cpu+=3;gpu+=4;}
+        cpu+=2*ogl_effects_w->get_selection();gpu+=2*ogl_effects_w->get_selection();
+        gpu+=ogl_aniso_w->get_selection();
+        if(ogl_fader_w->get_selection())gpu+=1;
+        if(batched_world_rendering_w->get_selection())cpu*=0.85;
+        if(simplify_distant_surfaces_w->get_selection()){cpu*=0.95;gpu*=0.90;}
+        if(!reuse_refraction_capture_w->get_selection() &&
+           (ogl_refractive_invisibility_w->get_selection() || liquid_transparency_w->get_selection())){cpu+=3;gpu+=3;}
+        const int resolution=int(graphics_resolution_w->get_selection());
+        int width=meter_desktop_width,height=meter_desktop_height;
+        if(resolution>0 && resolution<=int(Screen::instance()->GetModes().size())) {
+            width=Screen::instance()->ModeWidth(resolution-1);
+            height=Screen::instance()->ModeHeight(resolution-1);
+        }
+        const double pixels=double(std::max(1,width))*std::max(1,height)/(1920.0*1080.0);
+        if(graphics_override_fov_w->get_selection()) {
+            const double view=std::max(0.75,std::min(1.5,(graphics_fov_w->get_selection()+30)/90.0));
+            cpu*=view;gpu*=view;
+        }
+        if(graphics_renderer_w->get_selection()==_no_acceleration) {
+            cpu=12+24*pixels;gpu=2;
+        } else {
+            // Some cost is geometry/setup rather than pixel shading.
+            gpu*=0.2+0.8*pixels*scale*scale;
+        }
+        // Scores are relative, not percentages. Keep changes visible above 100.
+        return {std::max(0,int(cpu+0.5)),std::max(0,int(gpu*0.65+0.5))};
+    });
+    d.add(load_meter);
+	root->add(new preferences_footer(load_meter,footer), true);
 
 	d.set_widget_placer(root);
 
@@ -1923,6 +2244,8 @@ void handle_preferences(bool in_game)
 	graphics_preferences->all_visible_scenery_lights = all_visible_scenery_lights_w->get_selection();
     graphics_preferences->per_pixel_light_quality = per_pixel_light_quality_w->get_selection();
 	graphics_preferences->simplify_distant_surfaces = simplify_distant_surfaces_w->get_selection();
+	graphics_preferences->batched_world_rendering = batched_world_rendering_w->get_selection();
+	graphics_preferences->reuse_refraction_capture = reuse_refraction_capture_w->get_selection();
 	graphics_preferences->colored_light_intensity = colored_light_intensity_w->get_selection();
 	graphics_preferences->scenery_light_intensity = scenery_light_intensity_w->get_selection();
 	graphics_preferences->texture_light_intensity = texture_light_intensity_w->get_selection();
@@ -4900,13 +5223,15 @@ static placeable *build_embedded_controls(
 	dialog& d, embedded_controls_state& state)
 {
 	vertical_placer *page = new vertical_placer(get_theme_space(ITEM_WIDGET));
-	page->center_vertically();
+	page->fill_last_child();
 	page->min_width(scale_dialog_value(430));
-	tab_placer *tabs = new tab_placer;
+	tab_placer *tabs = new tab_placer(true);
 	const vector<string> control_tab_labels = {
 		"GAME CONTROLS", "MOUSELOOK", "HOTKEYS", "OTHER"
 	};
+    const size_t controls_header_first=d.widget_count();
 	page->dual_add(new w_tab(control_tab_labels, tabs), d);
+    d.pin_widgets_since(controls_header_first);
 
 	std::vector<embedded_binding_row> game_rows = {
 		{true, "Bindings", embedded_game_binding, 0},
@@ -5028,7 +5353,13 @@ static placeable *build_embedded_controls(
 	mouselook_table->dual_add(
 		state.mouselook_range->label("Mouselook Range"), d);
 	mouselook_table->dual_add(state.mouselook_range, d);
+    state.mouse_smoothing = new w_mouse_smoothing_slider(
+        input_preferences->sprintathon_mouse_smoothing_ms);
+    mouselook_table->dual_add(state.mouse_smoothing->label("Mouse Smoothing"), d);
+    mouselook_table->dual_add(state.mouse_smoothing, d);
 	mouselook->add(mouselook_table, true);
+    mouselook->dual_add(new w_static_text(
+        "Lower is sharper; higher is smoother. Default: 12 ms."), d);
 	tabs->add(mouselook, true);
 
 	std::vector<embedded_binding_row> hotkey_rows;
@@ -5111,6 +5442,9 @@ static void save_embedded_controls(const embedded_controls_state& state)
 	if (state.mouselook_range)
 		input_preferences->sprintathon_mouselook_mode =
 			state.mouselook_range->get_selection();
+    if (state.mouse_smoothing)
+        input_preferences->sprintathon_mouse_smoothing_ms =
+            state.mouse_smoothing->get_selection();
 }
 
 static void controls_dialog(void *arg)
@@ -6311,6 +6645,8 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("all_visible_scenery_lights", graphics_preferences->all_visible_scenery_lights);
     root.put_attr("per_pixel_light_quality", graphics_preferences->per_pixel_light_quality);
 	root.put_attr("simplify_distant_surfaces", graphics_preferences->simplify_distant_surfaces);
+	root.put_attr("reuse_refraction_capture", graphics_preferences->reuse_refraction_capture);
+	root.put_attr("batched_world_rendering", graphics_preferences->batched_world_rendering);
 	root.put_attr("colored_light_intensity", graphics_preferences->colored_light_intensity);
 	root.put_attr("scenery_light_intensity", graphics_preferences->scenery_light_intensity);
 	root.put_attr("texture_light_intensity", graphics_preferences->texture_light_intensity);
@@ -6676,6 +7012,7 @@ InfoTree input_preferences_tree()
 	root.put_attr("classic_aim_speed_limits", input_preferences->classic_aim_speed_limits);
 	root.put_attr("sprintathon_enabled", input_preferences->sprintathon_enabled);
 	root.put_attr("sprintathon_mouselook_mode", input_preferences->sprintathon_mouselook_mode);
+    root.put_attr("sprintathon_mouse_smoothing_ms", input_preferences->sprintathon_mouse_smoothing_ms);
 	root.put_attr("sprintathon_jump", input_preferences->sprintathon_jump);
 	root.put_attr("sprintathon_crouch", input_preferences->sprintathon_crouch);
 	root.put_attr("sprintathon_sprint", input_preferences->sprintathon_sprint);
@@ -6981,6 +7318,8 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->all_visible_scenery_lights = true;
     preferences->per_pixel_light_quality = 0;
 	preferences->simplify_distant_surfaces = true;
+	preferences->reuse_refraction_capture = true;
+	preferences->batched_world_rendering = false;
 	preferences->colored_light_intensity = 150;
 	preferences->scenery_light_intensity = 40;
 	preferences->texture_light_intensity = 200;
@@ -7114,6 +7453,7 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->classic_aim_speed_limits = false;
 	preferences->sprintathon_enabled = true;
 	preferences->sprintathon_mouselook_mode = 4;
+	preferences->sprintathon_mouse_smoothing_ms = 12;
 	preferences->sprintathon_jump = true;
 	preferences->sprintathon_crouch = true;
 	preferences->sprintathon_sprint = true;
@@ -7548,6 +7888,8 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("all_visible_scenery_lights", graphics_preferences->all_visible_scenery_lights);
     root.read_attr_bounded<int16>("per_pixel_light_quality", graphics_preferences->per_pixel_light_quality, 0, 2);
 	root.read_attr("simplify_distant_surfaces", graphics_preferences->simplify_distant_surfaces);
+	root.read_attr("reuse_refraction_capture", graphics_preferences->reuse_refraction_capture);
+	root.read_attr("batched_world_rendering", graphics_preferences->batched_world_rendering);
 	root.read_attr_bounded<int16>("colored_light_intensity",
 		graphics_preferences->colored_light_intensity, 0, 200);
 	graphics_preferences->texture_light_intensity = graphics_preferences->colored_light_intensity;
@@ -7842,6 +8184,8 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_enabled", input_preferences->sprintathon_enabled);
 	root.read_attr_bounded<int16>("sprintathon_mouselook_mode",
 		input_preferences->sprintathon_mouselook_mode, 0, 4);
+    root.read_attr_bounded<int16>("sprintathon_mouse_smoothing_ms",
+        input_preferences->sprintathon_mouse_smoothing_ms, 0, 40);
 	root.read_attr("sprintathon_jump", input_preferences->sprintathon_jump);
 	root.read_attr("sprintathon_crouch", input_preferences->sprintathon_crouch);
 	root.read_attr("sprintathon_sprint", input_preferences->sprintathon_sprint);

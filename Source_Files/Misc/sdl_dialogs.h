@@ -1,3 +1,5 @@
+#include <map>
+#include <set>
 /*
 
 	Copyright (C) 1991-2001 and beyond by Bungie Studios, Inc.
@@ -30,6 +32,7 @@
 
 #include "cstypes.h"
 #include <vector>
+#include <algorithm>
 #include <memory>
 #include <functional>
 #include <SDL2/SDL.h>
@@ -91,10 +94,32 @@ private:
 	std::vector<placeable *> m_owned;
 };
 
+// A clipped content viewport. The dialog owns its widget membership and input.
+int scale_dialog_value(int value);
+class scroll_placer : public widget_placer {
+public:
+    explicit scroll_placer(widget_placer* child) : content(child) { assume_ownership(child); }
+    int limit = 100000, offset = 0, extent = 0;
+    SDL_Rect viewport = {0,0,0,0};
+    int min_width() { return content->min_width()+scale_dialog_value(12); }
+    int min_height() { return limit == 100000 ? content->min_height() : limit; }
+    void place(const SDL_Rect& r, placement_flags flags = kDefault) {
+        viewport=r;viewport.w-=scale_dialog_value(12);
+        SDL_Rect c=viewport;c.y-=offset;c.h=std::max(viewport.h,content->min_height());content->place(c);
+    }
+    bool scroll(int delta) {
+        int next=std::max(0,std::min(offset+delta,std::max(0,extent-viewport.h)));
+        if(next==offset)return false;
+        offset=next;SDL_Rect r=viewport;r.w+=scale_dialog_value(12);place(r);return true;
+    }
+private:
+    widget_placer* content;
+};
+
 class tab_placer : public widget_placer
 {
 public:
-	tab_placer() : widget_placer(), m_tab(0) { }
+	tab_placer(bool compact = false) : widget_placer(), m_tab(0), m_compact(compact) { }
 	void add(placeable *p, bool assume_ownership = false);
 	void dual_add(widget *w, dialog& d);
 	int min_height();
@@ -107,6 +132,7 @@ public:
 	void visible(bool visible);
 private:
 	int m_tab;
+	bool m_compact;
 	std::vector<placeable *> m_tabs;
 };
 
@@ -120,6 +146,8 @@ public:
 	void col_flags(int col, placement_flags flags = kDefault) { m_col_flags[col] = flags; }
 	void col_min_width(int col, int min_width) { m_col_min_widths[col] = min_width; }
 	void row_space(int space) { m_row_space = space; }
+    void last_row_space(int space) { if(!m_table.empty())m_row_gaps[m_table.size()-1]=space; }
+    int row_gap(int row) const { auto it=m_row_gaps.find(row);return it==m_row_gaps.end()?m_row_space:it->second; }
 	void dual_add(widget *w, dialog& d);
 	void dual_add_row(widget *w, dialog& d);
 	int min_height();
@@ -133,6 +161,7 @@ private:
 	int m_columns; // number of columns
 	int m_space;
 	int m_row_space;
+    std::map<int,int> m_row_gaps;
 	bool m_balance_widths;
 	std::vector<std::vector<placeable *> > m_table;
 	std::vector<placement_flags> m_col_flags;
@@ -153,6 +182,7 @@ public:
 	int min_width();
 	void min_width(int w) { m_min_width = w; }
 	void center_vertically(bool center = true) { m_center_vertically = center; }
+    void fill_last_child() { m_fill_last = true; m_center_vertically = false; }
 
 	void place(const SDL_Rect &r, placement_flags flags = kDefault);
 	void visible(bool visible);
@@ -165,6 +195,7 @@ private:
 	placement_flags m_add_flags;
 	int m_space;
 	bool m_center_vertically;
+    bool m_fill_last = false;
 };
 
 class horizontal_placer : public widget_placer
@@ -203,6 +234,9 @@ public:
 
 	// Add widget to dialog
 	void add(widget *w);
+	size_t widget_count() const { return widgets.size(); }
+    void pin_widgets_since(size_t first);
+	scroll_placer* scrollable_content(widget_placer* content, size_t first);
 
 	// Run dialog modally
 	int run(bool intro_exit_sounds = true);
@@ -278,6 +312,15 @@ private:
 	// Frame images (frame_t, frame_l, frame_r and frame_b must be freed)
 	SDL_Surface *frame_tl, *frame_t, *frame_tr, *frame_l, *frame_r, *frame_bl, *frame_b, *frame_br;
 
+    scroll_placer* scroll_content = nullptr;
+    size_t scroll_first = 0, scroll_last = 0;
+    size_t scroll_signature = 0;
+    bool scroll_redraw = false;
+    std::set<widget*> scroll_widgets, pinned_widgets;
+    SDL_Rect scrolling_viewport() const;
+    bool scroll_widgets_by(int delta);
+    bool in_scroll_content(widget* w) const;
+    void refresh_scroll_extent();
 	widget_placer *placer;
 	bool layout_for_fullscreen; // is the current layout for fullscreen?
 
@@ -311,7 +354,7 @@ extern void shutdown_dialogs();
 
 extern bool load_dialog_theme(bool force_reload = false);
 extern bool load_default_dialog_theme();
-extern bool load_builtin_dialog_theme();
+extern bool load_builtin_dialog_theme(bool compact_text = false);
 
 extern uint32 get_dialog_player_color(size_t colorIndex); // ZZZ: added
 extern void play_dialog_sound(int which);

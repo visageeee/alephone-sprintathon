@@ -105,7 +105,7 @@ static FileSpecifier theme_path;
 static std::map<int, theme_widget> dialog_theme;
 
 // Prototypes
-static bool load_theme(FileSpecifier &theme, bool parse_external_theme = true);
+static bool load_theme(FileSpecifier &theme, bool parse_external_theme = true, bool compact_text = false);
 static void unload_theme(void);
 static void set_theme_defaults(void);
 
@@ -673,15 +673,15 @@ bool load_default_dialog_theme()
 	return load_theme(default_theme);
 }
 
-bool load_builtin_dialog_theme()
+bool load_builtin_dialog_theme(bool compact_text)
 {
 	// Preferences and level selection deliberately use the neutral built-in
 	// widget definitions. Do not search scenario or plugin paths here.
 	FileSpecifier no_external_theme;
-	return load_theme(no_external_theme, false);
+	return load_theme(no_external_theme, false, compact_text);
 }
 
-bool load_theme(FileSpecifier &theme, bool parse_external_theme)
+bool load_theme(FileSpecifier &theme, bool parse_external_theme, bool compact_text)
 {
 	// Unload previous theme
 	unload_theme();
@@ -706,6 +706,10 @@ bool load_theme(FileSpecifier &theme, bool parse_external_theme)
 	}
 	clear_game_error();
 
+	// Compact preferences text; checkbox glyphs retain their original size.
+	if (compact_text) for (auto& item : dialog_theme)
+		if (item.first != CHECKBOX && item.second.font_set && item.second.font_spec.size > 10)
+			item.second.font_spec.size = std::max(10, int(item.second.font_spec.size * 0.9f + 0.5f));
 	// Load fonts
 	if (parse_external_theme && success)
 		data_search_path.insert(data_search_path.begin(), theme);
@@ -1198,7 +1202,7 @@ int table_placer::min_height()
 		height += row_height(row);
 	}
 	if (m_table.size() > 1)
-		height += (m_table.size() - 1) * m_row_space;
+		for(int row=0;row+1<int(m_table.size());++row)height += row_gap(row);
 
 	return height;
 }
@@ -1409,7 +1413,7 @@ void table_placer::place(const SDL_Rect &r, placement_flags flags)
 
 		y_offset += row_height(row);
 		if (row + 1 < m_table.size())
-			y_offset += m_row_space;
+			y_offset += row_gap(row);
 	}
 }
 		
@@ -1494,6 +1498,8 @@ void vertical_placer::place(const SDL_Rect &r, placement_flags flags)
 		}
 		wr.w = w;
 		wr.h = m_widgets[i]->min_height();
+        if(m_fill_last && i+1 == m_widgets.size())
+            wr.h=std::max(wr.h,r.h-y_offset);
 		wr.y = r.y + y_offset;
 
 		m_widgets[i]->place(wr, m_placement_flags[i]);
@@ -1709,6 +1715,7 @@ void tab_placer::dual_add(widget *w, dialog& d)
 
 int tab_placer::min_height()
 {
+    if(m_compact && !m_tabs.empty())return m_tabs[m_tab]->min_height();
 	int height = 0;
 	for (std::vector<placeable *>::iterator it = m_tabs.begin(); it != m_tabs.end(); it++)
 	{
@@ -1749,7 +1756,7 @@ void tab_placer::place(const SDL_Rect& r, placement_flags flags)
 	{
 		SDL_Rect wr;
 		wr.w = (*it)->min_width();
-		wr.h = h;
+		wr.h = m_compact ? std::max(r.h,(*it)->min_height()) : h;
 		wr.y = r.y;
 		int x_offset;
 		if (flags & kAlignLeft)
@@ -1819,12 +1826,70 @@ void dialog::add(widget *w)
  *  Layout dialog
  */
 
+scroll_placer* dialog::scrollable_content(widget_placer* content,size_t first)
+{
+    scroll_first=first;scroll_last=widgets.size();
+    scroll_widgets.insert(widgets.begin()+scroll_first,widgets.begin()+scroll_last);
+    return scroll_content=new scroll_placer(content);
+}
+bool dialog::in_scroll_content(widget* w) const
+{
+    return scroll_content && scroll_widgets.count(w) && !pinned_widgets.count(w);
+}
+void dialog::pin_widgets_since(size_t first)
+{
+    pinned_widgets.insert(widgets.begin()+first,widgets.end());
+}
+SDL_Rect dialog::scrolling_viewport() const
+{
+    SDL_Rect r=scroll_content->viewport;
+    int top=r.y;
+    for(auto* w:pinned_widgets)if(w->visible())top=std::max(top,w->rect.y+w->rect.h+scale_dialog_value(4));
+    top=std::min(top,r.y+r.h);
+    r.h-=top-r.y;r.y=top;return r;
+}
+bool dialog::scroll_widgets_by(int delta)
+{
+    int next=std::max(0,std::min(scroll_content->offset+delta,
+        std::max(0,scroll_content->extent-scroll_content->viewport.h)));
+    int shift=scroll_content->offset-next;
+    if(!shift)return false;
+    scroll_content->offset=next;
+    for(size_t i=scroll_first;i<scroll_last;++i)
+        if(widgets[i]->visible() && !pinned_widgets.count(widgets[i]))widgets[i]->translate_y(shift);
+    scroll_redraw=true;return true;
+}
+void dialog::refresh_scroll_extent()
+{
+    if(!scroll_content)return;
+    size_t signature=0;
+    for(size_t i=scroll_first;i<scroll_last;++i)if(widgets[i]->visible())signature=signature*33+i+1;
+    if(signature!=scroll_signature){
+        scroll_signature=signature;scroll_content->offset=0;
+        SDL_Rect area=scroll_content->viewport;area.w+=scale_dialog_value(12);
+        scroll_content->place(area);
+    }
+    int bottom=0;
+    for(size_t i=scroll_first;i<scroll_last;++i)if(widgets[i]->visible())
+        bottom=std::max(bottom,widgets[i]->rect.y+widgets[i]->rect.h+scroll_content->offset-scroll_content->viewport.y);
+    scroll_content->extent=bottom;
+    scroll_widgets_by(0);
+}
+
 void dialog::layout()
 {
 	assert(placer);
 
 	layout_for_fullscreen = get_screen_mode()->fullscreen;
 
+    if(scroll_content){
+        scroll_content->offset=0;scroll_signature=0;
+        scroll_content->limit=100000;
+        const int screenHeight=MainScreenIsOpenGL()?480*dialog_render_scale:MainScreenLogicalHeight();
+        const int frameHeight=get_theme_space(DIALOG_FRAME,T_SPACE)+get_theme_space(DIALOG_FRAME,B_SPACE);
+        const int otherHeight=placer->min_height()-scroll_content->min_height();
+        scroll_content->limit=std::max(scale_dialog_value(32),screenHeight-frameHeight-otherHeight-scale_dialog_value(12));
+    }
 	// Layout all widgets, calculate total width and height
 	SDL_Rect placer_rect;
 	placer_rect.w = placer->min_width();
@@ -1890,10 +1955,18 @@ void dialog::update(SDL_Rect r) const
 
 void dialog::draw_widget(widget *w, bool do_update) const
 {
+    SDL_Rect oldClip;SDL_GetClipRect(dialog_surface,&oldClip);
+    if(in_scroll_content(w)){
+        SDL_Rect clip, visible;const SDL_Rect viewport=scrolling_viewport();
+        if(!SDL_IntersectRect(&oldClip,&viewport,&clip) ||
+           !SDL_IntersectRect(&clip,&w->rect,&visible)){w->dirty=false;return;}
+        SDL_SetClipRect(dialog_surface,&clip);
+    }
 	// Clear and redraw widget
 	SDL_FillRect(dialog_surface, &w->rect, get_theme_color(DIALOG_FRAME, DEFAULT_STATE, BACKGROUND_COLOR));
 	w->draw(dialog_surface);
 	w->dirty = false;
+    SDL_SetClipRect(dialog_surface,&oldClip);
 
 	// Blit to screen
 	if (do_update)
@@ -1911,6 +1984,7 @@ void dialog::draw(void)
 	if (get_screen_mode()->fullscreen != layout_for_fullscreen)
 		layout();
 
+    refresh_scroll_extent();scroll_redraw=false;
 	// Clear dialog surface
 	SDL_FillRect(dialog_surface, NULL, get_theme_color(DIALOG_FRAME, DEFAULT_STATE, BACKGROUND_COLOR));
 
@@ -1941,6 +2015,15 @@ void dialog::draw(void)
 		i++;
 	}
 
+    if(scroll_content && scroll_content->extent>scroll_content->viewport.h){
+        const auto& v=scroll_content->viewport;
+        SDL_Rect track={v.x+v.w+scale_dialog_value(3),v.y,scale_dialog_value(6),v.h};
+        SDL_FillRect(dialog_surface,&track,get_theme_color(DIALOG_FRAME,DEFAULT_STATE,FRAME_COLOR));
+        int thumbHeight=std::max(scale_dialog_value(14),v.h*v.h/scroll_content->extent);
+        SDL_Rect thumb=track;thumb.h=std::min(v.h,thumbHeight);
+        thumb.y+=scroll_content->offset*(v.h-thumb.h)/std::max(1,scroll_content->extent-v.h);
+        SDL_FillRect(dialog_surface,&thumb,SDL_MapRGB(dialog_surface->format,180,180,180));
+    }
 	// Blit to screen
 	SDL_Rect r = {0, 0, rect.w, rect.h};
 	update(r);
@@ -1950,6 +2033,7 @@ void
 dialog::draw_dirty_widgets() const
 {
 	if (top_dialog != this) return;
+    if(scroll_redraw){const_cast<dialog*>(this)->draw();return;}
         for (unsigned i=0; i<widgets.size(); i++)
 		if (widgets[i]->is_dirty())
 			if (widgets[i]->visible())
@@ -2027,6 +2111,11 @@ void dialog::activate_widget(size_t num)
 	}
 			
 
+    if(in_scroll_content(active_widget)){
+        refresh_scroll_extent();const auto v=scrolling_viewport();const auto& r=active_widget->rect;
+        const int delta=r.y<v.y?r.y-v.y:(r.y+r.h>v.y+v.h?r.y+r.h-v.y-v.h:0);
+        if(scroll_widgets_by(delta))scroll_redraw=true;
+    }
 	active_widget->set_active(true);
 	if (active_widget->associated_label)
 		active_widget->associated_label->set_active(true);
@@ -2113,6 +2202,10 @@ int dialog::find_widget(int x, int y)
 	int num = 0;
 	while (i != end) {
 		widget *w = *i;
+        if(in_scroll_content(w)){
+            const auto v=scrolling_viewport();
+            if(x<v.x || y<v.y || x>=v.x+v.w || y>=v.y+v.h){++i;++num;continue;}
+        }
 		if ((*i)->visible())
 			if (x >= w->rect.x && y >= w->rect.y && x < w->rect.x + w->rect.w && y < w->rect.y + w->rect.h)
 				return num;
@@ -2175,6 +2268,26 @@ void dialog::event(SDL_Event &e)
     break;
   }
   
+  if(!handled && scroll_content && !mouse_widget &&
+     (e.type==SDL_MOUSEWHEEL || e.type==SDL_MOUSEBUTTONDOWN)){
+      int x,y;
+      if(e.type==SDL_MOUSEBUTTONDOWN){x=e.button.x;y=e.button.y;}else SDL_GetMouseState(&x,&y);
+#ifdef HAVE_OPENGL
+      if(OGL_IsActive())OGL_Blitter::WindowToScreen(x,y);
+#endif
+      x=x*dialog_render_scale-rect.x;y=y*dialog_render_scale-rect.y;
+      refresh_scroll_extent();const auto& v=scroll_content->viewport;
+      if(y>=v.y && y<v.y+v.h && x>=v.x && x<v.x+v.w+scale_dialog_value(12) && scroll_content->extent>v.h){
+          if(e.type==SDL_MOUSEWHEEL){
+              int direction=e.wheel.direction==SDL_MOUSEWHEEL_FLIPPED?-1:1;
+              scroll_widgets_by(-e.wheel.y*direction*scale_dialog_value(36));
+              handled=true;
+          }else if(x>=v.x+v.w && e.button.button==SDL_BUTTON_LEFT){
+              int target=(y-v.y)*(scroll_content->extent-v.h)/std::max(1,v.h);
+              scroll_widgets_by(target-scroll_content->offset);handled=true;
+          }
+      }
+  }
   if (!handled) {
 	  // First pass event to active widget (which may modify it)
 	  if (active_widget && e.type != SDL_MOUSEWHEEL)

@@ -33,6 +33,7 @@ Oct 13, 2000
 */
 
 #include "cseries.h"
+#include "SprintathonPortalTrace.h"
 #include "screen.h"
 
 #include "map.h"
@@ -99,6 +100,15 @@ pick a leaf polygon
 
 void RenderSortPolyClass::sort_render_tree()
 {
+    auto& trace=SprintathonPortalTrace::get();
+    SprintathonPortalScope traceScope(trace.sampled,[&](double ms){
+        std::set<short> unique;size_t links=0,maximum=0;
+        for(const auto& n:SortedNodes){unique.insert(n.polygon_index);size_t count=0;
+            for(auto* w=n.clipping_windows;w;w=w->next_window)++count;
+            links+=count;maximum=std::max(maximum,count);}
+        fprintf(stderr,"Portal sort capture %u: CPU %.3f ms; sorted %zu unique-polygons %zu window-storage %zu window-links %zu max-windows-per-polygon %zu\n",
+            trace.sequence,ms,SortedNodes.size(),unique.size(),RVPtr->ClippingWindows.size(),links,maximum);
+    });
 	assert(view);	// Idiot-proofing
 	assert(RVPtr);
 	node_data *leaf, *last_leaf;

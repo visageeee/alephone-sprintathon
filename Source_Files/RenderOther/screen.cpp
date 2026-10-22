@@ -1633,7 +1633,10 @@ void render_screen(short ticks_elapsed)
 
 	interpolate_world_view(heartbeat_fraction);
     // Scripted paths own their render-time interpolation, including camera cuts.
-    UseLuaCameras(heartbeat_fraction);
+    const bool scripted_camera = UseLuaCameras(heartbeat_fraction);
+    if (!scripted_camera && !screenshot_mode_active() && !surface_editor_active() &&
+        world_view->show_weapons_in_hand)
+        sprintathon_apply_frame_mouse_view(heartbeat_fraction);
 	if (screenshot_mode_active()) update_screenshot_camera();
 
 #ifdef HAVE_OPENGL

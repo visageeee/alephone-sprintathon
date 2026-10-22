@@ -729,20 +729,27 @@ static void DisplayPosition(SDL_Surface *s)
         DisplayText(X,Y, world_view->overhead_map_active ? "CPU timings: map view" : "CPU timings: sampling...");
     }
     Y += LineSpacing;
+    if (sprintathon_cpu_scene_timings.world_ready && !world_view->overhead_map_active) {
+        sprintf(temporary, "CPU submission: world %6.2f ms", sprintathon_cpu_scene_timings.world_submission_ms);
+        DisplayText(X,Y,temporary);
+    } else {
+        DisplayText(X,Y,world_view->overhead_map_active ? "CPU submission: map view" : "CPU submission: sampling...");
+    }
+    Y += LineSpacing;
     if (sprintathon_gpu_timings.ready && !world_view->overhead_map_active) {
-        const char *labels[5] = {"World+Lights", "Post FX", "View Layer", "Bloom", "Underwater"};
+        const char *labels[5] = {"world + lights", "Post FX", "View Layer", "Bloom", "Underwater"};
         double total = 0;
         for (int i = 0; i < 5; ++i) {
-            sprintf(temporary, "GPU %-12s %6.2f ms", labels[i], sprintathon_gpu_timings.milliseconds[i]);
+            sprintf(temporary, "GPU elapsed: %-14s %6.2f ms", labels[i], sprintathon_gpu_timings.milliseconds[i]);
             DisplayText(X,Y,temporary);
             Y += LineSpacing;
             total += sprintathon_gpu_timings.milliseconds[i];
         }
-        sprintf(temporary, "GPU measured     %6.2f ms", total);
+        sprintf(temporary, "GPU elapsed: total          %6.2f ms", total);
         DisplayText(X,Y,temporary);
     } else {
-        DisplayText(X,Y, world_view->overhead_map_active ? "GPU timings: map view" :
-            (sprintathon_gpu_timings.supported ? "GPU timings: sampling..." : "GPU timings: unavailable"));
+        DisplayText(X,Y, world_view->overhead_map_active ? "GPU elapsed: map view" :
+            (sprintathon_gpu_timings.supported ? "GPU elapsed: sampling..." : "GPU elapsed: unavailable"));
     }
 
 	
@@ -885,7 +892,7 @@ static void DisplayMessages(SDL_Surface *s)
 	short Y = Y0 + LineSpacing;
 	if (ShowPosition) {
         const int timing_lines = sprintathon_gpu_timings.ready && !world_view->overhead_map_active ? 6 : 1;
-        const int cpu_lines = sprintathon_cpu_scene_timings.ready && !world_view->overhead_map_active ? 4 : 1;
+        const int cpu_lines = sprintathon_cpu_scene_timings.ready && !world_view->overhead_map_active ? 5 : 2;
         Y += (7 + timing_lines + cpu_lines) * LineSpacing;
     }
 	/* SB */

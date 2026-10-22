@@ -984,7 +984,7 @@ void main_event_loop(void)
 		switch (game_state) {
 			case _game_in_progress:
 			case _change_level:
-				if ((get_fps_target() == 0 && get_keyboard_controller_status()) || Console::instance()->input_active() || cur_time - last_event_poll >= TICKS_BETWEEN_EVENT_POLL) {
+				if (sprintathon_frame_mouse_enabled() || (get_fps_target() == 0 && get_keyboard_controller_status()) || Console::instance()->input_active() || cur_time - last_event_poll >= TICKS_BETWEEN_EVENT_POLL) {
 					poll_event = true;
 					last_event_poll = cur_time;
 			  } else {				  
@@ -1048,6 +1048,8 @@ void main_event_loop(void)
 			}
 #endif
 		}
+
+		sprintathon_update_frame_mouse();
 
 		{ SprintathonFrameTrace::Scope timing(SprintathonFrameTrace::Timers);
 		  execute_timer_tasks(machine_tick_count()); }

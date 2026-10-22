@@ -632,6 +632,8 @@ void resync_virtual_aim();
 
 // Update the virtual aim and return action flags updated with yaw/pitch deltas (if appropriate)
 uint32 process_aim_input(uint32 action_flags, fixed_yaw_pitch delta);
+// Pure render preview; does not consume input or mutate simulation state.
+fixed_yaw_pitch preview_mouse_aim(fixed_yaw_pitch delta);
 
 
 // LP: to pack and unpack this data;

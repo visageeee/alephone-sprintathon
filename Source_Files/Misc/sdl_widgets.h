@@ -117,6 +117,7 @@ public:
         
 	// implement placeable
 	void place(const SDL_Rect &r, placement_flags flags);
+    virtual void translate_y(int delta) { rect.y += delta; }
 	int min_height() { return saved_min_height; }
 	int min_width() { return saved_min_width; }
 	
@@ -637,6 +638,7 @@ public:
 	virtual std::string formatted_value(void);
 
 	void place(const SDL_Rect& r, placement_flags flags);
+    void translate_y(int delta) override;
 	
 	void set_slider_changed_callback(slider_changed_callback_t proc) { slider_changed_callback = proc; }
 

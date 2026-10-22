@@ -1793,6 +1793,12 @@ w_slider::~w_slider()
 	if (slider_c) SDL_FreeSurface(slider_c);
 }
 
+void w_slider::translate_y(int delta)
+{
+    widget::translate_y(delta);
+    readout->translate_y(delta);
+}
+
 void w_slider::place(const SDL_Rect& r, placement_flags flags)
 {
 	rect.h = r.h;

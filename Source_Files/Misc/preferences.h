@@ -114,6 +114,8 @@ struct graphics_preferences_data
 	bool all_visible_scenery_lights;
     int16 per_pixel_light_quality; // 0 High (20), 1 Medium (8), 2 Low (4)
 	bool simplify_distant_surfaces;
+	bool batched_world_rendering;
+	bool reuse_refraction_capture;
 	int16 colored_light_intensity;
 	int16 texture_light_intensity;
 	int16 scenery_light_intensity;
@@ -285,6 +287,7 @@ struct input_preferences_data
 	// Optional modern movement and view behavior.
 	bool sprintathon_enabled;
 	int16 sprintathon_mouselook_mode;
+	int16 sprintathon_mouse_smoothing_ms; // 0 disables smoothing; frame-rate aiming stays active
 	bool sprintathon_jump;
 	bool sprintathon_crouch;
 	bool sprintathon_sprint;

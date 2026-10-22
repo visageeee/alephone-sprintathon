@@ -28,6 +28,7 @@
 
 #include "OGL_Shader.h"
 #include "SprintathonStartupTiming.h"
+#include "SprintathonPassTest.h"
 #include "FileHandler.h"
 #include "OGL_Setup.h"
 #include "preferences.h"
@@ -323,6 +324,9 @@ void parseFile(FileSpecifier& fileSpec, std::string& s) {
 // Compile disabled optional world effects out of the built-in shaders.
 // Custom MML shaders retain their source unchanged.
 static unsigned sprintathon_shader_features() {
+    // Keep geometry/submission identical: isolate optional shader arithmetic.
+    // Baked maps, basic shading, fog and bump mapping remain. Custom MML is unchanged.
+    if(SprintathonPassTest::get().minimal)return 0;
     const char* full=std::getenv("SPRINTATHON_FULL_WORLD_SHADER");
     if(full && full[0]=='1')return 31;
     if(!graphics_preferences)return 31;

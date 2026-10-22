@@ -35,6 +35,13 @@ void exit_mouse(short type);
 void mouse_idle(short type);
 void recenter_mouse(void);
 
+// Frame-rate local mouse look. Simulation continues to consume input at 30 Hz.
+bool sprintathon_frame_mouse_enabled();
+void sprintathon_update_frame_mouse();
+fixed_yaw_pitch sprintathon_pending_frame_mouse();
+void sprintathon_apply_frame_mouse_view(float heartbeat_fraction);
+
+
 // ZZZ: stuff of various hackiness levels to pretend mouse buttons are keys
 void mouse_buttons_become_keypresses(Uint8* ioKeyMap);
 void mouse_scroll(bool up);

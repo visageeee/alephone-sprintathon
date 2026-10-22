@@ -31,6 +31,7 @@ INTERPOLATED_WORLD.CPP
 #include "map.h"
 #include "Movie.h"
 #include "player.h"
+#include "mouse.h"
 #include "preferences.h"
 #include "render.h"
 #include "weapons.h"
@@ -98,6 +99,8 @@ struct TickWorldView {
 	angle yaw, pitch;
 	int16 roll;
 	fixed_angle virtual_yaw, virtual_pitch;
+    fixed_yaw_pitch player_aim;
+    int16_t player_index;
 	world_point3d origin;
 	_fixed maximum_depth_intensity;
 };
@@ -321,6 +324,10 @@ void enter_interpolated_world()
 	next->roll = view->roll;
 	next->virtual_yaw = view->virtual_yaw;
 	next->virtual_pitch = view->virtual_pitch;
+    const auto residual = virtual_aim_delta();
+    next->player_index = current_player_index;
+    next->player_aim = {current_player->facing * FIXED_ONE + residual.yaw,
+                        current_player->elevation * FIXED_ONE + residual.pitch};
 	next->origin = view->origin;
 	next->maximum_depth_intensity = view->maximum_depth_intensity;
 
@@ -755,6 +762,43 @@ void interpolate_world_view(float heartbeat_fraction)
 			view->origin_polygon_index = polygon_index;
 		}
 	}
+}
+
+// Replace only the local player's interpolated aim, retaining the interpolated
+// roll, recoil, landing dip, and positional camera effects already in the view.
+void sprintathon_apply_frame_mouse_view(float fraction)
+{
+    if (!sprintathon_frame_mouse_enabled() || current_player_index != local_player_index)
+        return;
+    const auto residual = virtual_aim_delta();
+    const fixed_yaw_pitch actual = {current_player->facing * FIXED_ONE + residual.yaw,
+                                    current_player->elevation * FIXED_ONE + residual.pitch};
+    auto baseline = actual;
+    auto prev = &previous_tick_world_view;
+    auto next = &current_tick_world_view;
+    if (world_is_interpolated && fraction <= 1.f &&
+        prev->origin_polygon_index != NONE &&
+        prev->player_index == local_player_index && next->player_index == local_player_index &&
+        should_interpolate(prev->origin, next->origin))
+    {
+        baseline.yaw = lerp_fixed_angle(prev->player_aim.yaw, next->player_aim.yaw, fraction);
+        baseline.pitch = lerp_fixed_angle(prev->player_aim.pitch, next->player_aim.pitch, fraction);
+    }
+    const auto pending = preview_mouse_aim(sprintathon_pending_frame_mouse());
+    auto difference = [](fixed_angle target, fixed_angle from) {
+        int64_t d = int64_t(target) - from;
+        const int64_t circle = int64_t(FULL_CIRCLE) * FIXED_ONE;
+        d %= circle;
+        if (d > circle / 2) d -= circle;
+        if (d < -circle / 2) d += circle;
+        return static_cast<fixed_angle>(d);
+    };
+    world_view->virtual_yaw += difference(actual.yaw + pending.yaw, baseline.yaw);
+    world_view->virtual_pitch += difference(actual.pitch + pending.pitch, baseline.pitch);
+    // Visibility and the shader must use the same view direction. Preserve the
+    // fractional angle in virtual_* for the renderer.
+    world_view->yaw = NORMALIZE_ANGLE(FIXED_INTEGERAL_PART(world_view->virtual_yaw));
+    world_view->pitch = NORMALIZE_ANGLE(FIXED_INTEGERAL_PART(world_view->virtual_pitch));
 }
 
 extern bool game_is_being_replayed();

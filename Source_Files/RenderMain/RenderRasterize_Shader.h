@@ -43,6 +43,7 @@ class RenderRasterize_Shader : public RenderRasterizerClass {
     enum class WorldSurfacePass { all, opaque, remaining };
     WorldSurfacePass world_surface_pass = WorldSurfacePass::all;
     void render_world_diffuse();
+    void replay_surface_commands(RenderStep step);
     void apply_opaque_batch_portal(const std::array<int32_t,4>& portal);
     void flush_opaque_batch();
     int queue_opaque_batch(clipping_window_data* window, TextureManager* material,

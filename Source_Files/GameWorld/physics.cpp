@@ -502,7 +502,7 @@ void resync_virtual_aim()
 	vir_aim_delta = {0, 0};
 }
 
-uint32 process_aim_input(uint32 action_flags, fixed_yaw_pitch delta)
+static uint32 process_aim_input_with_residual(uint32 action_flags, fixed_yaw_pitch delta, fixed_yaw_pitch& residual)
 {
 	// Classic behavior modes
 	const bool classic_precision = !input_preferences->extra_mouse_precision;
@@ -536,7 +536,7 @@ uint32 process_aim_input(uint32 action_flags, fixed_yaw_pitch delta)
 	const physics_variables& local_phys = local_player->variables;
 	
 	// The delta from the current physical aim to the requested virtual aim
-	const fixed_yaw_pitch full_delta = {delta.yaw + vir_aim_delta.yaw, delta.pitch + vir_aim_delta.pitch};
+	const fixed_yaw_pitch full_delta = {delta.yaw + residual.yaw, delta.pitch + residual.pitch};
 	
 	// Process yaw input
 	if (!(action_flags & _override_absolute_yaw))
@@ -549,8 +549,8 @@ uint32 process_aim_input(uint32 action_flags, fixed_yaw_pitch delta)
 		
 		// Update virtual yaw
 		auto residual_limit = (FIXED_ONE / 2) - 1;
-		vir_aim_delta.yaw = classic_precision ? 0 : std::clamp(target - payload * FIXED_ONE, -residual_limit, residual_limit);
-		assert(std::abs(vir_aim_delta.yaw) <= residual_limit);
+		residual.yaw = classic_precision ? 0 : std::clamp(target - payload * FIXED_ONE, -residual_limit, residual_limit);
+		assert(std::abs(residual.yaw) <= residual_limit);
 	}
 	
 	// Explicit and automatic recentering do not occur under absolute pitch mode; therefore we
@@ -571,13 +571,50 @@ uint32 process_aim_input(uint32 action_flags, fixed_yaw_pitch delta)
 		
 		// Update virtual pitch
 		auto residual_limit = (FIXED_ONE / 2) - 1;
-		vir_aim_delta.pitch = classic_precision ? 0 : std::clamp(target - payload * FIXED_ONE, -residual_limit, residual_limit);
-		assert(std::abs(vir_aim_delta.pitch) <= residual_limit);
+		residual.pitch = classic_precision ? 0 : std::clamp(target - payload * FIXED_ONE, -residual_limit, residual_limit);
+		assert(std::abs(residual.pitch) <= residual_limit);
 	}
 	
 	return action_flags;
 }
 
+
+uint32 process_aim_input(uint32 action_flags, fixed_yaw_pitch delta)
+{
+    return process_aim_input_with_residual(action_flags, delta, vir_aim_delta);
+}
+
+static int sprintathon_curved_mouse_pitch(int raw_pitch)
+{
+    if (input_preferences->sprintathon_mouselook_mode == 0) return raw_pitch;
+    const int magnitude = std::min(std::abs(raw_pitch), 15);
+    const int excess = std::max(0, magnitude - 4);
+    const int curved = magnitude + (excess ? (excess * excess * 48 + 60) / 121 : 0);
+    return raw_pitch < 0 ? -curved : curved;
+}
+
+fixed_yaw_pitch preview_mouse_aim(fixed_yaw_pitch delta)
+{
+    fixed_yaw_pitch residual = vir_aim_delta;
+    const uint32 flags = process_aim_input_with_residual(0, delta, residual);
+    fixed_yaw_pitch result = {residual.yaw - vir_aim_delta.yaw, residual.pitch - vir_aim_delta.pitch};
+    if (flags & _absolute_yaw_mode)
+        result.yaw = (GET_ABSOLUTE_YAW(flags) - MAXIMUM_ABSOLUTE_YAW / 2) * FIXED_ONE
+            + residual.yaw - vir_aim_delta.yaw;
+    if (flags & _absolute_pitch_mode)
+    {
+        const auto constants = get_physics_constants_for_model(static_world->physics_model, 0);
+        const fixed_angle maximum = sprintathon_mouselook_limit(constants);
+        const fixed_angle min_pitch = FIXED_INTEGERAL_PART(-maximum) * FIXED_ONE;
+        const fixed_angle max_pitch = FIXED_INTEGERAL_PART(maximum) * FIXED_ONE;
+        const fixed_angle pitch = FIXED_INTEGERAL_PART(local_player->variables.elevation) * FIXED_ONE;
+        const fixed_angle movement = sprintathon_curved_mouse_pitch(
+            GET_ABSOLUTE_PITCH(flags) - MAXIMUM_ABSOLUTE_PITCH / 2) * FIXED_ONE;
+        result.pitch = A1_PIN(pitch + movement + residual.pitch, min_pitch, max_pitch)
+            - pitch - vir_aim_delta.pitch;
+    }
+    return result;
+}
 
 /* ---------- private code */
 
@@ -1594,31 +1631,8 @@ static void physics_update(
 
 	if (action_flags&_absolute_pitch_mode)
 	{
-		if (input_preferences->sprintathon_mouselook_mode == 0)
-		{
-			variables->vertical_angular_velocity=
-				(GET_ABSOLUTE_PITCH(action_flags)-MAXIMUM_ABSOLUTE_PITCH/2)<<FIXED_FRACTIONAL_BITS;
-		}
-		else
-		{
-		// Preserve precise slow pitch movement while allowing fast vertical turns.
-		const int raw_pitch =
-			GET_ABSOLUTE_PITCH(action_flags) - MAXIMUM_ABSOLUTE_PITCH / 2;
-		const int pitch_magnitude = std::min(std::abs(raw_pitch), 15);
-		int curved_magnitude = pitch_magnitude;
-
-		if (pitch_magnitude > 4)
-		{
-			const int excess = pitch_magnitude - 4;
-			curved_magnitude +=
-				(excess * excess * 48 + 60) / 121;
-		}
-
-		const int curved_pitch =
-			raw_pitch < 0 ? -curved_magnitude : curved_magnitude;
-		variables->vertical_angular_velocity =
-			curved_pitch * FIXED_ONE;
-		}
+        variables->vertical_angular_velocity = sprintathon_curved_mouse_pitch(
+            GET_ABSOLUTE_PITCH(action_flags) - MAXIMUM_ABSOLUTE_PITCH / 2) * FIXED_ONE;
 	}
 	else
 	{

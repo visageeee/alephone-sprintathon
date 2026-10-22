@@ -34,6 +34,7 @@ Oct 13, 2000
 */
 
 #include "cseries.h"
+#include "SprintathonPortalTrace.h"
 #include "screen.h"
 
 #include "map.h"
@@ -123,6 +124,12 @@ void RenderVisTreeClass::PUSH_POLYGON_INDEX(short polygon_index)
 // Main routine
 void RenderVisTreeClass::build_render_tree()
 {
+    auto& trace=SprintathonPortalTrace::get();trace.begin();
+    SprintathonPortalScope traceScope(trace.sampled,[&](double ms){
+        std::set<short> unique;for(const auto& n:Nodes)unique.insert(n.polygon_index);
+        fprintf(stderr,"Portal visibility capture %u: CPU %.3f ms; ray-calls %u traversal-steps %u nodes %zu unique-polygons %zu; full-circle %d unclipped %d noclip %d\n",
+            trace.sequence,ms,trace.rays,trace.steps,Nodes.size(),unique.size(),int(conservative_full_circle),int(unclipped_portal_windows),int(surface_editor_noclip()));
+    });
 	const char *override_clips = std::getenv("SPRINTATHON_PORTAL_CLIP_FAST_PATH");
 	unclipped_portal_windows = conservative_full_circle &&
 		(!override_clips || override_clips[0] != '0');
@@ -255,6 +262,7 @@ void RenderVisTreeClass::cast_render_ray(
 	node_data* parent,
 	short bias) /* _clockwise or _counterclockwise for walking endpoints */
 {
+    if(SprintathonPortalTrace::get().sampled)++SprintathonPortalTrace::get().rays;
 	short polygon_index= parent->polygon_index;
 	bool add_endpoint_clip_to_next_clippable_poly = false;
 	
@@ -262,6 +270,7 @@ void RenderVisTreeClass::cast_render_ray(
 	{
 		short clipping_endpoint_index= endpoint_index;
 		short clipping_line_index;
+		if(SprintathonPortalTrace::get().sampled)++SprintathonPortalTrace::get().steps;
 		uint16 clip_flags= next_polygon_along_line(&polygon_index, &view->origin, _vector, &clipping_endpoint_index, &clipping_line_index, bias);
 		
 		if (polygon_index==NONE)
