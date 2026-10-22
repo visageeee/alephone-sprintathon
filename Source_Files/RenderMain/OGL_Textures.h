@@ -81,6 +81,8 @@ struct TextureState
 	bool BrightEmission;
 	float BrightU, BrightV, BrightColor[3];
 	bool ProjectileVisualColorValid;
+    bool LiquidFogColorValid;
+    float LiquidFogColor[3];
 	float ProjectileVisualColor[3];
 	bool TexGened[NUMBER_OF_TEXTURES];	// Which ID's have had their textures generated?
 	int IDUsage[NUMBER_OF_TEXTURES];	// Which ID's are being used?  Reset every frame.
@@ -260,6 +262,11 @@ public:
         rgb[0] = TxtrStatePtr->BrightColor[0];
         rgb[1] = TxtrStatePtr->BrightColor[1];
         rgb[2] = TxtrStatePtr->BrightColor[2];
+        return true;
+    }
+    bool GetLiquidFogColor(float rgb[3]) const {
+        if (!TxtrStatePtr || !TxtrStatePtr->LiquidFogColorValid) return false;
+        for (int i=0; i<3; ++i) rgb[i]=TxtrStatePtr->LiquidFogColor[i];
         return true;
     }
     bool GetProjectileVisualColor(float rgb[3]) const {

@@ -29,6 +29,12 @@ uniform vec4 liquidFlow;
 uniform vec4 waterSceneryPosition0,waterSceneryColor0;
 uniform vec4 waterSceneryPosition1,waterSceneryColor1;
 uniform float liquidSceneAvailable;
+uniform sampler2DRect liquidDepthMap;
+// x: absorption per engine unit; yz: projection depth coefficients; w: eye Z.
+uniform vec4 liquidDepthParams;
+uniform vec4 liquidFogColor;
+)"
+R"(
 uniform vec4 skyBakeU, skyBakeV;
 uniform sampler2D texture1;
 uniform sampler2DRect texture2;
@@ -50,6 +56,7 @@ uniform float mediaFogEnabled;
 uniform float mediaFogTop;
 uniform float mediaFogSoftness;
 uniform float mediaRipple;
+uniform float mediaRefraction;
 uniform vec4 liquidEdge0;
 uniform vec4 liquidEdge1;
 uniform vec4 liquidEdge2;
@@ -840,21 +847,24 @@ R"(        1.0 - smoothstep(16.0 * 1024.0, 32.0 * 1024.0, viewDistance) : 1.0;
 	vec3 texCoords = vec3(gl_TexCoord[0].xy, 0.0);
 	float surfaceWetness = mediaWetness * surfaceDetail;
 	float rippleStrength = mediaRipple * surfaceDetail;
+    float refractionStrength = mediaRefraction * surfaceDetail;
 	float rippleHighlight = 1.0;
 	vec2 mediaDetailOffset = vec2(0.0);
 	float mediaTextureMix = 0.0;
 	float wetTextureShade = 1.0;
 	vec2 sceneRefractionOffset = vec2(0.0);
     vec2 liquidSlopes=vec2(0.0);
+    vec2 refractionSlopes=vec2(0.0);
     #ifndef SPRINTATHON_NO_WATER_SPECULAR
-if(liquidSpecLight.w>0.0 && rippleStrength>0.001) {
-        liquidSlopes=sprintathonFlowingSlopes(sprintathonWorldPosition.xy+liquidFlow.xy,liquidSpecEye.w,viewDistance)
-            * clamp(rippleStrength,0.0,1.5);
+if(liquidSpecLight.w>0.0 && (rippleStrength>0.001 || refractionStrength>0.001)) {
+        vec2 flowSlopes=sprintathonFlowingSlopes(sprintathonWorldPosition.xy+liquidFlow.xy,liquidSpecEye.w,viewDistance);
+        liquidSlopes=flowSlopes * clamp(rippleStrength,0.0,1.5);
+        refractionSlopes=flowSlopes * refractionStrength;
         // Reflection and refraction share this continuous wave field.
     }
 #endif
 
-	if (rippleStrength > 0.001) {
+	if (rippleStrength > 0.001 || refractionStrength > 0.001) {
 		float phase = time;
 		vec2 base = sprintathonWorldPosition.xy / 1024.0;
 		vec2 fineWaves = vec2(
@@ -864,7 +874,7 @@ if(liquidSpecLight.w>0.0 && rippleStrength>0.001) {
 			sin(base.y * 6.2831853 + phase),
 			cos(base.x * 6.2831853 - phase));
 		sceneRefractionOffset =
-			(broadWaves * 7.5 + fineWaves * 3.0) * rippleStrength;
+			(broadWaves * 7.5 + fineWaves * 3.0) * refractionStrength;
 		texCoords.xy += (broadWaves * 0.008 + fineWaves * 0.0045) * rippleStrength;
 		vec2 slope = vec2(
 			0.24 * cos(base.x * 6.2831853 - phase) + 0.10 * cos((base.x + base.y) * 12.566371 - phase * 2.0),
@@ -884,10 +894,10 @@ if(liquidSpecLight.w>0.0 && rippleStrength>0.001) {
 			0.65, 1.35);
 	}
     #ifndef SPRINTATHON_NO_WATER_SPECULAR
-if(liquidSpecLight.w>0.0 && rippleStrength>0.001) {
+if(liquidSpecLight.w>0.0 && (rippleStrength>0.001 || refractionStrength>0.001)) {
         // Retain the established liquid texture animation above. Only the
         // optical distortion follows the new reflection normal field.
-        vec3 viewSlope=gl_NormalMatrix*vec3(liquidSlopes,0.0);
+        vec3 viewSlope=gl_NormalMatrix*vec3(refractionSlopes,0.0);
         sceneRefractionOffset=viewSlope.xy*22.0;
         // Let the specular model provide the highlight rather than layering
         // the old fixed-direction wave lighting on top of it.
@@ -1332,7 +1342,9 @@ if (liquidSpecLight.w > 0.0) {
 	vec3 finalColor = mix(gl_Fog.color.rgb, shadedColor, fogFactor);
     vec3 reflectedFog=mix(gl_Fog.color.rgb,liquidReflection,fogFactor);
     vec3 directFog=liquidDirect*fogFactor;
-	if (rippleStrength > 0.001 || (liquidSpecLight.w>0.0 && liquidSceneAvailable>0.5)) {
+    bool depthFog = liquidDepthParams.x > 0.0 && liquidSceneAvailable > 0.5 &&
+        liquidDepthParams.w > sprintathonWorldPosition.z;
+	if (rippleStrength > 0.001 || refractionStrength > 0.001 || depthFog || (liquidSpecLight.w>0.0 && liquidSceneAvailable>0.5)) {
 )"
 R"(        // Screen-space distance keeps the guard narrow at every viewing angle.
         float edgePixels = 100000.0;
@@ -1375,8 +1387,31 @@ R"(        // Screen-space distance keeps the guard narrow at every viewing angl
 		vec3 refractedScene = texture2DRect(texture2,
 			refractedCoord).rgb;
 		float liquidAlpha = clamp(vertexColor.a, 0.0, 1.0);
-        // First compose transmission. Opacity controls liquid tint/body only.
-        vec3 transmitted=mix(refractedScene,finalColor,liquidAlpha);
+        // Fog the submerged scene first. Surface opacity is applied afterwards.
+        vec3 underwaterScene=refractedScene;
+)"
+R"(        if (depthFog) {
+            // Measure along the actual viewing ray. Subtract the surface
+            // distance so air between the camera and pool adds no liquid fog.
+            float sceneDepth = texture2DRect(liquidDepthMap,gl_FragCoord.xy).r;
+            if (sceneDepth > gl_FragCoord.z) {
+                float surfaceZ = liquidDepthParams.z /
+                    min(2.0*gl_FragCoord.z-1.0+liquidDepthParams.y,-0.000001);
+                float behindZ = liquidDepthParams.z /
+                    min(2.0*sceneDepth-1.0+liquidDepthParams.y,-0.000001);
+                float pathLength = max(behindZ-surfaceZ,0.0) *
+                    viewDistance/max(surfaceZ,0.0001);
+                float haze = 1.0-exp(-min(pathLength*liquidDepthParams.x,16.0));
+                vec3 volumeColour=liquidFogColor.rgb;
+#ifdef GAMMA_CORRECTED_BLENDING
+                volumeColour*=volumeColour;
+#endif
+                volumeColour=mix(gl_Fog.color.rgb,volumeColour,fogFactor);
+                underwaterScene=mix(underwaterScene,volumeColour,haze);
+            }
+        }
+        // Density never changes the weight or contrast of the surface texture.
+        vec3 transmitted=mix(underwaterScene,finalColor,liquidAlpha);
         // Reflection belongs to the interface, independent of its transparency.
         vec3 water=mix(transmitted,reflectedFog,liquidReflectWeight)+directFog;
         gl_FragColor=vec4(clamp(water,0.0,1.0),1.0);

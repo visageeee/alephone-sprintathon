@@ -66,7 +66,7 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"texture3",
     "waterSceneryPosition0", "waterSceneryColor0",
     "waterSceneryPosition1", "waterSceneryColor1",
-    "skyBakeActor", "skyBakeSun", "skyBakeAmbient", "textureBakeMap", "textureBakeEnabled", "skyBakeMap", "skyBakeEnabled", "skyBakeLayers", "skyBakeU", "skyBakeV", "skyBakeSectorStrength", "liquidSpecLight", "liquidSpecEye", "liquidSceneAvailable", "liquidSkyMap", "liquidSkyParams", "liquidSkyMode", "liquidFlow", "visibleSun", "visibleSunColor", "visibleSunEye", "scriptSunEffects",
+    "skyBakeActor", "skyBakeSun", "skyBakeAmbient", "textureBakeMap", "textureBakeEnabled", "skyBakeMap", "skyBakeEnabled", "skyBakeLayers", "skyBakeU", "skyBakeV", "skyBakeSectorStrength", "liquidSpecLight", "liquidSpecEye", "liquidSceneAvailable", "liquidDepthMap", "liquidDepthParams", "liquidFogColor", "liquidSkyMap", "liquidSkyParams", "liquidSkyMode", "liquidFlow", "visibleSun", "visibleSunColor", "visibleSunEye", "scriptSunEffects",
 	"time",
 	"pulsate",
 	"wobble",
@@ -103,6 +103,7 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"mediaFogSoftness",
 	"objectWorldZ",
 	"mediaRipple",
+    "mediaRefraction",
 	"mediaWetness",
 	"sprintathonLightPosition",
 	"sprintathonLightColor",
@@ -639,6 +640,7 @@ void Shader::init() {
 	glUniform1iARB(getUniformLocation(U_Texture0), 0);
 	glUniform1iARB(getUniformLocation(U_Texture1), 1);
     glUniform1iARB(getUniformLocation(U_LiquidSkyMap), 5);
+    glUniform1iARB(getUniformLocation(U_LiquidDepthMap), 7);
 	glUniform1iARB(getUniformLocation(U_Texture2), 2);
 	glUniform1iARB(getUniformLocation(U_Texture3), 3);
     glUniform1iARB(getUniformLocation(U_SkyBakeMap), 4);

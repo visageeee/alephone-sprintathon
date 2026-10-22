@@ -823,6 +823,34 @@ static void setup_classic_invisibility(Shader *shader, float visibility)
 	shader->setFloat(Shader::U_PixelHeight, 0.0f);
 }
 
+// Snapshot the depth behind this media draw. Unit 7 is separate from the
+// colour capture (2), lighting data (3/4/6), and water normal map (5).
+static void sprintathon_capture_liquid_depth(GLsizei width, GLsizei height)
+{
+    static GLuint texture = 0;
+    static GLsizei old_width = 0, old_height = 0;
+    static SDL_GLContext context = nullptr;
+    if (context != SDL_GL_GetCurrentContext()) {
+        context = SDL_GL_GetCurrentContext(); texture = 0;
+        old_width = old_height = 0;
+    }
+    glActiveTextureARB(GL_TEXTURE0_ARB + 7);
+    if (!texture) glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_RECTANGLE_ARB, texture);
+    glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+    if (width != old_width || height != old_height) {
+        glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_DEPTH_COMPONENT24,
+            width, height, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+        old_width = width; old_height = height;
+    }
+    glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0, 0, 0, width, height);
+    glActiveTextureARB(GL_TEXTURE0_ARB);
+}
+
 static GLuint sprintathon_capture_scene_depth(GLsizei width, GLsizei height, bool capture = true)
 {
 	static GLuint depth_texture = 0;
@@ -5298,6 +5326,10 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
     s->setVector4(Shader::U_WaterSceneryColor0,0,0,0,0);
     s->setVector4(Shader::U_WaterSceneryColor1,0,0,0,0);
     s->setFloat(Shader::U_LiquidSceneAvailable,0);
+    s->setVector4(Shader::U_LiquidDepthParams,0,0,0,0);
+    const bool liquid_depth_fog = graphics_preferences->liquid_depth_fog &&
+        graphics_preferences->liquid_depth_fog_density > 0 &&
+        !current_player->infravision_duration && !sprintathon_fast_shaft_source();
     s->setVector4(Shader::U_LiquidSpecLight,0,0,1,0);
     if (renderStep == kDiffuse && mediaType != NONE && mediaType != _media_lava &&
         graphics_preferences->liquid_specular && !current_player->infravision_duration) {
@@ -5319,6 +5351,9 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 		mediaType != NONE && config.AnimatedMediaRipples ?
 			(static_cast<float>(config.AnimatedMediaRippleStrength) + 1.0f) *
 				0.25f : 0.0f);
+	s->setFloat(Shader::U_MediaRefraction,
+        mediaType != NONE && config.AnimatedMediaRipples && TEST_FLAG(config.Flags, OGL_Flag_LiqSeeThru) ?
+            graphics_preferences->liquid_refraction_strength / 100.0f : 0.0f);
 	s->setFloat(Shader::U_MediaWetness,
 		mediaType != NONE && config.AnimatedMediaRipples ?
 			static_cast<float>(config.AnimatedMediaWetTextureStrength) *
@@ -5328,7 +5363,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 	// Diffuse media shaders sample it from texture unit 2 and bend that sample
 	// with the same wave field used to animate the liquid texture.
 	if (mediaType != NONE && renderStep == kDiffuse &&
-        (config.AnimatedMediaRipples || (graphics_preferences->liquid_specular && mediaType!=_media_lava)) &&
+        (config.AnimatedMediaRipples || liquid_depth_fog || (graphics_preferences->liquid_specular && mediaType!=_media_lava)) &&
 		TEST_FLAG(config.Flags, OGL_Flag_LiqSeeThru))
 	{
 		const GLsizei width = static_cast<GLsizei>(
@@ -5342,6 +5377,32 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
         // Capture at this draw, after that geometry has become available.
         glCopyTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0,
             0, 0, width, height);
+        if (liquid_depth_fog) {
+            sprintathon_capture_liquid_depth(width, height);
+            // Smooth volume colour, independent of surface texels and opacity.
+            // Compressed replacement textures may not expose decoded pixels;
+            // in that case use the media type's palette rather than UV samples.
+            float fog_colour[3]={0.12f,0.22f,0.28f};
+            if (!TMgr->GetLiquidFogColor(fog_colour)) {
+                switch (mediaType) {
+                    case _media_lava: fog_colour[0]=0.45f; fog_colour[1]=0.10f; fog_colour[2]=0.02f; break;
+                    case _media_goo: fog_colour[0]=0.24f; fog_colour[1]=0.30f; fog_colour[2]=0.06f; break;
+                    case _media_sewage: fog_colour[0]=0.12f; fog_colour[1]=0.20f; fog_colour[2]=0.06f; break;
+                    case _media_jjaro: fog_colour[0]=0.10f; fog_colour[1]=0.24f; fog_colour[2]=0.20f; break;
+                    default: break;
+                }
+            }
+            const float fog_light=std::max(0.0f,std::min(1.0f,intensity));
+            s->setVector4(Shader::U_LiquidFogColor,fog_colour[0]*fog_light,
+                fog_colour[1]*fog_light,fog_colour[2]*fog_light,1.0f);
+            GLfloat projection[16];
+            glGetFloatv(GL_PROJECTION_MATRIX, projection);
+            // Density is per world unit; retain the active projection's depth
+            // coefficients rather than assuming fixed near/far planes.
+            s->setVector4(Shader::U_LiquidDepthParams,
+                0.35f * graphics_preferences->liquid_depth_fog_density / (100.0f * WORLD_ONE),
+                projection[10], projection[14], view->origin.z);
+        }
 		glActiveTextureARB(GL_TEXTURE0_ARB);
 	}
 	
@@ -5539,6 +5600,7 @@ static void sprintathon_replay_bloom(SprintathonBloomPacket& p,view_data* view,
     shader->setFloat(Shader::U_Depth,p.offset);
     shader->setFloat(Shader::U_Glow,0);
     shader->setFloat(Shader::U_MediaRipple,0);
+    shader->setFloat(Shader::U_MediaRefraction,0);
     const char* detail=std::getenv("SPRINTATHON_DISTANT_SURFACE_DETAIL");
     shader->setFloat(Shader::U_SprintathonDistantSurfaceDetail,
         graphics_preferences->simplify_distant_surfaces && (!detail || detail[0]!='0') ? 1.0f:0.0f);

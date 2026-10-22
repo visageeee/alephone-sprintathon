@@ -446,6 +446,7 @@ void TextureState::Reset()
 	BrightEmission = false;
 	SkyColorValid = false;
 	ProjectileVisualColorValid = false;
+    LiquidFogColorValid = false;
 }
 
 void TextureState::FrameTick() {
@@ -919,6 +920,26 @@ bool TextureManager::Setup()
         // Uniformly pale textures are deliberately excluded.
         CTState.BrightEmission = false;
         CTState.ProjectileVisualColorValid = false;
+        // One flat colour from the diffuse image, not its glow map or current
+        // UV. Cache it at load time so depth fog never reproduces surface detail.
+        CTState.LiquidFogColorValid = false;
+        if (TextureType == OGL_Txtr_Wall && NormalImage.get() &&
+            NormalImage.get()->IsPresent() && NormalImage.get()->GetFormat() == ImageDescriptor::RGBA8) {
+            const int width=NormalImage.get()->GetWidth(), height=NormalImage.get()->GetHeight();
+            const unsigned char* pixels=reinterpret_cast<const unsigned char*>(NormalImage.get()->GetBuffer());
+            double sum[3]={0,0,0}, weight=0;
+            for (int y=0; y<height; y+=std::max(1,height/32))
+                for (int x=0; x<width; x+=std::max(1,width/32)) {
+                    const unsigned char* pixel=pixels+4*(y*width+x);
+                    const double alpha=pixel[3]/255.0;
+                    weight+=alpha;
+                    for (int i=0;i<3;++i) sum[i]+=pixel[i]*alpha/255.0;
+                }
+            if (weight>0) {
+                for (int i=0;i<3;++i) CTState.LiquidFogColor[i]=float(sum[i]/weight);
+                CTState.LiquidFogColorValid=true;
+            }
+        }
         const bool glow_source = IsGlowing && GlowImage.get() && GlowImage.get()->IsPresent();
         const ImageDescriptor *emission_image =
             glow_source ?

@@ -136,6 +136,9 @@ struct graphics_preferences_data
     bool visible_sun;
     int16 visible_sun_size, visible_sun_brightness, visible_sun_color;
     bool liquid_specular;
+    bool liquid_depth_fog;
+    int16 liquid_depth_fog_density;
+    int16 liquid_refraction_strength; // Percent, independent of surface ripples.
     bool liquid_sprite_reflections;
     int16 liquid_specular_strength;
     int16 liquid_reflection_strength;

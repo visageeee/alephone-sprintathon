@@ -1669,6 +1669,11 @@ void handle_preferences(bool in_game)
 	table_placer *liquids = make_preferences_table();
     liquids->row_space(scale_dialog_value(14));
 	w_toggle *liquid_transparency_w = new w_toggle(ogl_flag(OGL_Flag_LiqSeeThru));
+    w_slider *liquid_refraction_w = new w_liquid_percent_slider(401,
+        graphics_preferences->liquid_refraction_strength);
+    w_toggle *liquid_depth_fog_w = new w_toggle(graphics_preferences->liquid_depth_fog);
+    w_slider *liquid_depth_fog_density_w = new w_liquid_percent_slider(401,
+        graphics_preferences->liquid_depth_fog_density);
 	w_toggle *underwater_distortion_w = new w_toggle(
 		graphics_preferences->OGL_Configure.UnderwaterDistortion);
 	w_embedded_liquid_opacity_slider *liquid_opacity_w =
@@ -1695,8 +1700,12 @@ void handle_preferences(bool in_game)
     liquids->dual_add(liquid_fluorescence_w->label("Liquid Fluorescence"), d); liquids->dual_add(liquid_fluorescence_w, d);
     preferences_help(liquids,"Lets bright non-lava liquids illuminate their surroundings.",d);
     preferences_effect(liquids,"Transparent Liquids",liquid_transparency_w,liquid_opacity_w,d);
+    preferences_effect(liquids,"Liquid Depth Fog",liquid_depth_fog_w,liquid_depth_fog_density_w,d);
+    preferences_help(liquids,"Density increases haze through deep liquid.",d);
 	liquids->dual_add(underwater_distortion_w->label("Underwater Distortion"), d); liquids->dual_add(underwater_distortion_w, d);
-    preferences_effect(liquids,"Liquid Ripples",liquid_ripples_w,liquid_strength_w,d);
+    liquids->dual_add(liquid_ripples_w->label("Liquid Ripples"), d); liquids->dual_add(liquid_ripples_w, d);
+    liquids->dual_add(liquid_strength_w->label("Ripple Strength"), d); liquids->dual_add(liquid_strength_w, d);
+    liquids->dual_add(liquid_refraction_w->label("Refraction Strength"), d); liquids->dual_add(liquid_refraction_w, d);
     liquids->last_row_space(scale_dialog_value(4));
 	liquids->dual_add(liquid_wetness_w->label("Wet Texture Strength"), d); liquids->dual_add(liquid_wetness_w, d);
 	liquids_page->add(liquids, true); 
@@ -1794,7 +1803,11 @@ void handle_preferences(bool in_game)
         liquid_specular_strength_w->set_enabled(liquid_specular_w->get_selection());
         liquid_reflection_strength_w->set_enabled(liquid_sprite_reflections_w->get_selection());
         liquid_opacity_w->set_enabled(liquid_transparency_w->get_selection());
+        liquid_depth_fog_w->set_enabled(liquid_transparency_w->get_selection());
+        liquid_depth_fog_density_w->set_enabled(liquid_transparency_w->get_selection() &&
+            liquid_depth_fog_w->get_selection());
         liquid_strength_w->set_enabled(liquid_ripples_w->get_selection());
+        liquid_refraction_w->set_enabled(liquid_ripples_w->get_selection() && liquid_transparency_w->get_selection());
         liquid_wetness_w->set_enabled(liquid_ripples_w->get_selection());
         fog_corona_strength_w->set_enabled(fog_light_coronas_w->get_selection());
         fog_projectile_coronas_w->set_enabled(fog_light_coronas_w->get_selection());
@@ -1838,9 +1851,9 @@ void handle_preferences(bool in_game)
 		 ogl_anamorphic_lens_flares_w,
 		 ogl_anamorphic_lens_flare_strength_w, ogl_effects_w,
 		 ogl_aniso_w, sprite_upscaling_w, wall_upscaling_w,
-		 liquid_transparency_w, underwater_distortion_w,
+		 liquid_transparency_w, underwater_distortion_w, liquid_depth_fog_w, liquid_depth_fog_density_w,
 		 liquid_opacity_w, liquid_ripples_w,
-		 liquid_strength_w, liquid_wetness_w,
+		 liquid_strength_w, liquid_refraction_w, liquid_wetness_w,
 		 fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
 		 fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w,
 		 fog_haze_w, fog_volume_w, fog_drift_intensity_w, texture_light_reach_w,
@@ -1905,8 +1918,11 @@ void handle_preferences(bool in_game)
 			wall_upscaling_w->set_selection(total ? 2 : 0);
 			liquid_ripples_w->set_selection(medium_or_better);
 			liquid_strength_w->set_selection(high_or_better ? 2 : 1);
+            liquid_refraction_w->set_selection(100);
 			liquid_wetness_w->set_selection(total ? 8 : 0);
 			liquid_transparency_w->set_selection(total);
+            liquid_depth_fog_w->set_selection(high_or_better);
+            liquid_depth_fog_density_w->set_selection(100);
 			underwater_distortion_w->set_selection(total);
 			liquid_opacity_w->set_selection(10); // 75% opacity
 			if (total)
@@ -1993,7 +2009,7 @@ void handle_preferences(bool in_game)
 		ogl_ambient_occlusion_w, ogl_landscape_light_shafts_w,
 		ogl_anamorphic_lens_flares_w, ogl_vsync_w, ogl_npot_w,
 		ogl_effects_w, ogl_aniso_w, sprite_upscaling_w, wall_upscaling_w,
-		model_quality_w, liquid_transparency_w, underwater_distortion_w,
+		model_quality_w, liquid_transparency_w, underwater_distortion_w, liquid_depth_fog_w,
 		liquid_ripples_w, baked_landscape_lighting_w, baked_texture_lights_w, baked_scenery_lights_w, liquid_caustics_w, liquid_specular_w, liquid_sprite_reflections_w,
 		fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
 		fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w, fog_haze_w, fog_volume_w, ceiling_fog_cones_w, fog_light_coronas_w, fog_projectile_coronas_w, fog_scenery_coronas_w
@@ -2008,6 +2024,7 @@ void handle_preferences(bool in_game)
 			texture_far_w[i]->set_selection_changed_callback(custom_select_changed);
 	}
 	w_slider *graphics_slider_widgets[] = {
+        liquid_depth_fog_density_w,
         visible_sun_brightness_w,
         fog_corona_strength_w, baked_landscape_ambient_w, baked_landscape_sector_w, liquid_fluorescence_w, liquid_caustic_strength_w, liquid_specular_strength_w, liquid_reflection_strength_w,
         ceiling_fog_cone_strength_w,
@@ -2022,7 +2039,7 @@ void handle_preferences(bool in_game)
 		ogl_landscape_light_shaft_direction_w,
 		ogl_landscape_light_shaft_elevation_w,
 		ogl_anamorphic_lens_flare_strength_w,
-		liquid_opacity_w, liquid_strength_w, liquid_wetness_w,
+		liquid_opacity_w, liquid_strength_w, liquid_refraction_w, liquid_wetness_w,
 		fog_drift_intensity_w
 	};
 	for (w_slider *widget : graphics_slider_widgets)
@@ -2093,7 +2110,10 @@ void handle_preferences(bool in_game)
         if(liquid_ripples_w->get_selection()){
             gpu+=4;if(liquid_wetness_w->get_selection()>0)gpu+=3;
         }
-        if(liquid_transparency_w->get_selection())gpu+=4;
+        if(liquid_transparency_w->get_selection()){
+            gpu+=4;
+            if(liquid_depth_fog_w->get_selection() && liquid_depth_fog_density_w->get_selection()>0)gpu+=3;
+        }
         if(underwater_distortion_w->get_selection())gpu+=3;
         if(perPixel && liquid_fluorescence_w->get_selection()>0){cpu+=2;gpu+=3;}
         if(fog_enabled_w->get_selection() && fog_volume_w->get_selection()){cpu+=2;gpu+=8;}
@@ -2344,6 +2364,9 @@ void handle_preferences(bool in_game)
     graphics_preferences->visible_sun_color = visible_sun_color_w->get_selection();
     graphics_preferences->visible_sun_brightness = visible_sun_brightness_w->get_selection();
     graphics_preferences->liquid_specular = liquid_specular_w->get_selection();
+    graphics_preferences->liquid_refraction_strength = liquid_refraction_w->get_selection();
+    graphics_preferences->liquid_depth_fog = liquid_depth_fog_w->get_selection();
+    graphics_preferences->liquid_depth_fog_density = liquid_depth_fog_density_w->get_selection();
     graphics_preferences->liquid_sprite_reflections = liquid_sprite_reflections_w->get_selection();
     graphics_preferences->liquid_fluorescence = liquid_fluorescence_w->get_selection();
     graphics_preferences->liquid_caustic_strength = liquid_caustic_strength_w->get_selection();
@@ -6671,6 +6694,9 @@ InfoTree graphics_preferences_tree()
     root.put_attr("visible_sun_color", graphics_preferences->visible_sun_color);
     root.put_attr("visible_sun_brightness", graphics_preferences->visible_sun_brightness);
     root.put_attr("liquid_specular", graphics_preferences->liquid_specular);
+    root.put_attr("liquid_refraction_strength", graphics_preferences->liquid_refraction_strength);
+    root.put_attr("liquid_depth_fog", graphics_preferences->liquid_depth_fog);
+    root.put_attr("liquid_depth_fog_density", graphics_preferences->liquid_depth_fog_density);
     root.put_attr("liquid_sprite_reflections", graphics_preferences->liquid_sprite_reflections);
     root.put_attr("liquid_fluorescence", graphics_preferences->liquid_fluorescence);
     root.put_attr("liquid_caustic_strength", graphics_preferences->liquid_caustic_strength);
@@ -7344,6 +7370,9 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
     preferences->visible_sun_color = 0;
     preferences->visible_sun_brightness = 100;
     preferences->liquid_specular = false;
+    preferences->liquid_refraction_strength = 100;
+    preferences->liquid_depth_fog = true;
+    preferences->liquid_depth_fog_density = 100;
     preferences->liquid_sprite_reflections = false;
     preferences->liquid_fluorescence = 25;
     preferences->liquid_caustic_strength = 100;
@@ -7923,6 +7952,9 @@ void parse_graphics_preferences(InfoTree root, std::string version)
     root.read_attr_bounded<int16>("visible_sun_color",graphics_preferences->visible_sun_color,0,4);
     root.read_attr_bounded<int16>("visible_sun_brightness",graphics_preferences->visible_sun_brightness,0,200);
     root.read_attr("liquid_specular", graphics_preferences->liquid_specular);
+    root.read_attr_bounded<int16>("liquid_refraction_strength", graphics_preferences->liquid_refraction_strength, 0, 400);
+    root.read_attr("liquid_depth_fog", graphics_preferences->liquid_depth_fog);
+    root.read_attr_bounded<int16>("liquid_depth_fog_density", graphics_preferences->liquid_depth_fog_density, 0, 400);
     root.read_attr("liquid_sprite_reflections", graphics_preferences->liquid_sprite_reflections);
     root.read_attr_bounded<int16>("liquid_fluorescence", graphics_preferences->liquid_fluorescence, 0, 200);
     root.read_attr_bounded<int16>("liquid_caustic_strength", graphics_preferences->liquid_caustic_strength, 0, 200);
