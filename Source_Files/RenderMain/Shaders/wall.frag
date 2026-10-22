@@ -1,3 +1,4 @@
+#include "flashlight.glsl"
 R"(
 
 uniform sampler2D texture0;
@@ -1191,7 +1192,7 @@ R"(        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPositio
     }
     sprintathonApplySurfaceLights(intensity);
     sprintathonApplyAllScenery(intensity);
-	intensity = clamp(intensity * rippleHighlight, glow, 1.0);
+	intensity = clamp(intensity * rippleHighlight + sprintathonFlashlight(1.0), glow, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)
 #endif

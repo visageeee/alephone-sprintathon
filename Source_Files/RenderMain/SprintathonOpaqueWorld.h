@@ -1,5 +1,6 @@
 #ifndef SPRINTATHON_OPAQUE_WORLD_H
 #define SPRINTATHON_OPAQUE_WORLD_H
+#include "SprintathonFlashlight.h"
 #include <array>
 #include <algorithm>
 #include <tuple>
@@ -77,6 +78,7 @@ static unsigned arrayQueued=0,arrayDrawCalls=0;
 static std::chrono::steady_clock::time_point beginTime;
 static float fogSettings[4]={-1,0,0,1};
 static float playerLight=0;
+static GLint flashlightLocations[7]={-1,-1,-1,-1,-1,-1,-1};
 static long_vector2d outerLeft{},outerRight{};
 static GLint fogLocation=-1,lightLocation=-1;
 
@@ -397,6 +399,7 @@ static const char* vertexSource=R"GLSL(#version 120
 #extension GL_ARB_texture_rectangle : enable
 uniform sampler2DRect surfaceData;
 varying vec2 uv;
+varying vec3 flashlightEye;
 varying vec3 eyePosition;
 #ifndef SPRINTATHON_EARLY_CLIP
 varying vec2 portalDistance;
@@ -442,6 +445,7 @@ void main(){
 #endif
     bakeLayers=texture2DRect(surfaceData,vec2(7.5,row));
     eyePosition=(gl_ModelViewMatrix*gl_Vertex).xyz;
+    flashlightEye=eyePosition;
     vec3 n=normalize(gl_NormalMatrix*texture2DRect(surfaceData,vec2(42.5,row)).xyz);
     vec4 tangent=texture2DRect(surfaceData,vec2(43.5,row));
     vec3 t=normalize(gl_NormalMatrix*tangent.xyz);
@@ -452,6 +456,9 @@ void main(){
 )GLSL";
 static const char* fragmentSource=R"GLSL(#version 120
 #extension GL_ARB_texture_rectangle : enable
+)GLSL"
+#include "Shaders/flashlight.glsl"
+R"GLSL(
 uniform sampler2D texture0;
 uniform sampler2D texture1;
 #ifdef SPRINTATHON_TEXTURE_ARRAYS
@@ -647,6 +654,7 @@ void main(){
         vec3 beforeLights=intensity;surfaceLights(intensity,caustic);
         intensity=mix(beforeLights,intensity,surfaceDetailWeight);caustic*=surfaceDetailWeight;
     }
+    intensity=clamp(intensity+sprintathonFlashlight(1.0),0.0,1.0);
     vec3 color=clamp(texel.rgb*intensity,0.0,1.0);
     caustic*=dot(texel.rgb,vec3(.299,.587,.114));
     vec3 headroom=(vec3(1.0)-color)/max(caustic,vec3(.00001));
@@ -707,11 +715,12 @@ inline void preload(){
     if(version)std::sscanf(version,"%d.%d",&major,&minor);
     earlyClip=earlyClipRequested() && major>=3;
     const char* arrays=std::getenv("SPRINTATHON_WORLD_TEXTURE_ARRAYS");
+    const bool arraysRequested=arrays ? arrays[0]=='1' : graphics_preferences->world_texture_arrays;
     GLint fragmentUnits=0;glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS,&fragmentUnits);
     arrayImage3D=reinterpret_cast<ArrayImage3D>(SDL_GL_GetProcAddress("glTexImage3D"));
     arraySubImage3D=reinterpret_cast<ArraySubImage3D>(SDL_GL_GetProcAddress("glTexSubImage3D"));
-    arrayMode=arrays && arrays[0]=='1' && major>=3 && units>=9 && fragmentUnits>=9 && arrayImage3D && arraySubImage3D;
-    if(arrays && arrays[0]=='1' && !arrayMode)std::fprintf(stderr,"World texture arrays unsupported; using ordinary materials\n");
+    arrayMode=arraysRequested && major>=3 && units>=9 && fragmentUnits>=9 && arrayImage3D && arraySubImage3D;
+    if(arraysRequested && !arrayMode)std::fprintf(stderr,"World texture arrays unsupported; using ordinary materials\n");
     std::fprintf(stderr,"Opaque world portal clipping: %s\n",
         earlyClip?"before rasterization":"fragment discard");
     auto vs=compile(GL_VERTEX_SHADER_ARB,vertexSource),fs=compile(GL_FRAGMENT_SHADER_ARB,fragmentSource);
@@ -728,6 +737,8 @@ inline void preload(){
         std::fprintf(stderr,"Opaque world link failed: %s\n",log);glDeleteObjectARB(program);program=0;return;}
     const auto oldProgram=glGetHandleARB(GL_PROGRAM_OBJECT_ARB);
     glUseProgramObjectARB(program);
+    const char* flashlightNames[]={"flashlightParams","flashlightProjection","flashlightDepth","flashlightViewport","flashlightShadowMap","flashlightShadowMatrix","flashlightShadowParams"};
+    for(int i=0;i<7;++i)flashlightLocations[i]=glGetUniformLocationARB(program,flashlightNames[i]);
     glUniform1iARB(glGetUniformLocationARB(program,"texture0"),0);
     glUniform1iARB(glGetUniformLocationARB(program,"texture1"),1);
     arrayLocation=glGetUniformLocationARB(program,"useArrays");
@@ -1050,7 +1061,7 @@ inline void finish(void (*traceDraw)()=nullptr){
         glTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB,0,0,0,3,GLsizei(dynamicData.size()/12),GL_RGBA,GL_FLOAT,dynamicData.data());
         glActiveTextureARB(GL_TEXTURE0_ARB+3);glBindTexture(GL_TEXTURE_RECTANGLE_ARB,sceneryTexture);
         glPopClientAttrib();
-        glUseProgramObjectARB(program);glUniform4fvARB(fogLocation,1,fogSettings);glUniform1fARB(lightLocation,playerLight);
+        glUseProgramObjectARB(program);SprintathonFlashlight::bindRaw(flashlightLocations);glUniform4fvARB(fogLocation,1,fogSettings);glUniform1fARB(lightLocation,playerLight);
         const auto sun=SprintathonSkyBake::sunColor,ambient=SprintathonSkyBake::ambientColor;
         glUniform4fARB(sunLocation,float(sun.x),float(sun.y),float(sun.z),0);
         glUniform4fARB(ambientLocation,float(ambient.x),float(ambient.y),float(ambient.z),float(SprintathonSkyBake::ambientFloor()));

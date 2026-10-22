@@ -1,3 +1,4 @@
+#include "flashlight.glsl"
 R"(
 
 uniform sampler2D texture0;
@@ -119,7 +120,7 @@ void main (void) {
             intensity = combined.r > mlFactor ? combined + vec3(mlFactor * 0.5)
                                              : combined * 0.5 + vec3(mlFactor);
     }
-	intensity = clamp(intensity + sprintathonLightColor.rgb, glow, 1.0);
+	intensity = clamp(intensity + sprintathonLightColor.rgb + sprintathonFlashlight(0.0), glow, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)
 #endif

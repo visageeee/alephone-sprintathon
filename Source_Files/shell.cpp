@@ -35,12 +35,14 @@
 #include "shell.h"
 #include "interface.h"
 #include "SoundManager.h"
+#include "SoundManagerEnums.h"
 #include "fades.h"
 #include "screen.h"
 #include "Music.h"
 #include "images.h"
 #include "vbl.h"
 #include "preferences.h"
+#include "SprintathonFlashlightState.h"
 #include "tags.h" /* for scenario file type.. */
 #include "mouse.h"
 #include "joystick.h"
@@ -1524,6 +1526,15 @@ static void process_game_key(const SDL_Event &event)
 			}
 			return;
 		}
+        if (!event.key.repeat && get_keyboard_controller_status() &&
+            !game_is_networked && !game_is_being_replayed() && current_player &&
+            input_preferences->shell_key_bindings[_key_flashlight].count(screenshot_key)) {
+            if (!graphics_preferences->flashlight_enabled) return;
+            const bool on = SprintathonFlashlightState::toggle();
+            SoundManager::instance()->PlaySound(on ? _snd_switch_on : _snd_switch_off, nullptr, NONE);
+            screen_printf(on ? "Flashlight on" : "Flashlight off");
+            return;
+        }
 		if (!event.key.repeat && get_keyboard_controller_status() &&
 			!game_is_networked && !game_is_being_replayed() && current_player &&
 			(screenshot_key == SDL_SCANCODE_F ||

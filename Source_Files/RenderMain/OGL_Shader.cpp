@@ -213,7 +213,8 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"liquidEdge4",
 	"liquidEdge5",
 	"liquidEdge6",
-	"liquidEdge7"
+	"liquidEdge7",
+    "flashlightParams", "flashlightProjection", "flashlightDepth", "flashlightViewport", "flashlightShadowMap", "flashlightShadowMatrix", "flashlightShadowParams"
 };
 
 const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] = 
@@ -638,6 +639,7 @@ void Shader::init() {
 	glUseProgramObjectARB(_programObj);
 
 	glUniform1iARB(getUniformLocation(U_Texture0), 0);
+    glUniform1iARB(getUniformLocation(U_FlashlightShadowMap), 9);
 	glUniform1iARB(getUniformLocation(U_Texture1), 1);
     glUniform1iARB(getUniformLocation(U_LiquidSkyMap), 5);
     glUniform1iARB(getUniformLocation(U_LiquidDepthMap), 7);
@@ -1009,7 +1011,9 @@ void main(void) {
 
 
 	defaultVertexPrograms["volume_fog"] = defaultVertexPrograms["underwater_ripple"];
-	defaultFragmentPrograms["volume_fog"] = R"VF(
+	defaultFragmentPrograms["volume_fog"] =
+        #include "Shaders/flashlight_fog.glsl"
+        R"VF(
 uniform sampler2DRect texture2;
 uniform sampler2DRect texture3;
 uniform vec4 vfProjection;
@@ -1160,6 +1164,16 @@ void main() {
     vec3 lightSample=origin+ray*clamp(sampleDistance,t+0.00001,max(t+0.00001,exitDistance-0.00001));
     if(vfColors[l].w>=0.0 && falloff>0.0 && fogLightVisible(lightSample,vfLights[l].xyz,room,vfColors[l].w))
      light+=vfColors[l].rgb*falloff*falloff*2.0;
+   }
+   // Fog positions are in world units; the light uses camera-space engine units.
+   // Keep the lighting sample inside the current room and before scene depth.
+   // Average the beam over the actual cell interval. A midpoint alone turns
+   // the cone into visible half-world-unit slices near the offset lamp.
+   if(density>0.00001 && ds>0.0) {
+    float beamStart=max(t,cell),beamEnd=min(exitDistance,cell+0.5);
+    float beamJitter=fract(52.9829189*fract(dot(gl_FragCoord.xy,
+        vec2(0.06711056,0.00583715))+cell*0.75487766));
+    light+=sprintathonFlashlightFogSegment(eye,beamStart*1024.0,beamEnd*1024.0,beamJitter);
    }
    // An additional local bank over the map's baseline distance fog.
    float absorption=1.0-exp(-density*ds*extinction);

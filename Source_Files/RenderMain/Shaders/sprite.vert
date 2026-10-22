@@ -1,5 +1,6 @@
 R"(
 
+varying vec3 flashlightEye;
 uniform float depth;
 uniform float strictDepthMode;
 uniform float objectWorldZ;
@@ -8,6 +9,7 @@ varying float worldZ;
 varying vec4 vertexColor;
 varying float classicDepth;
 void main(void) {
+    flashlightEye = (gl_ModelViewMatrix * gl_Vertex).xyz;
 	gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
 	classicDepth = gl_Position.z / 8192.0;
 #ifndef DISABLE_CLIP_VERTEX

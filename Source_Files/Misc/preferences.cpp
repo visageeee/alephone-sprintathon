@@ -61,6 +61,7 @@ May 22, 2003 (Woody Zenfell):
 #include "SoundManager.h"
 
 #include "preferences.h"
+#include "SprintathonFlashlightState.h"
 #include "wad.h"
 #include "wad_prefs.h"
 #include "game_errors.h"
@@ -540,6 +541,12 @@ public:
     { init_formatted_value(); }
     std::string formatted_value() override
     { return std::to_string(get_selection()) + "%"; }
+};
+
+class w_flashlight_width_slider : public w_slider {
+public:
+    explicit w_flashlight_width_slider(int value) : w_slider(151, value-50) { init_formatted_value(); }
+    std::string formatted_value() override { return std::to_string(get_selection()+50)+"%"; }
 };
 
 class w_embedded_media_slider : public w_slider
@@ -1379,6 +1386,16 @@ void handle_preferences(bool in_game)
 			}, true), d);
 	}
 	graphics_presets_page->dual_add(graphics_preset_description_w, d);
+    auto* horror_w = new w_toggle(graphics_preferences->horror_mode);
+    auto* horror_row = new horizontal_placer(get_theme_space(ITEM_WIDGET));
+    horror_row->dual_add(horror_w->label("Horror mode"),d);
+    horror_row->dual_add(horror_w,d);
+    graphics_presets_page->add(horror_row,true);
+    auto* horror_description = new w_preset_description;
+    horror_description->set_description("Horror mode makes the game very dark",
+        "and enables the flashlight.");
+    graphics_presets_page->dual_add(horror_description,d);
+
 	w_toggle *ogl_fader_w = new w_toggle(ogl_flag(OGL_Flag_Fader));
 	w_toggle *ogl_models_w = new w_toggle(ogl_flag(OGL_Flag_3D_Models));
 	w_toggle *ogl_perspective_w = new w_toggle(!ogl_flag(OGL_Flag_MimicSW));
@@ -1412,6 +1429,7 @@ void handle_preferences(bool in_game)
 	w_toggle *ogl_bump_w = new w_toggle(ogl_flag(OGL_Flag_BumpMap));
 	w_toggle *simplify_distant_surfaces_w = new w_toggle(graphics_preferences->simplify_distant_surfaces);
 	w_toggle *batched_world_rendering_w = new w_toggle(graphics_preferences->batched_world_rendering);
+	w_toggle *world_texture_arrays_w = new w_toggle(graphics_preferences->world_texture_arrays);
 	w_toggle *reuse_refraction_capture_w = new w_toggle(graphics_preferences->reuse_refraction_capture);
 	w_toggle *ogl_refractive_invisibility_w = new w_toggle(
 		graphics_preferences->OGL_Configure.RefractiveInvisibility);
@@ -1431,6 +1449,17 @@ void handle_preferences(bool in_game)
 		360, graphics_preferences->OGL_Configure.LandscapeLightShaftDirection);
 	w_degree_slider *ogl_landscape_light_shaft_elevation_w = new w_degree_slider(
 		91, graphics_preferences->OGL_Configure.LandscapeLightShaftElevation);
+    w_toggle* flashlight_w = new w_toggle(graphics_preferences->flashlight_enabled);
+    auto* flashlight_brightness_w = new w_liquid_percent_slider(201,graphics_preferences->flashlight_brightness);
+    auto* flashlight_width_w = new w_flashlight_width_slider(graphics_preferences->flashlight_width);
+    auto* flashlight_sway_w = new w_liquid_percent_slider(201,graphics_preferences->flashlight_sway);
+    auto* flashlight_falloff_w = new w_flashlight_width_slider(graphics_preferences->flashlight_falloff);
+    auto* flashlight_offset_w = new w_liquid_percent_slider(401,graphics_preferences->flashlight_offset);
+    auto* flashlight_fog_w = new w_liquid_percent_slider(201,graphics_preferences->flashlight_fog_intensity);
+    auto* flashlight_distance_softness_w = new w_toggle(graphics_preferences->flashlight_distance_softness);
+    auto* flashlight_max_softness_w = new w_liquid_percent_slider(101,graphics_preferences->flashlight_max_softness);
+    auto* flashlight_contacts_w = new w_toggle(graphics_preferences->flashlight_contact_shadows);
+    auto* flashlight_contact_strength_w = new w_liquid_percent_slider(101,graphics_preferences->flashlight_contact_strength);
 	static const char *lens_flare_labels[] = {
         "Off", "Anamorphic", "Soft Halo", nullptr};
     w_select *ogl_anamorphic_lens_flares_w = new w_select(
@@ -1467,6 +1496,9 @@ void handle_preferences(bool in_game)
 	ADD_RENDERING_ROW("Batched World Rendering (Experimental)", batched_world_rendering_w);
     preferences_help(rendering,"Groups compatible opaque surfaces to reduce drawing overhead.",d);
 	preferences_help(rendering,"Reload the level after changing this option. Meter savings are estimates and depend on the scene.",d);
+	ADD_RENDERING_ROW("Texture Arrays (Experimental)", world_texture_arrays_w);
+    preferences_help(rendering,"Groups textures to reduce material draw calls. Requires Batched World Rendering.",d);
+    preferences_help(rendering,"May improve or reduce performance depending on hardware. Reload the level after changing.",d);
 	ADD_RENDERING_ROW("Reuse Refraction Capture", reuse_refraction_capture_w);
     preferences_help(rendering,"Reuses the scene capture for refractive effects.",d);
 	ADD_RENDERING_ROW("Refractive Invisibility", ogl_refractive_invisibility_w);
@@ -1530,6 +1562,29 @@ void handle_preferences(bool in_game)
     world_lighting->dual_add(ogl_sprite_shadows_w->label("Sprite Shadows"), d); world_lighting->dual_add(ogl_sprite_shadows_w, d);
     preferences_effect(world_lighting,"Ambient Occlusion",ogl_ambient_occlusion_w,ogl_ambient_occlusion_strength_w,d);
     preferences_help(world_lighting,"Adds soft contact shadows in corners and creases.",d);
+    light_fx->dual_add(flashlight_w->label("Flashlight"),d);light_fx->dual_add(flashlight_w,d);
+    preferences_help(light_fx,"Allows the flashlight. Starts off; toggle with its Controls binding (default L).",d);
+    light_fx->dual_add(flashlight_brightness_w->label("Flashlight Brightness"),d);light_fx->dual_add(flashlight_brightness_w,d);
+    preferences_help(light_fx,"Adjusts the beam's light intensity.",d);
+    light_fx->dual_add(flashlight_width_w->label("Flashlight Beam Width"),d);light_fx->dual_add(flashlight_width_w,d);
+    preferences_help(light_fx,"Widens or narrows the ringed beam.",d);
+    light_fx->dual_add(flashlight_sway_w->label("Flashlight Sway"),d);light_fx->dual_add(flashlight_sway_w,d);
+    preferences_help(light_fx,"Adds beam lag when turning. 0% follows your aim directly.",d);
+    light_fx->dual_add(flashlight_falloff_w->label("Flashlight Falloff"),d);light_fx->dual_add(flashlight_falloff_w,d);
+    preferences_help(light_fx,"Higher falloff shortens the beam's reach.",d);
+    light_fx->dual_add(flashlight_offset_w->label("Flashlight Offset"),d);light_fx->dual_add(flashlight_offset_w,d);
+    preferences_help(light_fx,"Moves the lamp down and right. 0% centres it; 100% is the original offset.",d);
+    preferences_help(light_fx,"Larger offsets reveal shadows but can leak light around corners.",d);
+    light_fx->dual_add(flashlight_fog_w->label("Flashlight Fog Intensity"),d);light_fx->dual_add(flashlight_fog_w,d);
+    preferences_help(light_fx,"Lights volumetric fog; enable Shadow Map for blocked beams. 0% disables.",d);
+    preferences_effect(light_fx,"Flashlight Shadow Map",flashlight_contacts_w,flashlight_contact_strength_w,d);
+    preferences_help(light_fx,"Shadow strength for geometry, grates, enemies and scenery; adds rendering work.",d);
+    light_fx->dual_add(flashlight_distance_softness_w->label("Distance Softness"),d);
+    light_fx->dual_add(flashlight_distance_softness_w,d);
+    preferences_help(light_fx,"Softens shadows as the receiving surface gets farther from the caster.",d);
+    light_fx->dual_add(flashlight_max_softness_w->label("Maximum Softness"),d);
+    light_fx->dual_add(flashlight_max_softness_w,d);
+    preferences_help(light_fx,"Limits distance softness. 0% keeps shadows sharp; 100% allows full blur.",d);
     preferences_effect(light_fx,"Visible Sun",visible_sun_w,visible_sun_brightness_w,d);
     preferences_help(light_fx,"Shows the sun in the landscape sky.",d);
     light_fx->last_row_space(scale_dialog_value(4));
@@ -1782,6 +1837,7 @@ void handle_preferences(bool in_game)
     graphics_tabs->add(fog_page, true);
 
     auto update_light_controls = [&]() {
+        world_texture_arrays_w->set_enabled(batched_world_rendering_w->get_selection());
         lens_flares_enabled_w->set_selection(ogl_anamorphic_lens_flares_w->get_selection()!=0);
         if(ogl_anamorphic_lens_flares_w->get_selection())last_lens_flare_style=ogl_anamorphic_lens_flares_w->get_selection();
         all_dynamic_lights_w->set_selection(projectile_lights_per_pixel_w->get_selection() ||
@@ -1790,6 +1846,16 @@ void handle_preferences(bool in_game)
         baked_landscape_sector_w->set_enabled(baked_landscape_lighting_w->get_selection());
         sector_shading_softness_w->set_enabled(soft_sector_light_edges_w->get_selection());
         ogl_ambient_occlusion_strength_w->set_enabled(ogl_ambient_occlusion_w->get_selection());
+        flashlight_brightness_w->set_enabled(flashlight_w->get_selection());
+        flashlight_width_w->set_enabled(flashlight_w->get_selection());
+        flashlight_sway_w->set_enabled(flashlight_w->get_selection());
+        flashlight_falloff_w->set_enabled(flashlight_w->get_selection());
+        flashlight_offset_w->set_enabled(flashlight_w->get_selection());
+        flashlight_fog_w->set_enabled(flashlight_w->get_selection());
+        flashlight_contacts_w->set_enabled(flashlight_w->get_selection());
+        flashlight_distance_softness_w->set_enabled(flashlight_w->get_selection() && flashlight_contacts_w->get_selection());
+        flashlight_max_softness_w->set_enabled(flashlight_w->get_selection() && flashlight_contacts_w->get_selection() && flashlight_distance_softness_w->get_selection());
+        flashlight_contact_strength_w->set_enabled(flashlight_w->get_selection() && flashlight_contacts_w->get_selection());
         bool sun = visible_sun_w->get_selection() || baked_landscape_lighting_w->get_selection() || ogl_landscape_light_shafts_w->get_selection() || liquid_specular_w->get_selection();
         ogl_landscape_light_shaft_direction_w->set_enabled(sun);
         ogl_landscape_light_shaft_elevation_w->set_enabled(sun);
@@ -1817,6 +1883,31 @@ void handle_preferences(bool in_game)
     update_light_controls();
 
 	bool applying_graphics_preset = false;
+    // Store widget selections, including the width/falloff slider's 50% offset.
+    w_slider* horror_sliders[] = {baked_landscape_ambient_w,baked_landscape_sector_w,
+        texture_light_reach_w,scenery_light_reach_w,flashlight_width_w,flashlight_sway_w,
+        flashlight_falloff_w,flashlight_offset_w,flashlight_fog_w};
+    const int horror_values[] = {0,0,8,8,90,200,0,200,70};
+    int16 horror_restore[12];
+    std::copy_n(graphics_preferences->horror_restore,12,horror_restore);
+    auto horror_matches = [&]() {
+        for(int i=0;i<9;++i)if(int(horror_sliders[i]->get_selection())!=horror_values[i])return false;
+        return bool(baked_landscape_lighting_w->get_selection()) && graphics_gamma_w->get_selection()==0;
+    };
+    auto apply_horror = [&](bool on) {
+        if(on){
+            for(int i=0;i<9;++i)horror_restore[i]=horror_sliders[i]->get_selection();
+            horror_restore[9]=flashlight_w->get_selection();
+            horror_restore[10]=baked_landscape_lighting_w->get_selection();
+            horror_restore[11]=graphics_gamma_w->get_selection();
+        }
+        for(int i=0;i<9;++i)horror_sliders[i]->set_selection(on?horror_values[i]:horror_restore[i]);
+        flashlight_w->set_selection(on?1:horror_restore[9]);
+        baked_landscape_lighting_w->set_selection(on?1:horror_restore[10]);
+        graphics_gamma_w->set_selection(on?0:horror_restore[11]); // Darkest
+        update_light_controls();
+    };
+
 	auto set_graphics_preset_description =
 		[graphics_preset_description_w](int preset) {
 			static const char *descriptions[][3] = {
@@ -1871,6 +1962,7 @@ void handle_preferences(bool in_game)
 				return;
 
 			applying_graphics_preset = true;
+            if(horror_w->get_selection()){apply_horror(false);horror_w->set_selection(false);}
             fog_volume_w->set_selection(preset == 4);
 			const bool medium_or_better = preset >= 2;
 			const bool high_or_better = preset >= 3;
@@ -1971,12 +2063,20 @@ void handle_preferences(bool in_game)
 	set_graphics_preset_description(graphics_preset_w->get_selection());
 
 	auto select_custom_preset = [&]() {
+        if(!applying_graphics_preset && horror_w->get_selection() && !horror_matches())horror_w->set_selection(false);
 		if (!applying_graphics_preset && graphics_preset_w->get_selection() != 0)
 		{
 			graphics_preset_w->set_selection(0, true);
 			d.draw();
 		}
 	};
+    horror_w->set_selection_changed_callback([&](w_select*) {
+        applying_graphics_preset=true;
+        apply_horror(horror_w->get_selection());
+        graphics_preset_w->set_selection(0,true);
+        applying_graphics_preset=false;
+        d.draw();
+    });
 	auto custom_select_changed = [&](w_select*) { update_light_controls(); select_custom_preset(); d.draw(); };
     graphics_resolution_w->set_popup_callback([&](void*) {
         select_custom_preset(); d.draw();
@@ -2002,7 +2102,7 @@ void handle_preferences(bool in_game)
 		graphics_skip_intro_w, graphics_limit_vertical_w,
 		graphics_bobbing_w, ogl_fader_w, ogl_models_w, ogl_perspective_w,
 		ogl_billboard_w, ogl_bloom_w, ogl_bump_w, simplify_distant_surfaces_w,
-	batched_world_rendering_w, reuse_refraction_capture_w,
+	batched_world_rendering_w, world_texture_arrays_w, reuse_refraction_capture_w,
 		projectile_motion_blur_w,
 		projectile_lights_per_pixel_w, bright_texture_lights_w, bright_scenery_lights_w, all_visible_scenery_lights_w, per_pixel_light_quality_w, player_light_circle_w, soft_sector_light_edges_w,
 		ogl_refractive_invisibility_w, ogl_sprite_shadows_w,
@@ -2011,7 +2111,7 @@ void handle_preferences(bool in_game)
 		ogl_effects_w, ogl_aniso_w, sprite_upscaling_w, wall_upscaling_w,
 		model_quality_w, liquid_transparency_w, underwater_distortion_w, liquid_depth_fog_w,
 		liquid_ripples_w, baked_landscape_lighting_w, baked_texture_lights_w, baked_scenery_lights_w, liquid_caustics_w, liquid_specular_w, liquid_sprite_reflections_w,
-		fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
+		flashlight_w, flashlight_contacts_w, flashlight_distance_softness_w, fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
 		fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w, fog_haze_w, fog_volume_w, ceiling_fog_cones_w, fog_light_coronas_w, fog_projectile_coronas_w, fog_scenery_coronas_w
 	};
 	for (w_select *widget : graphics_select_widgets)
@@ -2039,7 +2139,7 @@ void handle_preferences(bool in_game)
 		ogl_landscape_light_shaft_direction_w,
 		ogl_landscape_light_shaft_elevation_w,
 		ogl_anamorphic_lens_flare_strength_w,
-		liquid_opacity_w, liquid_strength_w, liquid_refraction_w, liquid_wetness_w,
+		liquid_opacity_w, liquid_strength_w, liquid_refraction_w, liquid_wetness_w, flashlight_brightness_w, flashlight_width_w, flashlight_sway_w, flashlight_falloff_w, flashlight_offset_w, flashlight_fog_w, flashlight_contact_strength_w, flashlight_max_softness_w,
 		fog_drift_intensity_w
 	};
 	for (w_slider *widget : graphics_slider_widgets)
@@ -2258,13 +2358,28 @@ void handle_preferences(bool in_game)
 	store_ogl_flag(OGL_Flag_Blur, ogl_bloom_w->get_selection());
 	graphics_preferences->projectile_lights_per_pixel = projectile_lights_per_pixel_w->get_selection();
 	graphics_preferences->graphics_preset = graphics_preset_w->get_selection();
+    graphics_preferences->horror_mode=horror_w->get_selection();
+    std::copy_n(horror_restore,12,graphics_preferences->horror_restore);
 	graphics_preferences->projectile_motion_blur = projectile_motion_blur_w->get_selection();
+    graphics_preferences->flashlight_enabled = flashlight_w->get_selection();
+    if (!graphics_preferences->flashlight_enabled) SprintathonFlashlightState::reset();
+    graphics_preferences->flashlight_brightness = flashlight_brightness_w->get_selection();
+    graphics_preferences->flashlight_width = flashlight_width_w->get_selection()+50;
+    graphics_preferences->flashlight_sway = flashlight_sway_w->get_selection();
+    graphics_preferences->flashlight_falloff = flashlight_falloff_w->get_selection()+50;
+    graphics_preferences->flashlight_offset = flashlight_offset_w->get_selection();
+    graphics_preferences->flashlight_fog_intensity = flashlight_fog_w->get_selection();
+    graphics_preferences->flashlight_contact_shadows = flashlight_contacts_w->get_selection();
+    graphics_preferences->flashlight_contact_strength = flashlight_contact_strength_w->get_selection();
+    graphics_preferences->flashlight_distance_softness = flashlight_distance_softness_w->get_selection();
+    graphics_preferences->flashlight_max_softness = flashlight_max_softness_w->get_selection();
 	graphics_preferences->bright_texture_lights = bright_texture_lights_w->get_selection();
 	graphics_preferences->bright_scenery_lights = bright_scenery_lights_w->get_selection();
 	graphics_preferences->all_visible_scenery_lights = all_visible_scenery_lights_w->get_selection();
     graphics_preferences->per_pixel_light_quality = per_pixel_light_quality_w->get_selection();
 	graphics_preferences->simplify_distant_surfaces = simplify_distant_surfaces_w->get_selection();
 	graphics_preferences->batched_world_rendering = batched_world_rendering_w->get_selection();
+	graphics_preferences->world_texture_arrays = world_texture_arrays_w->get_selection();
 	graphics_preferences->reuse_refraction_capture = reuse_refraction_capture_w->get_selection();
 	graphics_preferences->colored_light_intensity = colored_light_intensity_w->get_selection();
 	graphics_preferences->scenery_light_intensity = scenery_light_intensity_w->get_selection();
@@ -4247,7 +4362,7 @@ static key_binding_map default_key_bindings = {
 };
 
 static const char *shell_action_name[NUMBER_OF_SHELL_KEYS] = {
-	"Inventory Left", "Inventory Right", "Switch Player View", "Volume Up", "Volume Down", "Zoom Map In", "Zoom Map Out", "Toggle FPS", "Chat/Console", "Network Stats", "Screenshot Mode", "Drop Flare", "Visual Mode"
+	"Inventory Left", "Inventory Right", "Switch Player View", "Volume Up", "Volume Down", "Zoom Map In", "Zoom Map Out", "Toggle FPS", "Chat/Console", "Network Stats", "Screenshot Mode", "Drop Flare", "Visual Mode", "Flashlight"
 };
 
 static key_binding_map default_shell_key_bindings = {
@@ -4276,6 +4391,7 @@ static key_binding_map default_shell_key_bindings = {
 	{ 10, { SDL_SCANCODE_G } }, // Screenshot Mode; Shift+F9 also works.
 	{ 11, { SDL_SCANCODE_F } }, // Drop Flare.
 	{ _key_visual_mode, { SDL_SCANCODE_UNKNOWN } }, // Shift+F8 remains available.
+    { _key_flashlight, { SDL_SCANCODE_L } },
 };
 
 static const char* hotkey_action_name[NUMBER_OF_HOTKEYS] = {
@@ -5298,6 +5414,7 @@ static placeable *build_embedded_controls(
 		{false, "Look Up", embedded_game_binding, 8},
 		{false, "Look Down", embedded_game_binding, 9},
 		{false, "Drop Flare", embedded_shell_binding, 11},
+        {false, "Flashlight", embedded_shell_binding, _key_flashlight},
         {true, "Camera", embedded_game_binding, 0},
         {false, "Screenshot Mode", embedded_shell_binding, _key_screenshot_mode},
         {false, "Visual Mode", embedded_shell_binding, _key_visual_mode}
@@ -6663,6 +6780,19 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("projectile_lights_per_pixel", graphics_preferences->projectile_lights_per_pixel);
 	root.put_attr("graphics_preset", graphics_preferences->graphics_preset);
 	root.put_attr("projectile_motion_blur", graphics_preferences->projectile_motion_blur);
+    root.put_attr("horror_mode",graphics_preferences->horror_mode);
+    for(int i=0;i<12;++i)root.put_attr("horror_restore_"+std::to_string(i),graphics_preferences->horror_restore[i]);
+    root.put_attr("flashlight_enabled",graphics_preferences->flashlight_enabled);
+    root.put_attr("flashlight_brightness",graphics_preferences->flashlight_brightness);
+    root.put_attr("flashlight_width",graphics_preferences->flashlight_width);
+    root.put_attr("flashlight_sway",graphics_preferences->flashlight_sway);
+    root.put_attr("flashlight_falloff",graphics_preferences->flashlight_falloff);
+    root.put_attr("flashlight_offset",graphics_preferences->flashlight_offset);
+    root.put_attr("flashlight_fog_intensity",graphics_preferences->flashlight_fog_intensity);
+    root.put_attr("flashlight_contact_shadows",graphics_preferences->flashlight_contact_shadows);
+    root.put_attr("flashlight_contact_strength",graphics_preferences->flashlight_contact_strength);
+    root.put_attr("flashlight_distance_softness",graphics_preferences->flashlight_distance_softness);
+    root.put_attr("flashlight_max_softness",graphics_preferences->flashlight_max_softness);
 	root.put_attr("bright_texture_lights", graphics_preferences->bright_texture_lights);
 	root.put_attr("bright_scenery_lights", graphics_preferences->bright_scenery_lights);
 	root.put_attr("all_visible_scenery_lights", graphics_preferences->all_visible_scenery_lights);
@@ -6670,6 +6800,7 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("simplify_distant_surfaces", graphics_preferences->simplify_distant_surfaces);
 	root.put_attr("reuse_refraction_capture", graphics_preferences->reuse_refraction_capture);
 	root.put_attr("batched_world_rendering", graphics_preferences->batched_world_rendering);
+	root.put_attr("world_texture_arrays", graphics_preferences->world_texture_arrays);
 	root.put_attr("colored_light_intensity", graphics_preferences->colored_light_intensity);
 	root.put_attr("scenery_light_intensity", graphics_preferences->scenery_light_intensity);
 	root.put_attr("texture_light_intensity", graphics_preferences->texture_light_intensity);
@@ -6849,7 +6980,7 @@ static const char *binding_action_name[NUM_KEYS] = {
 };
 static const char *binding_shell_action_name[NUMBER_OF_SHELL_KEYS] = {
 	"inventory-left", "inventory-right", "switch-player-view", "volume-up", "volume-down",
-	"map-zoom-in", "map-zoom-out", "fps", "chat", "net-stats", "screenshot-mode", "drop-flare", "visual-mode"
+	"map-zoom-in", "map-zoom-out", "fps", "chat", "net-stats", "screenshot-mode", "drop-flare", "visual-mode", "flashlight"
 };
 static const char *binding_hotkey_action_name[NUMBER_OF_HOTKEYS] = {
 	"hotkey-1", "hotkey-2", "hotkey-3", "hotkey-4", "hotkey-5", "hotkey-6", "hotkey-7", "hotkey-8", "hotkey-9", "hotkey-10", "hotkey-11", "hotkey-12"
@@ -7339,6 +7470,18 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->projectile_lights_per_pixel = true;
 	preferences->graphics_preset = 4;
 	preferences->projectile_motion_blur = true;
+    preferences->horror_mode=false;
+    const int16 horror_defaults[12]={15,0,100,100,50,100,50,100,100,0,0,3};
+    std::copy_n(horror_defaults,12,preferences->horror_restore);
+    preferences->flashlight_enabled = true;
+    preferences->flashlight_brightness = preferences->flashlight_width = 100;
+    preferences->flashlight_sway = preferences->flashlight_falloff = 100;
+    preferences->flashlight_offset = 100;
+    preferences->flashlight_fog_intensity = 100;
+    preferences->flashlight_contact_shadows = false;
+    preferences->flashlight_contact_strength = 60;
+    preferences->flashlight_distance_softness = true;
+    preferences->flashlight_max_softness = 40;
 	preferences->bright_texture_lights = true;
 	preferences->bright_scenery_lights = true;
 	preferences->all_visible_scenery_lights = true;
@@ -7346,6 +7489,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->simplify_distant_surfaces = true;
 	preferences->reuse_refraction_capture = true;
 	preferences->batched_world_rendering = false;
+	preferences->world_texture_arrays = false;
 	preferences->colored_light_intensity = 150;
 	preferences->scenery_light_intensity = 40;
 	preferences->texture_light_intensity = 200;
@@ -7911,6 +8055,20 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	graphics_preferences->graphics_preset = 0; // Older saved configurations are Custom.
 	root.read_attr_bounded<int16>("graphics_preset", graphics_preferences->graphics_preset, 0, 4);
 	root.read_attr("projectile_motion_blur", graphics_preferences->projectile_motion_blur);
+    root.read_attr("horror_mode",graphics_preferences->horror_mode);
+    const int16 horror_restore_max[12]={100,100,100,100,150,200,150,400,200,1,1,7};
+    for(int i=0;i<12;++i)root.read_attr_bounded<int16>("horror_restore_"+std::to_string(i),graphics_preferences->horror_restore[i],0,horror_restore_max[i]);
+    root.read_attr("flashlight_enabled",graphics_preferences->flashlight_enabled);
+    root.read_attr_bounded<int16>("flashlight_brightness",graphics_preferences->flashlight_brightness,0,200);
+    root.read_attr_bounded<int16>("flashlight_width",graphics_preferences->flashlight_width,50,200);
+    root.read_attr_bounded<int16>("flashlight_sway",graphics_preferences->flashlight_sway,0,200);
+    root.read_attr_bounded<int16>("flashlight_falloff",graphics_preferences->flashlight_falloff,50,200);
+    root.read_attr_bounded<int16>("flashlight_offset",graphics_preferences->flashlight_offset,0,400);
+    root.read_attr_bounded<int16>("flashlight_fog_intensity",graphics_preferences->flashlight_fog_intensity,0,200);
+    root.read_attr("flashlight_contact_shadows",graphics_preferences->flashlight_contact_shadows);
+    root.read_attr_bounded<int16>("flashlight_contact_strength",graphics_preferences->flashlight_contact_strength,0,100);
+    root.read_attr("flashlight_distance_softness",graphics_preferences->flashlight_distance_softness);
+    root.read_attr_bounded<int16>("flashlight_max_softness",graphics_preferences->flashlight_max_softness,0,100);
 	root.read_attr("bright_texture_lights", graphics_preferences->bright_texture_lights);
 	graphics_preferences->bright_scenery_lights = graphics_preferences->bright_texture_lights;
 	root.read_attr("bright_scenery_lights", graphics_preferences->bright_scenery_lights);
@@ -7919,6 +8077,7 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("simplify_distant_surfaces", graphics_preferences->simplify_distant_surfaces);
 	root.read_attr("reuse_refraction_capture", graphics_preferences->reuse_refraction_capture);
 	root.read_attr("batched_world_rendering", graphics_preferences->batched_world_rendering);
+	root.read_attr("world_texture_arrays", graphics_preferences->world_texture_arrays);
 	root.read_attr_bounded<int16>("colored_light_intensity",
 		graphics_preferences->colored_light_intensity, 0, 200);
 	graphics_preferences->texture_light_intensity = graphics_preferences->colored_light_intensity;

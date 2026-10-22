@@ -190,6 +190,8 @@ public:
 		U_LiquidEdge5,
 		U_LiquidEdge6,
 		U_LiquidEdge7,
+        U_FlashlightParams, U_FlashlightProjection, U_FlashlightDepth, U_FlashlightViewport,
+        U_FlashlightShadowMap, U_FlashlightShadowMatrix, U_FlashlightShadowParams,
 		NUMBER_OF_UNIFORM_LOCATIONS
 	};
 

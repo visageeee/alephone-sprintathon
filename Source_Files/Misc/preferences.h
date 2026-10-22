@@ -109,12 +109,24 @@ struct graphics_preferences_data
 	bool projectile_lights_per_pixel;
 	int16 graphics_preset; // 0 Custom, 1 Low, 2 Medium, 3 High, 4 Total
 	bool projectile_motion_blur;
+    bool horror_mode;
+    int16 horror_restore[12]; // Previous slider selections, flashlight/baked-light toggles and brightness.
+    bool flashlight_enabled;
+    int16 flashlight_brightness, flashlight_width;
+    int16 flashlight_sway, flashlight_falloff;
+    int16 flashlight_offset;
+    int16 flashlight_fog_intensity;
+    bool flashlight_contact_shadows;
+    int16 flashlight_contact_strength;
+    bool flashlight_distance_softness;
+    int16 flashlight_max_softness;
 	bool bright_texture_lights;
 	bool bright_scenery_lights;
 	bool all_visible_scenery_lights;
     int16 per_pixel_light_quality; // 0 High (20), 1 Medium (8), 2 Low (4)
 	bool simplify_distant_surfaces;
 	bool batched_world_rendering;
+	bool world_texture_arrays;
 	bool reuse_refraction_capture;
 	int16 colored_light_intensity;
 	int16 texture_light_intensity;
@@ -256,6 +268,7 @@ enum {
 	_key_screenshot_mode,
 	_key_drop_flare,
 	_key_visual_mode,
+    _key_flashlight,
 	NUMBER_OF_SHELL_KEYS
 };
 

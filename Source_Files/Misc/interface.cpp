@@ -146,6 +146,7 @@ extern TP2PerfGlobals perf_globals;
 #include "screen.h"
 #include "vbl.h"
 #include "preferences.h"
+#include "SprintathonFlashlightState.h"
 #include "FileHandler.h"
 #include "lua_script.h" // PostIdle
 #include "interface_menus.h"
@@ -2867,6 +2868,7 @@ static void start_game(
 	short user,
 	bool changing_level)
 {
+    if (!changing_level) SprintathonFlashlightState::reset();
 	/* Change our menus.. */
 	toggle_menus(true);
 	

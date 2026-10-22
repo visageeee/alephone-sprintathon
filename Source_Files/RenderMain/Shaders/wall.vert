@@ -1,5 +1,6 @@
 R"(
 
+varying vec3 flashlightEye;
 uniform float depth;
 varying vec3 viewXY;
 varying vec3 viewDir;
@@ -38,6 +39,7 @@ vec3 sprintathonVertexFlash(vec4 position,vec4 color) {
 #endif
 
 void main(void) {
+    flashlightEye = (gl_ModelViewMatrix * gl_Vertex).xyz;
 	gl_Position  = gl_ModelViewProjectionMatrix * gl_Vertex;
 	gl_Position.z = gl_Position.z + depth*gl_Position.z/65536.0;
 	classicDepth = gl_Position.z / 8192.0;

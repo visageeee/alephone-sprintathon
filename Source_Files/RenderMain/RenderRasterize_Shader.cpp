@@ -22,6 +22,7 @@
 #include "lightsource.h"
 #include "scenery.h"
 #include "interface.h"
+#include "vbl.h"
 #include "projectiles.h"
 #include "monsters.h"
 #include "effects.h"
@@ -51,6 +52,8 @@
 #include "SprintathonOpaqueGeometry.h"
 #include "SprintathonOpaqueBatch.h"
 #include "SprintathonOpaqueWorld.h"
+#include "SprintathonFlashlight.h"
+#include "SprintathonFlashlightShadow.h"
 #include "SprintathonWorldSplit.h"
 #include "SprintathonObjectOps.h"
 #include <cstring>
@@ -1694,6 +1697,8 @@ struct SprintathonDroppedFlare {
     int32 placed_tick;
     short polygon_index;
     std::shared_ptr<SoundPlayer> burning_sound;
+    float vx = 0, vy = 0, vz = 0;
+    int32 physics_tick = 0;
 };
 static std::vector<SprintathonDroppedFlare> sprintathon_dropped_flares;
 static int16 sprintathon_flare_level = NONE;
@@ -1737,6 +1742,87 @@ static void sprintathon_stop_flare(SprintathonDroppedFlare& flare)
     flare.burning_sound.reset();
 }
 
+// World units per simulation tick; bounded substeps keep fast falls from
+// skipping narrow portals. No game objects or monster collisions are created.
+static void sprintathon_step_flare(SprintathonDroppedFlare& flare)
+{
+    constexpr float radius = WORLD_ONE / 32.0f;
+    constexpr float gravity = WORLD_ONE / 160.0f;
+    flare.vz = std::max(flare.vz - gravity, -WORLD_ONE / 3.0f);
+    const float speed = std::max(std::abs(flare.vx),
+        std::max(std::abs(flare.vy), std::abs(flare.vz)));
+    const int steps = std::max(1, int(std::ceil(speed / (WORLD_ONE / 32.0f))));
+    const float dt = 1.0f / steps;
+    for (int step = 0; step < steps; ++step) {
+        float x = flare.x + flare.vx * dt;
+        float y = flare.y + flare.vy * dt;
+        float z = flare.z + flare.vz * dt;
+        short polygon = flare.polygon_index;
+        bool clear = false;
+        // Keep conversions within Marathon's signed world-coordinate range.
+        if (x < -32760 || x > 32760 || y < -32760 || y > 32760) {
+            flare.vx *= -0.3f; flare.vy *= -0.3f;
+            x = flare.x; y = flare.y;
+        }
+        world_point2d from = {static_cast<world_distance>(flare.x), static_cast<world_distance>(flare.y)};
+        world_point2d to = {static_cast<world_distance>(x), static_cast<world_distance>(y)};
+        for (int crossing = 0; crossing < 32; ++crossing) {
+            const short index = find_line_crossed_leaving_polygon(polygon, &from, &to);
+            if (index == NONE) { clear = true; break; }
+            const auto* line = get_line_data(index);
+            const short adjacent = find_adjacent_polygon(polygon, index);
+            const auto& a = get_endpoint_data(line->endpoint_indexes[0])->vertex;
+            const auto& b = get_endpoint_data(line->endpoint_indexes[1])->vertex;
+            const float ex = float(b.x) - a.x, ey = float(b.y) - a.y;
+            const float dx = x - flare.x, dy = y - flare.y;
+            const float denominator = dx * ey - dy * ex;
+            const float t = std::abs(denominator) > 0.0001f ?
+                std::max(0.0f, std::min(1.0f,
+                    ((float(a.x) - flare.x) * ey - (float(a.y) - flare.y) * ex) / denominator)) : 0.0f;
+            const float height = flare.z + (z - flare.z) * t;
+            const auto* current = get_polygon_data(polygon);
+            const auto* next = adjacent == NONE ? nullptr : get_polygon_data(adjacent);
+            if (next && !LINE_IS_SOLID(line) &&
+                height >= std::max(current->floor_height, next->floor_height) + radius &&
+                height <= std::min(current->ceiling_height, next->ceiling_height) - radius) {
+                polygon = adjacent;
+                continue;
+            }
+            // Reflect only the velocity normal to the wall, then damp the toss.
+            const float length2 = ex * ex + ey * ey;
+            if (length2 > 0) {
+                const float normal = (flare.vx * ey - flare.vy * ex) / length2;
+                flare.vx = (flare.vx - 2 * normal * ey) * 0.3f;
+                flare.vy = (flare.vy + 2 * normal * ex) * 0.3f;
+            } else { flare.vx = flare.vy = 0; }
+            break;
+        }
+        if (clear) {
+            flare.x = x; flare.y = y; flare.polygon_index = polygon;
+        }
+        const auto* floor = get_polygon_data(flare.polygon_index);
+        const float low = floor->floor_height + radius;
+        const float high = floor->ceiling_height - radius;
+        if (high <= low) {
+            flare.z = (float(floor->floor_height) + floor->ceiling_height) * 0.5f;
+            flare.vx = flare.vy = flare.vz = 0;
+            break;
+        }
+        if (z <= low) {
+            z = low;
+            flare.vz = flare.vz < -WORLD_ONE / 40.0f ? -flare.vz * 0.25f : 0.0f;
+            const float friction = std::pow(0.65f, dt);
+            flare.vx *= friction; flare.vy *= friction;
+            if (std::abs(flare.vx) < 0.5f) flare.vx = 0;
+            if (std::abs(flare.vy) < 0.5f) flare.vy = 0;
+        } else if (z >= high) {
+            z = high;
+            if (flare.vz > 0) flare.vz *= -0.25f;
+        }
+        flare.z = z;
+    }
+}
+
 static void sprintathon_update_flares()
 {
     if (sprintathon_flare_level != dynamic_world->current_level_number) {
@@ -1753,6 +1839,22 @@ static void sprintathon_update_flares()
                 if (expired) sprintathon_stop_flare(flare);
                 return expired;
             }), sprintathon_dropped_flares.end());
+    for (auto& flare : sprintathon_dropped_flares) {
+        // Rendering may run several times per tick (or skip ticks entirely).
+        // Advance each live flare exactly once per elapsed simulation tick.
+        while (flare.physics_tick < tick) {
+            sprintathon_step_flare(flare);
+            ++flare.physics_tick;
+        }
+        if (flare.burning_sound) {
+            auto params = flare.burning_sound->GetParameters();
+            params.source_location3d.point.x = static_cast<world_distance>(flare.x);
+            params.source_location3d.point.y = static_cast<world_distance>(flare.y);
+            params.source_location3d.point.z = static_cast<world_distance>(flare.z);
+            params.source_location3d.polygon_index = flare.polygon_index;
+            flare.burning_sound->UpdateParameters(params);
+        }
+    }
 }
 
 bool sprintathon_drop_flare()
@@ -1760,19 +1862,30 @@ bool sprintathon_drop_flare()
     if (!dynamic_world || !current_player ||
         !graphics_preferences->projectile_lights_per_pixel) return false;
     sprintathon_update_flares();
-    // Keep both burning flares; another can be dropped after one expires.
-    if (sprintathon_dropped_flares.size() >= sprintathon_flare_capacity)
-        return false;
     const float direction = current_player->facing * (6.28318530718f / FULL_CIRCLE);
-    const float forward = 0.75f * WORLD_ONE;
-    const short polygon_index = current_player->supporting_polygon_index;
-    const float floor_z = polygon_index != NONE ?
-        float(get_polygon_data(polygon_index)->floor_height) :
-        float(current_player->location.z);
-    sprintathon_dropped_flares.push_back({
-        float(current_player->location.x) + std::cos(direction) * forward,
-        float(current_player->location.y) + std::sin(direction) * forward,
-        floor_z + WORLD_ONE / 8.0f, dynamic_world->tick_count, polygon_index, {}});
+    const short polygon_index = current_player->camera_polygon_index;
+    if (polygon_index == NONE) return false;
+    const auto* polygon = get_polygon_data(polygon_index);
+    constexpr float radius = WORLD_ONE / 32.0f;
+    if (polygon->ceiling_height - polygon->floor_height <= 2 * radius) return false;
+    SprintathonDroppedFlare dropped{};
+    // Start inside the camera's polygon; the toss itself checks every portal.
+    dropped.x = current_player->camera_location.x;
+    dropped.y = current_player->camera_location.y;
+    dropped.z = std::max(polygon->floor_height + radius,
+        std::min(polygon->ceiling_height - radius,
+                 float(current_player->camera_location.z) - WORLD_ONE / 8.0f));
+    dropped.placed_tick = dropped.physics_tick = dynamic_world->tick_count;
+    dropped.polygon_index = polygon_index;
+    dropped.vx = std::cos(direction) * (WORLD_ONE / 12.0f);
+    dropped.vy = std::sin(direction) * (WORLD_ONE / 12.0f);
+    dropped.vz = WORLD_ONE / 32.0f;
+    // Replace the oldest flare only after validating the new toss.
+    if (sprintathon_dropped_flares.size() >= sprintathon_flare_capacity) {
+        sprintathon_stop_flare(sprintathon_dropped_flares.front());
+        sprintathon_dropped_flares.erase(sprintathon_dropped_flares.begin());
+    }
+    sprintathon_dropped_flares.push_back(dropped);
     auto& flare = sprintathon_dropped_flares.back();
     sprintathon_play_flare_sound(flare, "lightflare.ogg", false);
     sprintathon_play_flare_sound(flare, "burningflare.ogg", true);
@@ -3879,6 +3992,7 @@ static bool sprintathon_draw_volume_fog(const view_data* camera, GLuint scene,
     glActiveTextureARB(GL_TEXTURE2_ARB);glBindTexture(GL_TEXTURE_RECTANGLE_ARB,depth);
     glActiveTextureARB(GL_TEXTURE0_ARB);
     Shader* shader=Shader::get(Shader::S_VolumeFog);shader->enable();
+    SprintathonFlashlight::bind(shader);
     GLhandleARB program=glGetHandleARB(GL_PROGRAM_OBJECT_ARB);
     auto uniform=[&](const char* name){return glGetUniformLocationARB(program,name);};
     glUniform1iARB(uniform("texture2"),2);glUniform1iARB(uniform("texture3"),3);
@@ -3890,6 +4004,8 @@ static bool sprintathon_draw_volume_fog(const view_data* camera, GLuint scene,
     glUniform4fARB(uniform("vfCamera"),camera->origin.x/float(WORLD_ONE),camera->origin.y/float(WORLD_ONE),camera->origin.z/float(WORLD_ONE),projection[14]);
     glUniform4fARB(uniform("vfSettings"),width,height,projection[10],float(dynamic_world->tick_count)/TICKS_PER_SECOND);
     glUniform4fvARB(uniform("vfLights"),4,positions);glUniform4fvARB(uniform("vfColors"),4,colors);
+    glUniform1fARB(uniform("vfFlashlightIntensity"),
+        std::max(0,std::min(200,int(graphics_preferences->flashlight_fog_intensity)))/100.0f);
     glUniform1fARB(uniform("vfDebug"),fog_debug);
     glUniform1fARB(uniform("vfStartRoom"),camera->origin_polygon_index);
     glUniform1fARB(uniform("vfStrength"),Get_OGL_ConfigureData().DriftingFogIntensity/100.0f);
@@ -4299,6 +4415,14 @@ void RenderRasterize_Shader::render_tree() {
 	glGetFloatv(GL_PROJECTION_MATRIX, scene_projection);
     GLfloat volume_modelview[16];
     glGetFloatv(GL_MODELVIEW_MATRIX, volume_modelview);
+    SprintathonFlashlight::capture(scene_projection, volume_modelview,
+        !ChaseCam_IsActive() && !screenshot_mode_active() && !IsInfravisionActive() &&
+        !game_is_networked && !game_is_being_replayed() && current_player_index==local_player_index);
+    SprintathonFlashlightShadow::render(view,volume_modelview,passTest.other());
+    for(auto type : {Shader::S_Wall,Shader::S_Bump,Shader::S_Sprite}) {
+        auto* shader=Shader::get(type);shader->enable();SprintathonFlashlight::bind(shader);
+    }
+    Shader::disable();
 
 	weaponFlare = PIN(view->maximum_depth_intensity - NATURAL_LIGHT_INTENSITY, 0, FIXED_ONE)/float(FIXED_ONE);
 	selfLuminosity = PIN(NATURAL_LIGHT_INTENSITY, 0, FIXED_ONE)/float(FIXED_ONE);
@@ -4573,6 +4697,10 @@ void RenderRasterize_Shader::render_tree() {
 	// Draw the view weapon after world-only AO but before other whole-scene
 	// effects, preserving underwater refraction and bloom behavior.
     gpu_profile.pass(8); startup_frame.pass(9);
+    // The camera-mounted beam must not illuminate the first-person weapon.
+    Shader::get(Shader::S_Sprite)->enable();
+    Shader::get(Shader::S_Sprite)->setVector4(Shader::U_FlashlightParams,0,0,0,0);
+    Shader::disable();
 	render_viewer_sprite_layer(kDiffuse);
     gpu_profile.pass(9); startup_frame.pass(10);
 

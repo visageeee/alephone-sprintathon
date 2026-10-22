@@ -101,21 +101,27 @@ void Rasterizer_Shader_Class::SetView(view_data& view) {
 	glLoadIdentity();
 	glTranslated(view.origin.x, view.origin.y, view.origin.z);
 	glRotated(yaw, 0.0, 0.0, 1.0);
-	glRotated(-pitch, 0.0, 1.0, 0.0);
+	if (!view.mimic_sw_perspective)
+		glRotated(-pitch, 0.0, 1.0, 0.0);
 	glMultMatrixd(kViewBaseMatrixInverse);
 
 	GLfloat landscapeInverseMatrix[16];
 	glGetFloatv(GL_MODELVIEW_MATRIX, landscapeInverseMatrix);
 
-	Shader *s;
-
-	s = Shader::get(Shader::S_Landscape);
-	s->enable();
-	s->setMatrix4(Shader::U_LandscapeInverseMatrix, landscapeInverseMatrix);
-
-	s = Shader::get(Shader::S_LandscapeBloom);
-	s->enable();
-	s->setMatrix4(Shader::U_LandscapeInverseMatrix, landscapeInverseMatrix);
+	// All sky variants use the same roll-free direction for texture mapping.
+	// Actual geometry and the world-space sun still use the full camera roll.
+	Shader* landscape_shaders[] = {
+		Shader::get(Shader::S_Landscape),
+		Shader::get(Shader::S_LandscapeBloom),
+		Shader::get(Shader::S_LandscapeInfravision),
+		Shader::get(Shader::S_LandscapeSphere),
+		Shader::get(Shader::S_LandscapeSphereBloom),
+		Shader::get(Shader::S_LandscapeSphereInfravision)
+	};
+	for (auto s : landscape_shaders) {
+		s->enable();
+		s->setMatrix4(Shader::U_LandscapeInverseMatrix, landscapeInverseMatrix);
+	}
 
 	Shader::disable();
 
