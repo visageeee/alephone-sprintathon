@@ -1919,6 +1919,15 @@ void TextureManager::RenderNormal()
 		if (NormalImage.get() && NormalImage.get()->IsPresent()) {
 			PlaceTexture(NormalImage.get());
 		}
+        // Normal-only passes (such as flashlight shadow casters) may encounter
+        // a texture first. Setup() generates companion images only while the
+        // shared state is unused; those images belong to this temporary manager.
+        // Upload them now, before it is destroyed and a later glow pass reuses
+        // the cached state without the generated CPU glow image.
+        if (TxtrStatePtr->IsGlowing) RenderGlowing();
+        if (TxtrStatePtr->IsBumped) RenderBump();
+        // Companion uploads bind their own texture; leave the normal bound.
+        TxtrStatePtr->UseNormal();
 	}
 	
 		gGLTxStats.binds++;

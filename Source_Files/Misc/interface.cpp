@@ -1551,7 +1551,8 @@ void do_menu_item_command(
 			switch(menu_item)
 			{
 				case iNewGame:
-					begin_game(_single_player, cheat);
+					// New Game always opens the existing level and difficulty selector.
+					begin_game(_single_player, true);
 					ForceRepaintMenuDisplay();
 					break;
 				case iPlaySingletonLevel:
