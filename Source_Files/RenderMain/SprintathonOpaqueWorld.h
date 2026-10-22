@@ -13,7 +13,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
-#include <SDL_image.h>
+#include <SDL2/SDL_image.h>
 
 // Optional geometry-throughput prototype with static baked lighting.
 // Includes bump/parallax, sector-edge blending and connected floor light pools.

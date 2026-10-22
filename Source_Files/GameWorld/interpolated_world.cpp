@@ -326,8 +326,8 @@ void enter_interpolated_world()
 	next->virtual_pitch = view->virtual_pitch;
     const auto residual = virtual_aim_delta();
     next->player_index = current_player_index;
-    next->player_aim = {current_player->facing * FIXED_ONE + residual.yaw,
-                        current_player->elevation * FIXED_ONE + residual.pitch};
+    next->player_aim = {static_cast<fixed_angle>(current_player->facing * FIXED_ONE + residual.yaw),
+                        static_cast<fixed_angle>(current_player->elevation * FIXED_ONE + residual.pitch)};
 	next->origin = view->origin;
 	next->maximum_depth_intensity = view->maximum_depth_intensity;
 
@@ -771,8 +771,8 @@ void sprintathon_apply_frame_mouse_view(float fraction)
     if (!sprintathon_frame_mouse_enabled() || current_player_index != local_player_index)
         return;
     const auto residual = virtual_aim_delta();
-    const fixed_yaw_pitch actual = {current_player->facing * FIXED_ONE + residual.yaw,
-                                    current_player->elevation * FIXED_ONE + residual.pitch};
+    const fixed_yaw_pitch actual = {static_cast<fixed_angle>(current_player->facing * FIXED_ONE + residual.yaw),
+                                    static_cast<fixed_angle>(current_player->elevation * FIXED_ONE + residual.pitch)};
     auto baseline = actual;
     auto prev = &previous_tick_world_view;
     auto next = &current_tick_world_view;
