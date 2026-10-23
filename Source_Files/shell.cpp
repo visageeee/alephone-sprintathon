@@ -43,6 +43,7 @@
 #include "vbl.h"
 #include "preferences.h"
 #include "SprintathonFlashlightState.h"
+#include "Update.h"
 #include "tags.h" /* for scenario file type.. */
 #include "mouse.h"
 #include "joystick.h"
@@ -611,6 +612,7 @@ void initialize_application(void)
 
 void shutdown_application(void)
 {
+	if(network_preferences)Update::instance()->Shutdown();
 	WadImageCache::instance()->save_cache();
 
 	shutdown_dialogs();
@@ -979,6 +981,7 @@ void main_event_loop(void)
 			++SprintathonFrameTrace::get().loops;
 			if (game_state != _game_in_progress) SprintathonFrameTrace::get().context(4, -1, 0);
 		}
+        if(game_state==_display_main_menu && Update::instance()->Poll())update_interface_display();
 		uint64_t cur_time = machine_tick_count();
 		bool yield_time = false;
 		bool poll_event = false;

@@ -1,6 +1,7 @@
 #ifndef SPRINTATHON_LUA_SUN_H
 #define SPRINTATHON_LUA_SUN_H
 #include "cseries.h"
+#include "SprintathonTimeOfDay.h"
 #include "preferences.h"
 #include <cmath>
 #include <algorithm>
@@ -14,6 +15,19 @@ struct State {
 inline State& state(){static State s;return s;}
 inline void reset(){state()=State();}
 inline double get(Field f) {
+ if(SprintathonTimeOfDay::state().active) {
+  const auto day=SprintathonTimeOfDay::sample();
+  switch(f) {
+  case Enabled:return day.elevation>=0;
+  case Azimuth:return 135;
+  case Elevation:return day.elevation;
+  case Brightness:case Shafts:return day.brightness;
+  case Red:return day.direct.r;
+  case Green:return day.direct.g;
+  case Blue:return day.direct.b;
+  default:break;
+  }
+ }
  const auto& s=state();if(s.set[f])return s.value[f];
  const auto& c=graphics_preferences->OGL_Configure;
  static const double sizes[]={0.25,0.5,1,2,4};

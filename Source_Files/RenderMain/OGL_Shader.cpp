@@ -66,7 +66,7 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"texture3",
     "waterSceneryPosition0", "waterSceneryColor0",
     "waterSceneryPosition1", "waterSceneryColor1",
-    "skyBakeActor", "skyBakeSun", "skyBakeAmbient", "textureBakeMap", "textureBakeEnabled", "skyBakeMap", "skyBakeEnabled", "skyBakeLayers", "skyBakeU", "skyBakeV", "skyBakeSectorStrength", "liquidSpecLight", "liquidSpecEye", "liquidSceneAvailable", "liquidDepthMap", "liquidDepthParams", "liquidFogColor", "liquidSkyMap", "liquidSkyParams", "liquidSkyMode", "liquidFlow", "visibleSun", "visibleSunColor", "visibleSunEye", "scriptSunEffects",
+    "skyBakeActor", "skyBakeSun", "skyBakeAmbient", "textureBakeMap", "textureBakeEnabled", "skyBakeMap", "skyBakeEnabled", "skyBakeLayers", "skyBakeU", "skyBakeV", "skyBakeSectorStrength", "liquidSpecLight", "liquidSpecEye", "liquidSceneAvailable", "liquidDepthMap", "liquidDepthParams", "liquidFogColor", "liquidSkyMap", "liquidSkyParams", "liquidSkyMode", "liquidFlow", "visibleSun", "visibleSunColor", "visibleSunEye", "scriptSunEffects", "timeOfDayZenith", "timeOfDayHorizon",
 	"time",
 	"pulsate",
 	"wobble",
@@ -1025,6 +1025,7 @@ uniform vec4 vfColors[4];
 uniform float vfStrength;
 uniform float vfDebug;
 uniform float vfStartRoom;
+uniform float vfStep;
 uniform float fogMode;
 vec4 roomData(float room, float column) { return texture2DRect(texture3,vec2(column+0.5,room+0.5)); }
 float hash(vec3 p) { p=fract(p*0.1031); p+=dot(p,p.yzx+33.33); return fract((p.x+p.y)*p.z); }
@@ -1131,14 +1132,15 @@ void main() {
   if(!inside) {diagnostic=vec3(1,0,1);break;}
   // Fixed ray cells shared across polygon boundaries: splitting a room into
   // extra polygons no longer changes the noise sample positions.
-  float firstCell=floor(t*2.0)*0.5;
-  for(int sampleIndex=0;sampleIndex<65;++sampleIndex) {
+  float cellSize=clamp(vfStep,0.125,0.5);
+  float firstCell=floor(t/cellSize)*cellSize;
+  for(int sampleIndex=0;sampleIndex<257;++sampleIndex) {
    // Do not finish sampling a large polygon once this ray is opaque.
    if(trans<0.02) break;
-   float cell=firstCell+float(sampleIndex)*0.5;
+   float cell=firstCell+float(sampleIndex)*cellSize;
    if(cell>=exitDistance) break;
-   float ds=max(0.0,min(exitDistance,cell+0.5)-max(t,cell));
-   float sampleDistance=cell+0.25;
+   float ds=max(0.0,min(exitDistance,cell+cellSize)-max(t,cell));
+   float sampleDistance=cell+cellSize*0.5;
    vec3 p=origin+ray*sampleDistance;
    vec3 wind=vec3(vfSettings.w*0.055,vfSettings.w*0.030,0.0);
    // More closely spaced, faster folds: one noise lookup, no extra pass.
@@ -1170,7 +1172,7 @@ void main() {
    // Average the beam over the actual cell interval. A midpoint alone turns
    // the cone into visible half-world-unit slices near the offset lamp.
    if(density>0.00001 && ds>0.0) {
-    float beamStart=max(t,cell),beamEnd=min(exitDistance,cell+0.5);
+    float beamStart=max(t,cell),beamEnd=min(exitDistance,cell+cellSize);
     float beamJitter=fract(52.9829189*fract(dot(gl_FragCoord.xy,
         vec2(0.06711056,0.00583715))+cell*0.75487766));
     light+=sprintathonFlashlightFogSegment(eye,beamStart*1024.0,beamEnd*1024.0,beamJitter);
@@ -1223,7 +1225,16 @@ void main() {
  }
  if(total<0.00001) {gl_FragColor=scene;return;}
  fog/=total;
- gl_FragColor=vec4(scene.rgb*fog.a+fog.rgb,scene.a);
+ vec3 color=scene.rgb*fog.a+fog.rgb;
+ // Static, zero-centered dithering before the output color is quantized.
+ // Shared RGB noise avoids colored speckles; no time input means no flicker.
+ float noise=2.0*fract(52.9829189*fract(dot(floor(gl_FragCoord.xy),
+     vec2(0.06711056,0.00583715))))-1.0;
+ // Fade out when fog contributes nothing. Limit noise near black/white so
+ // clipping cannot lift blacks or darken whites.
+ float amount=clamp((1.0-fog.a)*255.0,0.0,1.0);
+ vec3 amplitude=min(vec3(0.5/255.0),max(vec3(0.0),min(color,vec3(1.0)-color)));
+ gl_FragColor=vec4(color+noise*amplitude*amount,scene.a);
 }
 )VF";
 

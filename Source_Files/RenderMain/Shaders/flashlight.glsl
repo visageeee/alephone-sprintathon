@@ -3,7 +3,7 @@ R"GLSL(
 // includes renderer depth offsets and depends on the active render viewport.
 varying vec3 flashlightEye;
 uniform vec4 flashlightParams; // brightness, tan(half angle), range, offset multiplier
-uniform vec4 flashlightProjection; // p00, p11, p02, p12
+uniform vec4 flashlightProjection; // lamp x, lamp y, radius, lamp z
 uniform vec4 flashlightDepth; // p22, p23, lagged beam direction slopes
 uniform vec4 flashlightViewport;
 uniform sampler2D flashlightShadowMap;
@@ -74,16 +74,18 @@ float sprintathonFlashlightVisibility(vec3 eye) {
     return mix(1.0,visibility/32.0,flashlightShadowParams.x);
 }
 // Shared by surface lighting and the screen-space shadow pass.
-vec3 sprintathonFlashlightOrigin(float distanceZ) {
-    return vec3(64.0,-48.0,-32.0)*flashlightParams.w*(flashlightShadowParams.x>0.0?1.0:smoothstep(64.0,384.0,distanceZ));
+vec3 sprintathonFlashlightOrigin() {
+    // Projection-positioned lamp, shared with fog and the shadow pass.
+    return vec3(flashlightProjection.xy,flashlightProjection.w);
+}
+// Straight cone from the below-camera lamp: radius increases linearly with distance.
+float sprintathonFlashlightBeamRadius(float along) {
+    return max(flashlightProjection.z+max(along,0.0)*flashlightParams.y,0.0001);
 }
 vec3 sprintathonFlashlight(float surfaceAngle) {
     if (flashlightParams.x <= 0.0) return vec3(0.0);
     vec3 eye = flashlightEye;
-    float distanceZ = max(-eye.z,0.0);
-    // A small offset gives nearby walls parallax. Fade it near the camera
-    // to limit corner leaks without a shadow pass.
-    vec3 origin=sprintathonFlashlightOrigin(distanceZ);
+    vec3 origin=sprintathonFlashlightOrigin();
     vec3 delta=eye-origin;
     vec3 axis=normalize(vec3(flashlightDepth.zw,-1.0));
     float along=dot(delta,axis);
@@ -92,7 +94,7 @@ vec3 sprintathonFlashlight(float surfaceAngle) {
     float incidence = normalLength > 0.000001 ? abs(dot(n/normalLength,normalize(-delta))) : 1.0;
     incidence = mix(1.0,0.2+0.8*incidence,surfaceAngle);
     float radius = length(delta-axis*along) /
-        max(48.0+max(along,0.0)*flashlightParams.y,0.0001);
+        sprintathonFlashlightBeamRadius(along);
     float edge = 1.0-smoothstep(0.85,1.0,radius);
     float rim = exp(-pow((radius-0.73)/0.09,2.0));
     float centre = 0.52*exp(-radius*radius*2.5);

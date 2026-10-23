@@ -54,6 +54,7 @@
 #include "SprintathonOpaqueWorld.h"
 #include "SprintathonFlashlight.h"
 #include "SprintathonFlashlightShadow.h"
+#include "SprintathonFlashlightDust.h"
 #include "SprintathonWorldSplit.h"
 #include "SprintathonObjectOps.h"
 #include <cstring>
@@ -591,7 +592,7 @@ static void sprintathon_set_visible_sun(Shader* shader,const view_data* view)
     const auto& config=Get_OGL_ConfigureData();
     const double azimuth=(SprintathonLuaSun::get(SprintathonLuaSun::Azimuth)-90.0)*0.017453292519943295;
     const double elevation=SprintathonLuaSun::get(SprintathonLuaSun::Elevation)*0.017453292519943295;
-    const float strength=graphics_preferences->visible_sun && SprintathonLuaSun::get(SprintathonLuaSun::Enabled) && !IsInfravisionActive() ?
+    const float strength=(graphics_preferences->visible_sun || SprintathonTimeOfDay::state().active) && SprintathonLuaSun::get(SprintathonLuaSun::Enabled) && !IsInfravisionActive() ?
         float(SprintathonLuaSun::get(SprintathonLuaSun::Brightness)) : 0.0f;
     shader->setVector4(Shader::U_VisibleSun,std::cos(azimuth)*std::cos(elevation),
         std::sin(azimuth)*std::cos(elevation),std::sin(elevation),
@@ -3969,7 +3970,10 @@ static bool sprintathon_draw_volume_fog(const view_data* camera, GLuint scene,
     glDisable(GL_SCISSOR_TEST);glDisable(GL_CULL_FACE);glDisable(GL_STENCIL_TEST);
     glDisable(GL_CLIP_PLANE0);glDisable(GL_CLIP_PLANE1);glDisable(GL_FRAMEBUFFER_SRGB_EXT);
     glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
-    const int half_width=std::max(1,(width+3)/4),half_height=std::max(1,(height+3)/4);
+    const int fogQuality=std::max(0,std::min(3,int(graphics_preferences->sprintathon_volume_fog_quality)));
+    const int fogDivisor=fogQuality>=2?2:4;
+    const float fogStep=fogQuality==0?0.5f:fogQuality==3?0.125f:0.25f;
+    const int half_width=std::max(1,(width+fogDivisor-1)/fogDivisor),half_height=std::max(1,(height+fogDivisor-1)/fogDivisor);
     sprintathon_prepare_volume_buffer(half_width,half_height);
     glBindFramebufferEXT(GL_FRAMEBUFFER_EXT,target.fbo);
     glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT,GL_COLOR_ATTACHMENT0_EXT,GL_TEXTURE_RECTANGLE_ARB,target.color,0);
@@ -4008,6 +4012,7 @@ static bool sprintathon_draw_volume_fog(const view_data* camera, GLuint scene,
         std::max(0,std::min(200,int(graphics_preferences->flashlight_fog_intensity)))/100.0f);
     glUniform1fARB(uniform("vfDebug"),fog_debug);
     glUniform1fARB(uniform("vfStartRoom"),camera->origin_polygon_index);
+    glUniform1fARB(uniform("vfStep"),fogStep);
     glUniform1fARB(uniform("vfStrength"),Get_OGL_ConfigureData().DriftingFogIntensity/100.0f);
     shader->setFloat(Shader::U_FogMode,OGL_GetCurrFogData()->Mode);
     glMatrixMode(GL_PROJECTION);glPushMatrix();glLoadIdentity();
@@ -4549,10 +4554,14 @@ void RenderRasterize_Shader::render_tree() {
 		Shader::get(Shader::S_LandscapeSphereInfravision)
 	};
 
+    const auto day=SprintathonTimeOfDay::sample();
+    const bool overrideSky=SprintathonTimeOfDay::state().active && !IsInfravisionActive();
 	for (auto s : landscape_shaders) {
 		s->enable();
         s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
+        s->setVector4(Shader::U_TimeOfDayZenith,day.zenith.r,day.zenith.g,day.zenith.b,overrideSky ? 1 : 0);
+        s->setVector4(Shader::U_TimeOfDayHorizon,day.horizon.r,day.horizon.g,day.horizon.b,0);
 		s->setFloat(Shader::U_FogMix, fogMix);
 		sprintathon_set_visible_sun(s,view);
 		s->setFloat(Shader::U_Yaw, virtual_yaw);
@@ -4615,6 +4624,7 @@ void RenderRasterize_Shader::render_tree() {
 		ogl_config.ForceFogAnimatedDensity;
     const bool volume_fog_enabled = graphics_preferences->sprintathon_volume_fog &&
         fog_effect_available && TEST_FLAG(ogl_config.Flags,OGL_Flag_Fog) && !view->under_media_boundary;
+    const bool flashlight_dust_enabled=passTest.overlays() && !view->under_media_boundary && SprintathonFlashlightDust::enabled();
 	const bool fog_post_effects_enabled = passTest.other() &&
         (fog_haze_enabled || rising_fog_clouds_enabled || volume_fog_enabled);
 	const bool shaft_source_ready = passTest.shafts() && ogl_config.LandscapeLightShafts &&
@@ -4635,7 +4645,7 @@ void RenderRasterize_Shader::render_tree() {
     gpu_profile.pass(3); startup_frame.pass(4);
 	if ((passTest.other() && ogl_config.AmbientOcclusion) || (passTest.shafts() && ogl_config.LandscapeLightShafts) ||
 		(passTest.other() && ogl_config.AnamorphicLensFlares) ||
-		fog_post_effects_enabled)
+		fog_post_effects_enabled || flashlight_dust_enabled)
 		scene_depth = sprintathon_capture_scene_depth(
 			framebuffer_width, framebuffer_height);
     gpu_profile.pass(4); startup_frame.pass(5);
@@ -4694,6 +4704,8 @@ void RenderRasterize_Shader::render_tree() {
 				0.017453292519943295f,
 			SprintathonLuaSun::get(SprintathonLuaSun::Elevation) * 0.017453292519943295f);
 	}
+    if(flashlight_dust_enabled)SprintathonFlashlightDust::draw(view,scene_depth,
+        framebuffer_width,framebuffer_height,scene_projection,volume_modelview);
 	// Draw the view weapon after world-only AO but before other whole-scene
 	// effects, preserving underwater refraction and bloom behavior.
     gpu_profile.pass(8); startup_frame.pass(9);
@@ -4816,6 +4828,10 @@ void RenderRasterize_Shader::render_world_diffuse()
     }
     const bool see_through_liquids =
         TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_LiqSeeThru);
+    // Reordered world/sprite drawing relies on the depth buffer, including
+    // elevated floors and walls rendered by the platform fallback path.
+    glPushAttrib(GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST);glDepthFunc(GL_LEQUAL);glDepthMask(GL_TRUE);
     world_surface_pass = WorldSurfacePass::opaque;
     SprintathonOpaqueWorld::outerLeft=leftmost_clip;SprintathonOpaqueWorld::outerRight=rightmost_clip;
     const bool opaqueWorld=!current_player->infravision_duration && SprintathonOpaqueWorld::begin();
@@ -4831,6 +4847,7 @@ void RenderRasterize_Shader::render_world_diffuse()
     world_surface_pass = WorldSurfacePass::remaining;
     RenderRasterizerClass::render_tree(kDiffuse);
     world_surface_pass = WorldSurfacePass::all;
+    glPopAttrib();
     if(opaqueWorld)SprintathonWorldSplit::mark(3);
 }
 
@@ -5174,9 +5191,10 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 	s->setFloat(Shader::U_ObjectWorldZ,
 		static_cast<float>(rect.Position.z));
 	const bool sprintathon_strict_sprite_depth =
-		!view->mimic_sw_perspective &&
-		input_preferences->sprintathon_enabled &&
-		input_preferences->sprintathon_mouselook_mode > 0;
+        world_surface_pass == WorldSurfacePass::remaining ||
+        (!view->mimic_sw_perspective &&
+         input_preferences->sprintathon_enabled &&
+         input_preferences->sprintathon_mouselook_mode > 0);
 	s->setFloat(Shader::U_StrictDepthMode,
 		(OGL_ForceSpriteDepth() || sprintathon_strict_sprite_depth) ? 1 : 0);
 	s->setFloat(Shader::U_Glow, 0);
@@ -5693,13 +5711,16 @@ bool setupGlow(struct view_data *view, std::unique_ptr<TextureManager>& TMgr, fl
 		s->setFloat(Shader::U_SelfLuminosity, selfLuminosity);
 		s->setFloat(Shader::U_Wobble, wobble);
 		s->setFloat(Shader::U_Depth, offset - 1.0);
-        s->setFloat(Shader::U_EmitterShade,
-            TMgr->TextureType == OGL_Txtr_Wall &&
+        const float emission = TMgr->TextureType == OGL_Txtr_Wall &&
             !current_player->infravision_duration &&
             graphics_preferences->projectile_lights_per_pixel &&
             graphics_preferences->bright_texture_lights ?
-            std::max(0.0f, std::min(1.0f, intensity)) : 1.0f);
-		s->setFloat(Shader::U_Glow, TMgr->MinGlowIntensity());
+            std::max(0.0f, std::min(1.0f, intensity)) : 1.0f;
+        s->setFloat(Shader::U_EmitterShade, emission);
+        // Only the self-lit minimum follows the fixture's on/off state.
+        // Received flashlight, projectile and environmental light still applies
+        // to both its diffuse texture and the alpha-blended glow overlay.
+        s->setFloat(Shader::U_Glow, TMgr->MinGlowIntensity()*emission);
 		return true;
 	}
 	return false;
@@ -7729,10 +7750,12 @@ void RenderRasterize_Shader::_render_node_object_helper(render_object_data *obje
 			
 	float offset = 0;
 	const bool sprintathon_strict_sprite_depth =
-		!view->mimic_sw_perspective &&
-		input_preferences->sprintathon_enabled &&
-		input_preferences->sprintathon_mouselook_mode > 0;
+        world_surface_pass == WorldSurfacePass::remaining ||
+        (!view->mimic_sw_perspective &&
+         input_preferences->sprintathon_enabled &&
+         input_preferences->sprintathon_mouselook_mode > 0);
 	if (OGL_ForceSpriteDepth() || sprintathon_strict_sprite_depth) {
+        glEnable(GL_DEPTH_TEST);
 		// look for parasitic objects based on y position,
 		// and offset them to draw in proper depth order
 		if(pos.y == objectY) {

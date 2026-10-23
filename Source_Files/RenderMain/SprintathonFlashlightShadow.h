@@ -32,7 +32,7 @@ inline void matrices(const SprintathonFlashlight::Frame& f,GLfloat* projection,G
     float forward[3]={f.depth[2],f.depth[3],-1};normalize(forward);
     float right[3]={-forward[2],0,forward[0]};normalize(right);
     float up[3]={right[1]*forward[2]-right[2]*forward[1],right[2]*forward[0]-right[0]*forward[2],right[0]*forward[1]-right[1]*forward[0]};
-    const float origin[3]={64*f.params[3],-48*f.params[3],-32*f.params[3]};
+    const float origin[3]={f.projection[0],f.projection[1],f.projection[3]};
     for(int i=0;i<16;++i){projection[i]=0;lightView[i]=0;}
     for(int i=0;i<3;++i){
         lightView[i*4]=right[i];lightView[i*4+1]=up[i];lightView[i*4+2]=-forward[i];
@@ -125,7 +125,7 @@ inline void geometry(view_data* view,const GLfloat* modelview) {
     const int count=dynamic_world->polygon_count;
     if(view->origin_polygon_index<0 || view->origin_polygon_index>=count)return;
     const auto& f=SprintathonFlashlight::frame();
-    const float eye[3]={64*f.params[3]-modelview[12],-48*f.params[3]-modelview[13],-32*f.params[3]-modelview[14]};
+    const float eye[3]={f.projection[0]-modelview[12],f.projection[1]-modelview[13],f.projection[3]-modelview[14]};
     float origin[3]={};
     for(int i=0;i<3;++i)for(int j=0;j<3;++j)origin[i]+=modelview[i*4+j]*eye[j];
     visited.assign(count,0);std::vector<int> pending;

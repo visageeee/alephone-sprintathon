@@ -147,6 +147,7 @@ extern TP2PerfGlobals perf_globals;
 #include "vbl.h"
 #include "preferences.h"
 #include "SprintathonFlashlightState.h"
+#include "SprintathonTimeOfDay.h"
 #include "FileHandler.h"
 #include "lua_script.h" // PostIdle
 #include "interface_menus.h"
@@ -163,6 +164,7 @@ extern TP2PerfGlobals perf_globals;
 
 #include "sdl_dialogs.h"
 #include "sdl_widgets.h"
+#include "Update.h"
 #include "network_dialog_widgets_sdl.h"
 
 /* Change this when marathon changes & replays are no longer valid */
@@ -897,6 +899,7 @@ extern bool load_and_start_game(
 // This will be used only on the machine that picked "Continue Saved Game".
 bool load_and_start_game(FileSpecifier& File, bool force_single_player)
 {
+	SprintathonTimeOfDay::reset();
 	bool success;
 
 	hide_cursor();
@@ -1329,9 +1332,22 @@ static SDL_Surface *powered_by_alephone_surface[] = {nullptr, nullptr};
 
 extern void set_about_alephone_rect(int width, int height);
 
+static void draw_sprintathon_update_button()
+{
+    _set_port_to_intro();
+    SDL_Rect border={8,452,416,22};
+    SDL_FillRect(draw_surface,&border,SDL_MapRGB(draw_surface->format,100,100,100));
+    SDL_Rect fill={9,453,414,20};
+    SDL_FillRect(draw_surface,&fill,SDL_MapRGB(draw_surface->format,16,16,16));
+    uint16 style=0;const auto* font=get_theme_font(MESSAGE_WIDGET,style);
+    if(font)draw_text(draw_surface,Update::instance()->MenuLabel(),14,456+font->get_ascent(),
+        SDL_MapRGB(draw_surface->format,235,235,235),font,style);
+    _restore_port();
+}
+
 static void draw_powered_by_aleph_one(bool pressed)
 {
-	if (shell_options.zpc) return;
+	if (shell_options.zpc) {draw_sprintathon_update_button();return;}
 	if (!powered_by_alephone_surface[0])
 	{
 		SDL_RWops *rw = SDL_RWFromConstMem(powered_by_alephone_bmp, sizeof(powered_by_alephone_bmp));
@@ -1356,11 +1372,13 @@ static void draw_powered_by_aleph_one(bool pressed)
 	_set_port_to_intro();
 	SDL_BlitSurface(powered_by_alephone_surface[i], NULL, draw_surface, &rect);
 	_restore_port();
+    draw_sprintathon_update_button();
 }
 
 void display_main_menu(
 	void)
 {
+	SprintathonTimeOfDay::reset();
 	game_state.state= _display_main_menu;
 	game_state.current_screen= 0;
 	game_state.phase= TICKS_UNTIL_DEMO_STARTS;
@@ -1649,6 +1667,9 @@ void portable_process_screen_click(
 			break;
 
 		case _display_main_menu:
+            if(x>=8 && x<424 && y>=452 && y<474) {
+                Update::instance()->MenuAction();update_interface_display();break;
+            }
 			handle_interface_menu_screen_click(x, y, cheatkeys_down);
 			break;
 		

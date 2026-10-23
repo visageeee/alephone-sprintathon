@@ -12,6 +12,8 @@ uniform float offsetx; // azimuth in the sphere map
 const float M_PI = 3.14156;
 varying vec3 sunWorldRay;
 
+uniform vec4 timeOfDayZenith;
+uniform vec4 timeOfDayHorizon;
 uniform vec4 visibleSun;
 uniform vec4 visibleSunColor;
 vec3 sprintathonSunDisc(vec3 ray) {
@@ -42,6 +44,7 @@ void main(void) {
 	float v = phi / M_PI;
 
 	vec4 color = texture2D(texture0, vec2(u, v));
+    if(timeOfDayZenith.w>0.5) color.rgb=mix(timeOfDayHorizon.rgb,timeOfDayZenith.rgb, pow(clamp(normalize(sunWorldRay).z,0.0,1.0),0.55));
     color.rgb += sprintathonSunDisc(sunWorldRay);
 	vec3 intensity = mix(color.rgb, gl_Fog.color.rgb, fogMix);
 	gl_FragColor = vec4(intensity, 1.0);

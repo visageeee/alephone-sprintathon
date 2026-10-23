@@ -3,6 +3,12 @@ name: Sprintathon - build all binaries
 on:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      release_tag:
+        description: Release tag embedded in the binaries
+        type: string
+        required: false
+        default: ''
     outputs:
       build_date:
         description: Shared package date (Europe/Stockholm)
@@ -33,6 +39,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+      - name: Stamp Sprintathon build identity
+        shell: bash
+        env:
+          SPRINTATHON_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 .github/scripts/stamp-sprintathon-build.py
       - uses: ./.github/actions/build-windows
         with:
           platform: x64
@@ -67,6 +78,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+      - name: Stamp Sprintathon build identity
+        shell: bash
+        env:
+          SPRINTATHON_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 .github/scripts/stamp-sprintathon-build.py
       - uses: ./.github/actions/build-mac-osx
         with:
           xcode_targets: Aleph One
@@ -101,6 +117,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+      - name: Stamp Sprintathon build identity
+        shell: bash
+        env:
+          SPRINTATHON_RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 .github/scripts/stamp-sprintathon-build.py
       - name: Install Flatpak tools
         run: |
           sudo apt-get update

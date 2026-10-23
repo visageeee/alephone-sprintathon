@@ -1212,14 +1212,8 @@ R"(        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPositio
 		color.rgb = mix(vec3(localLuma), color.rgb,
 			1.0 + 0.10 * surfaceWetness) * wetTextureShade;
 	}
-    // Bright fixture texels retain their assigned map-light animation even
-    // when received lighting saturates. Dark casing keeps received lighting.
-    float emitterMask = smoothstep(0.55, 0.90, max(color.r, max(color.g, color.b)));
-    float emitterShade = clamp(sprintathonEmitterShade, 0.0, 1.0);
-#ifdef GAMMA_CORRECTED_BLENDING
-    emitterShade *= emitterShade;
-#endif
-    intensity = mix(intensity, min(intensity, vec3(emitterShade)), emitterMask);
+    // An unpowered fixture still reflects received light. Its animated
+    // self-illumination is controlled by the glow floor, not a cap on lighting.
 	vec3 shadedColor = clamp(color.rgb * intensity, 0.0, 1.0);
 	float fogFactor = getFogFactor(viewDistance);
 	if (mediaFogEnabled > 0.0) {

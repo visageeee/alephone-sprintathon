@@ -57,56 +57,7 @@ setupAndConnectClient(MetaserverClient& client, bool use_remote_hub)
 		client.setPlayerName(player_preferences->name);
 	}
 
-	// Check the updates URL for updates
-	
-	static bool user_informed = false;
-
-#ifndef HAVE_STEAM
-	if (network_preferences->check_for_updates && !user_informed)
-	{
-		static bool first_check = true;
-		
-		if (first_check)
-		{
-			uint64_t ticks = machine_tick_count();
-
-			// if we get an update in a short amount of time, don't display progress
-			while (Update::instance()->GetStatus() == Update::CheckingForUpdate && machine_tick_count() - ticks < 500);
-
-			// check another couple seconds, but with a progress dialog
-			open_progress_dialog(_checking_for_updates);
-			while (Update::instance()->GetStatus() == Update::CheckingForUpdate && machine_tick_count() - ticks < 2500);
-			close_progress_dialog();
-			first_check = false;
-		}
-
-		Update::Status status = Update::instance()->GetStatus();
-		if (status == Update::UpdateAvailable)
-		{
-			dialog d;
-			vertical_placer *placer = new vertical_placer;
-
-			placer->dual_add(new w_title("UPDATE AVAILABLE"), d);
-			placer->add(new w_spacer(), true);
-
-			placer->dual_add(new w_static_text(expand_app_variables("An update for $appName$ is available.").c_str()), d);
-#ifdef MAC_APP_STORE
-			placer->dual_add(new w_static_text("Please download it from the App Store"), d);
-#else
-			placer->dual_add(new w_static_text("Please download it from"), d);
-			placer->dual_add(new w_hyperlink(A1_HOMEPAGE_URL), d);
-#endif
-			placer->dual_add(new w_static_text("before playing games online."), d);
-			
-			placer->add(new w_spacer(), true);
-			placer->dual_add(new w_button("OK", dialog_ok, &d), d);
-			d.set_widget_placer(placer);
-			d.run();
-		}
-		
-		if (status != Update::CheckingForUpdate) user_informed = true;
-	}
-#endif
+	// Sprintathon update checks run asynchronously from the main menu.
 
 	client.setPlayerTeamName("");
 	client.connect(A1_METASERVER_HOST, 6321, network_preferences->metaserver_login, network_preferences->metaserver_password, use_remote_hub);

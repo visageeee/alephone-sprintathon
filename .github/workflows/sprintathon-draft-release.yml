@@ -30,6 +30,8 @@ jobs:
   binaries:
     needs: validate
     uses: ./.github/workflows/sprintathon-build-binaries.yml
+    with:
+      release_tag: ${{ inputs.tag }}
 
   draft:
     name: Assemble draft release

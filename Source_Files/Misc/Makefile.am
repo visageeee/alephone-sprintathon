@@ -44,3 +44,5 @@ AM_CPPFLAGS = -I$(top_srcdir)/Source_Files/CSeries -I$(top_srcdir)/Source_Files/
   -I$(top_srcdir)/Source_Files/TCPMess \
   -I$(top_srcdir)/Source_Files/XML \
   -I$(top_srcdir)/Source_Files
+
+EXTRA_DIST = SprintathonBuildVersion.h

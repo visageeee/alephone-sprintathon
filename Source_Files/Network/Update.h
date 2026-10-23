@@ -1,6 +1,3 @@
-#ifndef __UPDATE_H
-#define __UPDATE_H
-
 /*
 
 	Copyright (C) 2007 Gregory Smith.
@@ -24,44 +21,36 @@
 
 */
 
+#ifndef __UPDATE_H
+#define __UPDATE_H
+#include <atomic>
 #include <string>
 #include <SDL2/SDL_thread.h>
 #include "cseries.h"
 
-class Update
-{
+// All public operations run on the main thread. The worker publishes its
+// result with a release/acquire status exchange; it never touches preferences.
+class Update {
 public:
-	static Update *instance() { 
-		static Update *m_instance = nullptr;
-		if (!m_instance) 
-			m_instance = new Update(); 
-		return m_instance; 
-	}
-
-	enum Status
-	{
-		CheckingForUpdate,
-		UpdateCheckFailed,
-		UpdateAvailable,
-		NoUpdateAvailable
-	};
-
-	Status GetStatus() { return m_status; }
-	std::string NewDisplayVersion() { assert(m_status == UpdateAvailable); return m_new_display_version; }
-
+    static Update* instance() { static Update* value=new Update; return value; }
+    enum Status { CheckingForUpdate, UpdateCheckFailed, UpdateAvailable,
+        NoUpdateAvailable, NotChecked, CannotCompare, NoPublishedRelease };
+    Status GetStatus() const { return m_status.load(); }
+    std::string NewDisplayVersion() const { return GetStatus()==UpdateAvailable ? m_tag : ""; }
+    void StartUpdateCheck();
+    bool Poll();
+    void Shutdown();
+    const char* MenuLabel() const;
+    void MenuAction();
 private:
-	Update();
-	~Update();
-
-	void StartUpdateCheck();
-	static int update_thread(void *);
-	int Thread();
-
-	Status m_status;
-	std::string m_new_date_version;
-	std::string m_new_display_version;
-	SDL_Thread *m_thread;
-
+    Update();
+    static int update_thread(void*);
+    int Thread();
+    std::atomic<Status> m_status{NotChecked};
+    std::atomic<bool> m_cancel{false};
+    std::string m_tag;
+    SDL_Thread* m_thread=nullptr;
+    Status m_seen=NotChecked;
+    bool m_pending=false;
 };
-
 #endif

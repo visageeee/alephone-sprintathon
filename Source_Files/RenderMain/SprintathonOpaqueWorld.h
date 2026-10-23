@@ -1046,7 +1046,7 @@ inline void finish(void (*traceDraw)()=nullptr){
     if(!active)return;
     const auto submitStart=std::chrono::steady_clock::now();
     if(queued){
-        glPushAttrib(GL_ENABLE_BIT|GL_COLOR_BUFFER_BIT|GL_TEXTURE_BIT|GL_CURRENT_BIT);
+        glPushAttrib(GL_ENABLE_BIT|GL_COLOR_BUFFER_BIT|GL_TEXTURE_BIT|GL_CURRENT_BIT|GL_DEPTH_BUFFER_BIT);
         glPushClientAttrib(GL_CLIENT_VERTEX_ARRAY_BIT);
         GLint oldActive=0;glGetIntegerv(GL_ACTIVE_TEXTURE_ARB,&oldActive);
         glActiveTextureARB(GL_TEXTURE0_ARB+6);glBindTexture(GL_TEXTURE_RECTANGLE_ARB,parameters[parameterSlot]);
@@ -1071,7 +1071,9 @@ inline void finish(void (*traceDraw)()=nullptr){
         if(earlyClip){glEnable(GL_CLIP_PLANE0);glEnable(GL_CLIP_PLANE1);}
         else{glDisable(GL_CLIP_PLANE0);glDisable(GL_CLIP_PLANE1);}
         glDisable(GL_BLEND);
-        glEnable(GL_DEPTH_TEST);glEnable(GL_ALPHA_TEST);glAlphaFunc(GL_GREATER,0.5);
+        // Deferred material groups must always populate depth before sprites.
+        glEnable(GL_DEPTH_TEST);glDepthFunc(GL_LEQUAL);glDepthMask(GL_TRUE);
+        glEnable(GL_ALPHA_TEST);glAlphaFunc(GL_GREATER,0.5);
         glActiveTextureARB(GL_TEXTURE0_ARB);glEnable(GL_TEXTURE_2D);
         glBindBufferARB(GL_ARRAY_BUFFER_ARB,buffer);glEnableClientState(GL_VERTEX_ARRAY);
         glVertexPointer(3,GL_FLOAT,6*sizeof(float),nullptr);

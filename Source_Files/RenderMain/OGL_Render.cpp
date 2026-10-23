@@ -150,6 +150,7 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 #include "media.h"
 #include "player.h"
 #include "OGL_Render.h"
+#include "SprintathonTimeOfDay.h"
 #include "OGL_Textures.h"
 #include <chrono>
 #include <cstdio>
@@ -379,6 +380,7 @@ static _fixed SelfLuminosity;
 
 // Pointer to current fog data:
 OGL_FogData *CurrFog = NULL;
+static OGL_FogData timeOfDayFog;
 
 bool FogActive()
 {
@@ -388,7 +390,7 @@ bool FogActive()
 	bool ForceFog =
 		TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_ForceFog);
 
-	return FogAllowed && (CurrFog->IsPresent || ForceFog);
+	return (FogAllowed || CurrFog==&timeOfDayFog) && (CurrFog->IsPresent || ForceFog);
 }
 
 OGL_FogData* OGL_GetCurrFogData()
@@ -991,6 +993,19 @@ bool OGL_StartMain()
 	int FogType = (local_player->variables.flags&_HEAD_BELOW_MEDIA_BIT) ?
 		OGL_Fog_BelowLiquid : OGL_Fog_AboveLiquid;
 	CurrFog = OGL_GetFogData(FogType);
+	if(SprintathonTimeOfDay::state().active && FogType==OGL_Fog_AboveLiquid) {
+		const auto day=SprintathonTimeOfDay::sample();
+		timeOfDayFog=*CurrFog;
+		timeOfDayFog.IsPresent=true;
+		timeOfDayFog.Color={static_cast<uint16>(day.horizon.r*65535),
+			static_cast<uint16>(day.horizon.g*65535),static_cast<uint16>(day.horizon.b*65535)};
+		timeOfDayFog.Depth=day.fogDepth;
+		timeOfDayFog.Start=0;
+		timeOfDayFog.Mode=OGL_Fog_Exp2;
+		timeOfDayFog.AffectsLandscapes=false;
+		timeOfDayFog.LandscapeMix=0;
+		CurrFog=&timeOfDayFog;
+	}
 	if (FogActive())
 	{
 		OGL_ConfigureData& fog_config = Get_OGL_ConfigureData();

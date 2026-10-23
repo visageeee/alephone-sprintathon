@@ -88,6 +88,7 @@ enum {
 struct graphics_preferences_data
 {
     bool sprintathon_volume_fog;
+    int16 sprintathon_volume_fog_quality;
     int sprintathon_render_scale; // percentage of native 3D resolution
     bool sprintathon_nearest_upscale;
     bool sprintathon_tracker_compass;
@@ -113,9 +114,14 @@ struct graphics_preferences_data
     int16 horror_restore[12]; // Previous slider selections, flashlight/baked-light toggles and brightness.
     bool flashlight_enabled;
     int16 flashlight_brightness, flashlight_width;
+    int16 flashlight_origin_width;
     int16 flashlight_sway, flashlight_falloff;
     int16 flashlight_offset;
     int16 flashlight_fog_intensity;
+    bool flashlight_dust;
+    bool flashlight_dust_no_vacuum;
+    bool flashlight_flicker;
+    int16 flashlight_dust_density;
     bool flashlight_contact_shadows;
     int16 flashlight_contact_strength;
     bool flashlight_distance_softness;
@@ -194,6 +200,9 @@ struct network_preferences_data
 	bool attempt_upnp;
 	bool use_remote_hub;
 	bool check_for_updates;
+    uint32 sprintathon_update_last_check=0;
+    int16 sprintathon_update_status=4;
+    std::string sprintathon_update_build, sprintathon_update_tag;
 	bool verify_https;
 
 	enum {

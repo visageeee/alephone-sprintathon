@@ -1,5 +1,6 @@
 R"FFOG(
 uniform vec4 flashlightParams;
+uniform vec4 flashlightProjection; // lamp x, lamp y, radius, lamp z
 uniform vec4 flashlightDepth;
 uniform sampler2D flashlightShadowMap;
 uniform mat4 flashlightShadowMatrix;
@@ -21,15 +22,18 @@ float flashlightFogVisibility(vec3 eye) {
     }
     return mix(1.0,visible*0.25,flashlightShadowParams.x);
 }
+// Straight cone from the below-camera lamp: radius increases linearly with distance.
+float sprintathonFlashlightBeamRadius(float along) {
+    return max(flashlightProjection.z+max(along,0.0)*flashlightParams.y,0.0001);
+}
 vec3 sprintathonFlashlightFog(vec3 eye) {
     if(vfFlashlightIntensity<=0.0 || flashlightParams.x<=0.0)return vec3(0.0);
-    float shift=flashlightShadowParams.x>0.0?1.0:smoothstep(64.0,384.0,max(-eye.z,0.0));
-    vec3 lamp=vec3(64.0,-48.0,-32.0)*flashlightParams.w*shift;
+    vec3 lamp=vec3(flashlightProjection.xy,flashlightProjection.w);
     vec3 delta=eye-lamp;
     vec3 axis=normalize(vec3(flashlightDepth.zw,-1.0));
     float along=dot(delta,axis);
     float distance=length(delta);
-    float radius=length(delta-axis*along)/max(48.0+max(along,0.0)*flashlightParams.y,1.0);
+    float radius=length(delta-axis*along)/sprintathonFlashlightBeamRadius(along);
     if(along<=0.0 || radius>=1.0 || distance>=flashlightParams.z)return vec3(0.0);
     // A smooth scattering profile avoids projecting concentric surface rings
     // into the fog. Density and transmittance remain owned by the fog integrator.

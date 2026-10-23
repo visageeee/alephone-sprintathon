@@ -15,6 +15,8 @@ const float zoom = 1.205;
 const float pitch_adjust = 0.955;
 varying vec3 sunWorldRay;
 
+uniform vec4 timeOfDayZenith;
+uniform vec4 timeOfDayHorizon;
 uniform vec4 visibleSun;
 uniform vec4 visibleSunColor;
 vec3 sprintathonSunDisc(vec3 ray) {
@@ -33,6 +35,7 @@ void main(void) {
 	float x = relv.x / (relv.z * zoom) + atan(facev.x, facev.y);
 	float y = relv.y / (relv.z * zoom) - (facev.z * pitch_adjust);
 	vec4 color = texture2D(texture0, vec2(offsetx - x * scalex, offsety - y * scaley));
+    if(timeOfDayZenith.w>0.5) color.rgb=vec3(0.0);
     color.rgb += sprintathonSunDisc(sunWorldRay);
 	float intensity = clamp(bloomScale, 0.0, 1.0);
 

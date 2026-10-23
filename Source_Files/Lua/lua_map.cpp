@@ -3679,6 +3679,11 @@ static int Lua_Sun_Field(const char* key) {
 static int Lua_Sun_Get(lua_State* L) {
  using namespace SprintathonLuaSun;
  const char* key=luaL_checkstring(L,2);
+ if(!std::strcmp(key,"time_of_day")) {
+  if(!SprintathonTimeOfDay::state().active)lua_pushnil(L);
+  else lua_pushnumber(L,SprintathonTimeOfDay::state().minutes/60.0);
+  return 1;
+ }
  if(!std::strcmp(key,"path")) {
   if(!state().declared){lua_pushnil(L);return 1;}
   lua_newtable(L);for(int i=0;i<8;++i){lua_newtable(L);
@@ -3704,6 +3709,16 @@ static int Lua_Sun_Set(lua_State* L) {
  if(!writable)return luaL_error(L,"Sun overrides require a level/world script");
  using namespace SprintathonLuaSun;
  const char* key=luaL_checkstring(L,2);
+ if(!std::strcmp(key,"time_of_day")) {
+  if(state().locked)return luaL_error(L,"Set Level.sun.time_of_day at script top level, before lighting loads");
+  if(lua_isnil(L,3)){SprintathonTimeOfDay::reset();return 0;}
+  luaL_checktype(L,3,LUA_TNUMBER);
+  const double hours=luaL_checknumber(L,3);
+  if(!std::isfinite(hours) || hours<0 || hours>=24)
+   return luaL_error(L,"Time of day must be a finite hour from 0 (inclusive) to 24 (exclusive)");
+  SprintathonTimeOfDay::configure(true,static_cast<int>(std::floor(hours*60+0.0000001)));
+  return 0;
+ }
  if(!std::strcmp(key,"path")) {
   if(state().locked)return luaL_error(L,"Declare Level.sun.path at script top level, before lighting loads");
   if(lua_isnil(L,3)){state().declared=false;return 0;}

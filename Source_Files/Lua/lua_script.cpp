@@ -2293,6 +2293,7 @@ void LoadReplayNetLua()
 void CloseLuaScript()
 {
     SprintathonLuaSun::reset();
+    SprintathonTimeOfDay::reset();
 	// save variables for going into next level
 	PassedLuaState.clear();
 	for (state_map::iterator it = states.begin(); it != states.end(); ++it)

@@ -58,10 +58,10 @@ static bool paletteReady=false;
 static V ambientColor(1,1,1), sunColor(1,1,1);
 inline void landscapeColor(const float ambient[3],const float direct[3]){
  // First landscape establishes a stable level palette, independent of camera turns.
- if(paletteReady)return;
+ if(paletteReady || SprintathonTimeOfDay::state().active)return;
  ambientColor=V(ambient[0],ambient[1],ambient[2]);sunColor=V(direct[0],direct[1],direct[2]);paletteReady=true;
 }
-inline bool enabled(){const char* p=std::getenv("SPRINTATHON_SKY_BAKE");return p ? p[0]=='1' : graphics_preferences->baked_landscape_lighting;}
+inline bool enabled(){if(SprintathonTimeOfDay::state().active)return true;const char* p=std::getenv("SPRINTATHON_SKY_BAKE");return p ? p[0]=='1' : graphics_preferences->baked_landscape_lighting;}
 static std::map<std::tuple<int,int,int,int>,V> actorSamples;
 static std::deque<std::tuple<int,int,int,int>> actorSampleOrder;
 static const size_t actorSampleLimit=65536;
@@ -72,10 +72,10 @@ static bool sunReady=false;
 static V sun;
 static void (*pathBakeProgress)()=nullptr;
 inline void updateSun(){
- if(sunReady && SprintathonLuaSun::state().declared && SprintathonLuaSun::state().locked)return;
+ if(sunReady && !SprintathonTimeOfDay::state().active && SprintathonLuaSun::state().declared && SprintathonLuaSun::state().locked)return;
  const auto& config=Get_OGL_ConfigureData();
- const double direction=config.LandscapeLightShaftDirection;
- const double elevation=config.LandscapeLightShaftElevation;
+ const double direction=SprintathonTimeOfDay::state().active ? SprintathonLuaSun::get(SprintathonLuaSun::Azimuth) : config.LandscapeLightShaftDirection;
+ const double elevation=SprintathonTimeOfDay::state().active ? SprintathonLuaSun::get(SprintathonLuaSun::Elevation) : config.LandscapeLightShaftElevation;
  if(sunReady && direction==sunDirectionSetting && elevation==sunElevationSetting)return;
  // Only lighting changes; retain the level's original geometry snapshot.
  for(auto& p:maps){if(p.second.texture)glDeleteTextures(1,&p.second.texture);if(p.second.textureLight)glDeleteTextures(1,&p.second.textureLight);}
@@ -101,6 +101,12 @@ inline void prepare(){
  if(!enabled()){if(!rooms.empty())reset();return;}
  if(context!=SDL_GL_GetCurrentContext() || level!=dynamic_world->current_level_number ||
     dynamic_world->tick_count<lastTick || (!rooms.empty() && rooms.size()!=size_t(dynamic_world->polygon_count)))reset();
+ if(SprintathonTimeOfDay::state().active){
+  const auto day=SprintathonTimeOfDay::sample();
+  ambientColor=V(day.ambient.r,day.ambient.g,day.ambient.b);
+  sunColor=V(day.direct.r,day.direct.g,day.direct.b)*day.brightness;
+  paletteReady=true;
+ }
  lastTick=dynamic_world->tick_count;level=dynamic_world->current_level_number;
  if(textureBakeValid && textureCheckTick!=lastTick){
   textureCheckTick=lastTick;
@@ -181,8 +187,8 @@ inline V light(int room,V p,V normal){
 }
 // Cache a world-space irradiance grid per polygon. Polygon IDs preserve
 // overlapping map topology; trilinear interpolation softens moving shadows.
-inline float sectorStrength(){return std::max(0.0f,std::min(1.0f,graphics_preferences->baked_landscape_sector/100.0f));}
-inline double ambientFloor(){return std::max(0.0,std::min(1.0,graphics_preferences->baked_landscape_ambient/100.0));}
+inline float sectorStrength(){const float daylight=SprintathonTimeOfDay::state().active ? float(0.15+0.85*SprintathonTimeOfDay::sample().brightness) : 1.0f;return daylight* std::max(0.0f,std::min(1.0f,graphics_preferences->baked_landscape_sector/100.0f));}
+inline double ambientFloor(){if(SprintathonTimeOfDay::state().active)return 0.02;return std::max(0.0,std::min(1.0,graphics_preferences->baked_landscape_ambient/100.0));}
 inline V actorSample(int room,int x,int y,int z){
  auto key=std::make_tuple(room,x,y,z);auto found=actorSamples.find(key);
  if(found!=actorSamples.end())return found->second;
@@ -381,11 +387,11 @@ inline void bind(Shader* shader,const polygon_data* polygon,int face,V origin,V 
  auto it=maps.find(key);
  if(it==maps.end()){
   // Missing media atlases must never trigger a gameplay bake.
-  if(shader && (mediaFace || SprintathonLuaSun::state().declared || textureBakeReady))return;
+  if(shader && (mediaFace || (SprintathonLuaSun::state().declared && !SprintathonTimeOfDay::state().active) || textureBakeReady))return;
   if(maps.size()>=16384)return; // Bounded experimental cache.
   Map m;m.u=u;m.v=v;
   if(mediaFace){m.layers=8;m.low=rooms[room].floor+0.5;m.high=std::max(m.low,rooms[room].ceiling-0.5);}
-  else if(SprintathonLuaSun::state().declared && SprintathonLuaSun::state().locked){m.layers=8;m.sunPath=true;}
+  else if(!SprintathonTimeOfDay::state().active && SprintathonLuaSun::state().declared && SprintathonLuaSun::state().locked){m.layers=8;m.sunPath=true;}
   int w=std::max(2,std::min(128,int(std::ceil(width/128.0))+1));int h=std::max(2,std::min(128,int(std::ceil(height/128.0))+1));
   m.us=(w-1.0)/(width*w);m.vs=(h-1.0)/(height*h);m.u0=0.5/w-dot(origin,u)*m.us;m.v0=0.5/h-dot(origin,v)*m.vs;
   std::vector<unsigned char> atlas(size_t(w)*h*3*m.layers);
