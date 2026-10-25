@@ -39,6 +39,9 @@ Oct 13, 2000
 
 #include "map.h"
 #include "RenderVisTree.h"
+#include "SprintathonPortalRegions.h"
+
+void sprintathon_prepare_portal_regions(){SprintathonPortalRegions::preload();}
 
 #include <cstdlib>
 
@@ -125,7 +128,12 @@ void RenderVisTreeClass::PUSH_POLYGON_INDEX(short polygon_index)
 void RenderVisTreeClass::build_render_tree()
 {
     auto& trace=SprintathonPortalTrace::get();trace.begin();
+    SprintathonPortalRegions::begin();
     SprintathonPortalScope traceScope(trace.sampled,[&](double ms){
+        if(SprintathonPortalRegions::active)std::fprintf(stderr,
+            "Portal region frame: fast crossings %u; ray-group builds %u; corner fallbacks %u; invalidations %u\n",
+            SprintathonPortalRegions::hits,SprintathonPortalRegions::builds,
+            SprintathonPortalRegions::corners,SprintathonPortalRegions::invalidations);
         std::set<short> unique;for(const auto& n:Nodes)unique.insert(n.polygon_index);
         fprintf(stderr,"Portal visibility capture %u: CPU %.3f ms; ray-calls %u traversal-steps %u nodes %zu unique-polygons %zu; full-circle %d unclipped %d noclip %d\n",
             trace.sequence,ms,trace.rays,trace.steps,Nodes.size(),unique.size(),int(conservative_full_circle),int(unclipped_portal_windows),int(surface_editor_noclip()));
@@ -375,6 +383,12 @@ uint16 RenderVisTreeClass::next_polygon_along_line(
         polygon->type = _polygon_is_normal;
 	PUSH_POLYGON_INDEX(*polygon_index);
 
+    int preparedEdge=-1;
+    if(SprintathonPortalRegions::crossing(*polygon_index,*origin,*_vector,preparedEdge)){
+        next_polygon_index=polygon->adjacent_polygon_indexes[preparedEdge];
+        crossed_line_index=polygon->line_indexes[preparedEdge];
+        crossed_side_index=polygon->side_indexes[preparedEdge];
+    }else{
 	state= _looking_for_first_nonzero_vertex;
 	vertex_index= 0, vertex_delta= 1; /* start searching clockwise from vertex zero */
 	// LP change: added test for looping around:
@@ -476,6 +490,8 @@ uint16 RenderVisTreeClass::next_polygon_along_line(
 			WRAP_HIGH(vertex_index, polygon->vertex_count-1);
 	}
 	while (state!=NONE);
+
+    }
 
 //	dprintf("exiting, cli=#%d, npi=#%d", crossed_line_index, next_polygon_index);
 

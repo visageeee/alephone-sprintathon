@@ -88,6 +88,7 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 #include "OGL_Headers.h"
 
 #include "preferences.h"
+#include "SprintathonUpscaleCache.h"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_endian.h>
@@ -311,7 +312,12 @@ static ImageDescriptor *cached_upscale_texture_2xsai(const ImageDescriptor& sour
         }
     }
     ++upscale_misses;
-    std::unique_ptr<ImageDescriptor> result(upscale_texture_2xsai(source, wrap_edges));
+    std::string disk_key;
+    std::unique_ptr<ImageDescriptor> result(SprintathonUpscaleCache::load(source, wrap_edges, hash, &disk_key));
+    if (!result) {
+        result.reset(upscale_texture_2xsai(source, wrap_edges));
+        SprintathonUpscaleCache::save(source, wrap_edges, hash, *result, &disk_key);
+    }
     const size_t bytes = count*sizeof(uint32) + size_t(result->GetBufferSize());
     if (bytes <= budget) {
         while (!cache.empty() && (cached_bytes + bytes > budget || cache.size() >= 4096)) {
@@ -333,6 +339,7 @@ static ImageDescriptor *cached_upscale_texture_2xsai(const ImageDescriptor& sour
 
 void OGL_ReportUpscaleCache(bool reset)
 {
+    SprintathonUpscaleCache::report(reset);
     if (!reset) std::fprintf(stderr,
         "Upscale cache: %llu hits, %llu misses, %llu evictions; CPU cache/upscale %.1f ms\n",
         upscale_hits, upscale_misses, upscale_evictions, upscale_ms);

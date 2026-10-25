@@ -84,6 +84,7 @@ Jan 17, 2001 (Loren Petrich):
 */
 
 #include "cseries.h"
+#include "SprintathonSpritePreload.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1174,6 +1175,8 @@ void mark_collection(
 		short collection_index= GET_COLLECTION(collection_code);
 	
 		assert(collection_index>=0&&collection_index<MAXIMUM_COLLECTIONS);
+        if(loading)SprintathonSpritePreload::mark(collection_code,
+            !(collection_headers[collection_index].status&markLOAD));
 		collection_headers[collection_index].status|= loading ? markLOAD : markUNLOAD;
 	}
 }

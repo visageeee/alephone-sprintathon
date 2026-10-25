@@ -37,7 +37,7 @@ public:
 	bool Start();
 	void Stop();
 	void Progress(const int percent);
-	void SetStatus(const std::string& text) { status = text; }
+	void SetStatus(const std::string& text);
 
 	void Set(std::string Path, bool Stretch, bool Scale);
 	void Set(std::string Path, bool Stretch, bool Scale, short X, short Y, short W, short H);

@@ -51,10 +51,12 @@
 #include "SprintathonSkyBake.h"
 #include "SprintathonOpaqueGeometry.h"
 #include "SprintathonOpaqueBatch.h"
+#include "SprintathonFlashlightBounce.h"
 #include "SprintathonOpaqueWorld.h"
 #include "SprintathonFlashlight.h"
 #include "SprintathonFlashlightShadow.h"
 #include "SprintathonFlashlightDust.h"
+#include "SprintathonShockwaves.h"
 #include "SprintathonWorldSplit.h"
 #include "SprintathonObjectOps.h"
 #include <cstring>
@@ -1056,7 +1058,8 @@ static void sprintathon_draw_opaque_geometry(GLenum mode,GLsizei count,
     sprintathon_shaft_draw_arrays(mode,0,count);
     if(cached)SprintathonOpaqueGeometry::restore(vertices,uv);
 }
-void sprintathon_preload_opaque_geometry(){SprintathonOpaqueGeometry::preload();SprintathonOpaqueWorld::preload();}
+void sprintathon_prepare_portal_regions();
+void sprintathon_preload_opaque_geometry(){SprintathonOpaqueGeometry::preload();SprintathonOpaqueWorld::preload();sprintathon_prepare_portal_regions();}
 
 static void sprintathon_shaft_draw_elements(GLenum mode, GLsizei count, GLenum type, const void* indices)
 {
@@ -4424,8 +4427,9 @@ void RenderRasterize_Shader::render_tree() {
         !ChaseCam_IsActive() && !screenshot_mode_active() && !IsInfravisionActive() &&
         !game_is_networked && !game_is_being_replayed() && current_player_index==local_player_index);
     SprintathonFlashlightShadow::render(view,volume_modelview,passTest.other());
+    SprintathonFlashlightBounce::beginFrame(view,volume_modelview,passTest.other());
     for(auto type : {Shader::S_Wall,Shader::S_Bump,Shader::S_Sprite}) {
-        auto* shader=Shader::get(type);shader->enable();SprintathonFlashlight::bind(shader);
+        auto* shader=Shader::get(type);shader->enable();SprintathonFlashlight::bind(shader);SprintathonFlashlightBounce::bindSurface(glGetHandleARB(GL_PROGRAM_OBJECT_ARB));
     }
     Shader::disable();
 
@@ -4624,6 +4628,8 @@ void RenderRasterize_Shader::render_tree() {
 		ogl_config.ForceFogAnimatedDensity;
     const bool volume_fog_enabled = graphics_preferences->sprintathon_volume_fog &&
         fog_effect_available && TEST_FLAG(ogl_config.Flags,OGL_Flag_Fog) && !view->under_media_boundary;
+    const bool bounce_active=passTest.other() && !view->under_media_boundary && SprintathonFlashlightBounce::enabled();
+    const bool shockwaves_active=SprintathonShockwaves::update(passTest.other());
     const bool flashlight_dust_enabled=passTest.overlays() && !view->under_media_boundary && SprintathonFlashlightDust::enabled();
 	const bool fog_post_effects_enabled = passTest.other() &&
         (fog_haze_enabled || rising_fog_clouds_enabled || volume_fog_enabled);
@@ -4645,9 +4651,13 @@ void RenderRasterize_Shader::render_tree() {
     gpu_profile.pass(3); startup_frame.pass(4);
 	if ((passTest.other() && ogl_config.AmbientOcclusion) || (passTest.shafts() && ogl_config.LandscapeLightShafts) ||
 		(passTest.other() && ogl_config.AnamorphicLensFlares) ||
-		fog_post_effects_enabled || flashlight_dust_enabled)
+		fog_post_effects_enabled || flashlight_dust_enabled || shockwaves_active || bounce_active)
 		scene_depth = sprintathon_capture_scene_depth(
 			framebuffer_width, framebuffer_height);
+    if(bounce_active && scene_depth){
+        GLuint bounce_colour=sprintathon_capture_scene_color(framebuffer_width,framebuffer_height);
+        SprintathonFlashlightBounce::draw(bounce_colour,scene_depth,framebuffer_width,framebuffer_height,scene_projection,volume_modelview);
+    }
     gpu_profile.pass(4); startup_frame.pass(5);
 	if ((passTest.other() && ogl_config.AmbientOcclusion))
 	{
@@ -4704,6 +4714,10 @@ void RenderRasterize_Shader::render_tree() {
 				0.017453292519943295f,
 			SprintathonLuaSun::get(SprintathonLuaSun::Elevation) * 0.017453292519943295f);
 	}
+    if(shockwaves_active){
+        GLuint shockwave_scene=sprintathon_capture_scene_color(framebuffer_width,framebuffer_height);
+        SprintathonShockwaves::draw(view,shockwave_scene,scene_depth,framebuffer_width,framebuffer_height,scene_projection,volume_modelview);
+    }
     if(flashlight_dust_enabled)SprintathonFlashlightDust::draw(view,scene_depth,
         framebuffer_width,framebuffer_height,scene_projection,volume_modelview);
 	// Draw the view weapon after world-only AO but before other whole-scene

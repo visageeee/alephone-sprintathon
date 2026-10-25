@@ -83,11 +83,15 @@ Oct 13, 2000 (Loren Petrich)
 */
 
 #include "cseries.h"
+#include "SprintathonSpritePreload.h"
 #include "map.h"
 #include "interface.h"
 #include "effects.h"
 #include "monsters.h"
 #include "projectiles.h"
+#include "SprintathonShockwaveEvents.h"
+#include <cstdlib>
+#include <cstdio>
 #include "player.h"
 #include "scenery.h"
 #include "media.h"
@@ -319,6 +323,11 @@ void detonate_projectile(
 	damage_monsters_in_radius(NONE, owner_index, owner_type, origin, polygon_index,
 		definition->area_of_effect, damage, NONE);
 	if (definition->detonation_effect!=NONE) new_effect(origin, polygon_index, definition->detonation_effect, 0);
+	if(std::getenv("SPRINTATHON_SHOCKWAVE_TRACE"))std::fprintf(stderr,
+                                    "Shockwave impact tick=%ld type=%d effect=%d radius=%d position=(%d,%d,%d)\n",
+                                    long(dynamic_world->tick_count),int(type),int(definition->detonation_effect),int(definition->area_of_effect),int(origin->x),int(origin->y),int(origin->z));
+                                SprintathonShockwaveEvents::emit(type,definition->detonation_effect,*origin);
+                                if(std::getenv("SPRINTATHON_SHOCKWAVE_TRACE"))std::fprintf(stderr,"Shockwave queued=%u\n",unsigned(SprintathonShockwaveEvents::queue().waves.size()));
 	L_Call_Projectile_Detonated(type, owner_index, polygon_index, *origin, 0, NONE, NONE);
 }
 
@@ -709,6 +718,11 @@ void move_projectiles(
 								}
 								
 								if (detonation_effect!=NONE) new_effect(&new_location, new_polygon_index, detonation_effect, object->facing);
+								if(std::getenv("SPRINTATHON_SHOCKWAVE_TRACE"))std::fprintf(stderr,
+                                    "Shockwave impact tick=%ld type=%d effect=%d radius=%d position=(%d,%d,%d)\n",
+                                    long(dynamic_world->tick_count),int(projectile->type),int(detonation_effect),int(definition->area_of_effect),int(new_location.x),int(new_location.y),int(new_location.z));
+                                SprintathonShockwaveEvents::emit(projectile->type,detonation_effect,new_location);
+                                if(std::getenv("SPRINTATHON_SHOCKWAVE_TRACE"))std::fprintf(stderr,"Shockwave queued=%u\n",unsigned(SprintathonShockwaveEvents::queue().waves.size()));
 								L_Call_Projectile_Detonated(projectile->type, projectile->owner_index, new_polygon_index, new_location, flags, obstruction_index, line_index);
 								
 								if (!film_profile.infinity_smg || (!(definition->flags&_penetrates_media_boundary) || !(flags&_projectile_hit_media)))
@@ -845,7 +859,10 @@ void mark_projectile_collections(
 		if (definition->collection!=NONE)
 		{
 			/* mark the projectile collection */
-			loading ? mark_collection_for_loading(definition->collection) : mark_collection_for_unloading(definition->collection);
+			{
+                SprintathonSpritePreload::ExactPalette palette;
+                mark_collection(definition->collection,loading);
+            }
 		}
 		
 		/* mark the projectile’s effect’s collection */

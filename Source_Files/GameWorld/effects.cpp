@@ -37,6 +37,7 @@ Aug 30, 2000 (Loren Petrich):
 */
 
 #include "cseries.h"
+#include "SprintathonSpritePreload.h"
 #include "map.h"
 #include "interface.h"
 #include "effects.h"
@@ -251,7 +252,10 @@ void mark_effect_collections(
 		if (!definition) return;
 
 		/* mark the effect collection */
-		loading ? mark_collection_for_loading(definition->collection) : mark_collection_for_unloading(definition->collection);
+		{
+                SprintathonSpritePreload::ExactPalette palette;
+                mark_collection(definition->collection,loading);
+            }
 	}
 }
 

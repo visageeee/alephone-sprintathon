@@ -136,6 +136,7 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 #include <algorithm>	// pair<>, for_each()
 
 #include "cseries.h"
+#include "SprintathonSpritePreload.h"
 #include "world.h"
 #include "shell.h"
 #include "preferences.h"
@@ -751,7 +752,7 @@ void PreloadTextures()
 	// upscaling enabled, that creates a visible hitch the first time each frame
 	// or palette is encountered. Warm every frame in the loaded sprite
 	// collections while the level loading screen is still active.
-	OGL_SetProgressMessage("upscaling sprites");
+	OGL_SetProgressMessage("preparing sprites");
     OGL_ReportUpscaleCache(true);
     sprite_prepare_ms = sprite_progress_ms = sprite_render_ms = 0;
     const auto sprite_start = std::chrono::steady_clock::now();
@@ -776,17 +777,15 @@ static int CountSpriteTexturesToPreload()
 	int count = 0;
 	for (short collection = 0; collection < MAXIMUM_COLLECTIONS; ++collection)
 	{
-		if (OGL_SpriteCollectionRetained(collection) ||
-            !is_collection_present(collection) || !IsSpriteCollection(collection))
+		if (!is_collection_present(collection) || !IsSpriteCollection(collection))
 			continue;
 
-		int num_colors = 0;
-		short clut_count = 0;
-		while (clut_count < MAXIMUM_CLUTS_PER_COLLECTION &&
-			get_collection_colors(collection, clut_count, num_colors))
-			++clut_count;
-
-		count += get_number_of_collection_frames(collection) * clut_count;
+        int num_colors=0;
+        const bool retained=OGL_SpriteCollectionRetained(collection);
+        for(short clut=0;clut<MAXIMUM_CLUTS_PER_COLLECTION &&
+            get_collection_colors(collection,clut,num_colors);++clut)
+            if(SprintathonSpritePreload::wanted(collection,clut,retained))
+                count+=get_number_of_collection_frames(collection);
 	}
 	return count;
 }
@@ -794,21 +793,27 @@ static int CountSpriteTexturesToPreload()
 static void PreloadSpriteTextures()
 {
 	// Original and replacement animation frames can otherwise upload during play.
+    int palettes=0,frames=0,skipped=0;
 
 	for (short collection = 0; collection < MAXIMUM_COLLECTIONS; ++collection)
 	{
-		if (OGL_SpriteCollectionRetained(collection) ||
-            !is_collection_present(collection) || !IsSpriteCollection(collection))
+		if (!is_collection_present(collection) || !IsSpriteCollection(collection))
 			continue;
 
 		const short texture_type = collection == _collection_weapons_in_hand ?
 			OGL_Txtr_WeaponsInHand : OGL_Txtr_Inhabitant;
 		const short frame_count = get_number_of_collection_frames(collection);
+        const bool retained=OGL_SpriteCollectionRetained(collection);
+        SprintathonSpritePreload::begin(collection,retained);
+        int available_palettes=0,prepared_palettes=0;
 		int num_colors = 0;
 
 		for (short clut = 0; clut < MAXIMUM_CLUTS_PER_COLLECTION &&
 			get_collection_colors(collection, clut, num_colors); ++clut)
 		{
+            ++available_palettes;
+            if(!SprintathonSpritePreload::wanted(collection,clut,retained)){skipped+=frame_count;continue;}
+            ++prepared_palettes;++palettes;frames+=frame_count;
 			for (short frame = 0; frame < frame_count; ++frame)
 			{
 				PreloadSpriteTexture(collection, clut, frame, texture_type);
@@ -817,8 +822,16 @@ static void PreloadSpriteTextures()
                 sprite_progress_ms += std::chrono::duration<double, std::milli>(
                     std::chrono::steady_clock::now()-progress_start).count();
 			}
+            SprintathonSpritePreload::done(collection,clut);
 		}
+        const auto& selection=SprintathonSpritePreload::state();
+        std::fprintf(stderr,"Sprite preload collection %d: %d/%d palettes, %d frames each; mask %02x; %s%s\n",
+            collection,prepared_palettes,available_palettes,frame_count,selection.requested[collection],
+            selection.broad[collection]?"broad collection request":
+            !selection.requested[collection]?"no palette information":"explicit palette requests",
+            retained?"; GPU textures retained":"");
 	}
+    std::fprintf(stderr,"Sprite preload selection: %d palettes, %d frames; %d unneeded or retained frames skipped\n",palettes,frames,skipped);
 }
 
 static void PreloadSpriteTexture(short collection, short clut, short frame, short texture_type)

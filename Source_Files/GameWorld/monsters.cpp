@@ -99,6 +99,7 @@ Jan 12, 2003 (Loren Petrich)
 #include <set>
 
 #include "cseries.h"
+#include "SprintathonSpritePreload.h"
 #include "map.h"
 #include "render.h"
 #include "interface.h"
@@ -825,7 +826,29 @@ void mark_monster_collections(
 		struct monster_definition *definition= get_monster_definition(monster_type);
 
 		/* mark the monster collection */
-		mark_collection(definition->collection, loading);
+        {
+            SprintathonSpritePreload::ExactPalette exact_palette;
+            mark_collection(definition->collection, loading);
+            // Placement marks initial, replenishing and random monster types.
+            // Add only the extra type that new_monster can choose at this difficulty.
+            if(loading){
+                const short difficulty=dynamic_world->game_information.difficulty_level;
+                short alternate=NONE;
+                if(definition->flags&_monster_major){
+                    if(difficulty==_wuss_level || difficulty==_easy_level)alternate=monster_type-1;
+                }else if(definition->flags&_monster_minor){
+                    if(difficulty==_major_damage_level || difficulty==_total_carnage_level)alternate=monster_type+1;
+                }
+                if(alternate>=0 && alternate<NUMBER_OF_MONSTER_TYPES){
+                    auto* variant=get_monster_definition(alternate);
+                    mark_collection(variant->collection,true);
+                    // Leave attack collections on their existing broad preload path.
+                    SprintathonSpritePreload::ExactPalette broad_attacks(false);
+                    mark_projectile_collections(variant->ranged_attack.type,true);
+                    mark_projectile_collections(variant->melee_attack.type,true);
+                }
+            }
+        }
 		
 		/* mark the monster’s projectile’s collection */
 		mark_projectile_collections(definition->ranged_attack.type, loading);

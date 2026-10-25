@@ -1,6 +1,7 @@
 #ifndef SPRINTATHON_OPAQUE_WORLD_H
 #define SPRINTATHON_OPAQUE_WORLD_H
 #include "SprintathonFlashlight.h"
+#include "SprintathonFlashlightBounce.h"
 #include <array>
 #include <algorithm>
 #include <tuple>
@@ -71,7 +72,7 @@ inline bool earlyClipRequested(){static const bool on=[](){
 }();return on;}
 static constexpr size_t bufferBytes=8*1024*1024;
 static size_t usedBytes=0;
-static unsigned rowLimit=0,uploadRows=0;
+static unsigned rowLimit=0,uploadRows=0,firstUploadRow=0;
 static unsigned seen=0,queued=0,drawCalls=0,uploads=0,fallback=0;
 static unsigned skippedPlatforms=0,skippedMaterials=0;
 static unsigned arrayQueued=0,arrayDrawCalls=0;
@@ -458,6 +459,7 @@ static const char* fragmentSource=R"GLSL(#version 120
 #extension GL_ARB_texture_rectangle : enable
 )GLSL"
 #include "Shaders/flashlight.glsl"
+#include "Shaders/flashlight_bounce.glsl"
 R"GLSL(
 uniform sampler2D texture0;
 uniform sampler2D texture1;
@@ -654,7 +656,7 @@ void main(){
         vec3 beforeLights=intensity;surfaceLights(intensity,caustic);
         intensity=mix(beforeLights,intensity,surfaceDetailWeight);caustic*=surfaceDetailWeight;
     }
-    intensity=clamp(intensity+sprintathonFlashlight(1.0),0.0,1.0);
+    intensity=clamp(intensity+sprintathonFlashlight(1.0)+sprintathonBounceLight(dynamicWorld),0.0,1.0);
     vec3 color=clamp(texel.rgb*intensity,0.0,1.0);
     caustic*=dot(texel.rgb,vec3(.299,.587,.114));
     vec3 headroom=(vec3(1.0)-color)/max(caustic,vec3(.00001));
@@ -802,7 +804,11 @@ inline void preload(){
 }
 inline bool begin(){
     active=requested() && program && buffer && parameterCount && parameters[0] && context==SDL_GL_GetCurrentContext();
-    materials.clear();groups.clear();instances.clear();uploadRows=0;
+    materials.clear();instances.clear();uploadRows=0;firstUploadRow=rowLimit;
+    // Retain draw-list capacity between views; never retain submitted draws.
+    // Bound historical material keys, and release them when batching is off.
+    if(!active || groups.size()>1024)groups.clear();
+    else for(auto& pair:groups){pair.second.first.clear();pair.second.count.clear();}
     surfacePreparation.clear();dynamicPreparation.clear();distantFull=distantTransition=0;
     surfacePrepHits=surfacePrepMisses=dynamicPrepHits=dynamicPrepMisses=0;
     dynamicIds.clear();dynamicData.assign(12,0.0f);sceneryTexture=0;
@@ -1038,6 +1044,7 @@ inline bool submit(Material& m,int count,const float* vertices,const float* uv,f
     const auto& detailData=detail?*detail:neutral;
     std::copy(detailData.values.begin(),detailData.values.end(),row+64);
     if(detailWeight>0.0f && !prepareDynamic(count,vertices,row[25]>.5f,row,view))return false;
+    firstUploadRow=std::min(firstUploadRow,e.row);
     uploadRows=std::max(uploadRows,e.row+1);
     if(m.arrayTexture)++arrayQueued;
     auto& g=groups[GroupKey{m.arrayTexture?m.arrayTexture:m.texture,m.arrayTexture?m.arrayBump:m.bump,bake?bake->page:-1,m.arrayTexture!=0}];g.first.push_back(e.first);g.count.push_back(e.count);++queued;return true;
@@ -1050,18 +1057,19 @@ inline void finish(void (*traceDraw)()=nullptr){
         glPushClientAttrib(GL_CLIENT_VERTEX_ARRAY_BIT);
         GLint oldActive=0;glGetIntegerv(GL_ACTIVE_TEXTURE_ARB,&oldActive);
         glActiveTextureARB(GL_TEXTURE0_ARB+6);glBindTexture(GL_TEXTURE_RECTANGLE_ARB,parameters[parameterSlot]);
-        // Upload all referenced rows to this slot, including rows last used with another
-        // texture. A three-slot ring reduces immediate reuse; it does not guarantee
+        // Upload the full referenced range to this slot, including rows last used
+        // with another texture. Skip the unused prefix without adding GL calls.
+        // A three-slot ring reduces immediate reuse; it does not guarantee
         // stall-free updates if the GPU is more than three frames behind.
         glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
         glPixelStorei(GL_UNPACK_ALIGNMENT,4);glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
         glPixelStorei(GL_UNPACK_SKIP_ROWS,0);glPixelStorei(GL_UNPACK_SKIP_PIXELS,0);
-        glTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB,0,0,0,surfaceColumns,uploadRows,GL_RGBA,GL_FLOAT,table.data());
+        glTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB,0,0,firstUploadRow,surfaceColumns,uploadRows-firstUploadRow,GL_RGBA,GL_FLOAT,table.data()+size_t(firstUploadRow)*surfaceFloats);
         glActiveTextureARB(GL_TEXTURE0_ARB+7);glBindTexture(GL_TEXTURE_RECTANGLE_ARB,dynamicTextures[parameterSlot]);
         glTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB,0,0,0,3,GLsizei(dynamicData.size()/12),GL_RGBA,GL_FLOAT,dynamicData.data());
         glActiveTextureARB(GL_TEXTURE0_ARB+3);glBindTexture(GL_TEXTURE_RECTANGLE_ARB,sceneryTexture);
         glPopClientAttrib();
-        glUseProgramObjectARB(program);SprintathonFlashlight::bindRaw(flashlightLocations);glUniform4fvARB(fogLocation,1,fogSettings);glUniform1fARB(lightLocation,playerLight);
+        glUseProgramObjectARB(program);SprintathonFlashlightBounce::bindSurface(program);SprintathonFlashlight::bindRaw(flashlightLocations);glUniform4fvARB(fogLocation,1,fogSettings);glUniform1fARB(lightLocation,playerLight);
         const auto sun=SprintathonSkyBake::sunColor,ambient=SprintathonSkyBake::ambientColor;
         glUniform4fARB(sunLocation,float(sun.x),float(sun.y),float(sun.z),0);
         glUniform4fARB(ambientLocation,float(ambient.x),float(ambient.y),float(ambient.z),float(SprintathonSkyBake::ambientFloor()));
@@ -1080,6 +1088,7 @@ inline void finish(void (*traceDraw)()=nullptr){
         glClientActiveTextureARB(GL_TEXTURE0_ARB);glEnableClientState(GL_TEXTURE_COORD_ARRAY);
         glTexCoordPointer(3,GL_FLOAT,6*sizeof(float),reinterpret_cast<const void*>(3*sizeof(float)));
         for(const auto& pair:groups){
+            if(pair.second.first.empty())continue;
             if(pair.first.page>=0){
                 const auto& page=atlasPages[pair.first.page];
                 glActiveTextureARB(GL_TEXTURE0_ARB+4);glBindTexture(GL_TEXTURE_2D,page.sky);
@@ -1105,6 +1114,10 @@ inline void finish(void (*traceDraw)()=nullptr){
         const auto now=std::chrono::steady_clock::now();
         if(retainedEnabled())std::fprintf(stderr,"Retained surfaces: %u hits / %u builds; %u records; invalidations %u; local removals %u; validation %.3f ms; edges %u reused / %u rebuilt\n",
             retainedHits,retainedMisses,unsigned(retainedSurfaces.size()),retainedInvalidations,retainedLocalInvalidations,retainedValidationMs,retainedEdgeHits,retainedEdgeBuilds);
+        std::fprintf(stderr,"Opaque parameter upload: %u rows, %.1f KiB; skipped prefix %u rows\n",
+            queued?uploadRows-firstUploadRow:0,
+            (queued?uploadRows-firstUploadRow:0)*surfaceFloats*sizeof(float)/1024.0,
+            queued?firstUploadRow:0);
         if(arrayMode)std::fprintf(stderr,"World texture arrays: %u of %u surfaces, %u of %u material draws\n",
             arrayQueued,queued,arrayDrawCalls,drawCalls);
         std::fprintf(stderr,"Opaque world frame %llu: seen %u queued %u -> %u material draws; cache %u uploads %u; fallback %u platform %u material %u; opaque stage %.3f ms flush %.3f ms; parameter textures %u next slot %u; LIT OPAQUE PROTOTYPE (bump/sector edges/pools)\n",

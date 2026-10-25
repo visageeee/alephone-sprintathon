@@ -1,4 +1,5 @@
 #include "flashlight.glsl"
+#include "flashlight_bounce.glsl"
 R"(
 
 uniform sampler2D texture0;
@@ -1242,6 +1243,9 @@ if (sprintathonLightColor.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)
 #endif
+    // Bounce-buffer radiance already comes from the rendered scene. Do not
+    // square it again with the legacy sector-light conversion.
+    intensity=clamp(intensity+sprintathonBounceLight(sprintathonWorldPosition),0.0,1.0);
     // An unpowered fixture still reflects received light. Its animated
     // self-illumination is controlled by the glow floor, not a cap on lighting.
 	vec3 shadedColor = clamp(color.rgb * intensity, 0.0, 1.0);

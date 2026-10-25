@@ -26,6 +26,7 @@
 
 #ifdef HAVE_OPENGL
 #include "OGL_Render.h"
+#include "SprintathonLoadingTerminal.h"
 
 extern bool OGL_SwapBuffers();
 
@@ -42,62 +43,32 @@ extern bool OGL_ClearScreen();
 
 bool OGL_LoadScreen::Start()
 {
-	// load the image
-	FileSpecifier File(path);
-	if (path.size() == 0) return use = false;
-	if (!File.Exists() && !File.SetNameWithPath(path.c_str())) return use = false;
-	if (!image.LoadFromFile(File, ImageLoader_Colors, 0)) return use = false;
+    SprintathonLoadingTerminal::start();
+    use=true;percent=0;status.clear();
+    Progress(0);
+    return true;
+}
 
-	if (!blitter.Load(image)) return use = false;
-
-	int screenWidth = alephone::Screen::instance()->window_width();
-	int screenHeight = alephone::Screen::instance()->window_height();
-	alephone::Screen::instance()->bound_screen(true);
-	
-	// the true width/height
-	int imageWidth = static_cast<int>(image.GetWidth() * image.GetVScale());
-	int imageHeight = static_cast<int>(image.GetHeight() * image.GetUScale());
-
-	if (scale)
-	{
-		if (stretch)
-		{
-			m_dst.w = screenWidth;
-			m_dst.h = screenHeight;
-		}
-		else if (imageWidth / imageHeight > screenWidth / screenHeight) 
-		{
-			m_dst.w = screenWidth;
-			m_dst.h = imageHeight * screenWidth / imageWidth;
-		} 
-		else 
-		{
-			m_dst.w = imageWidth * screenHeight / imageHeight;
-			m_dst.h = screenHeight;
-		}
-	}
-	else
-	{
-		m_dst.w = imageWidth;
-		m_dst.h = imageHeight;
-	}
-	m_dst.x = (screenWidth - m_dst.w) / 2;
-	m_dst.y = (screenHeight - m_dst.h) / 2;
-	
-	x_offset = m_dst.x;
-	y_offset = m_dst.y;
-	x_scale = m_dst.w / (double) imageWidth;
-	y_scale = m_dst.h / (double) imageHeight;
-						  
-	OGL_ClearScreen();
-	
-	Progress(0);
-
-	return use = true;
+void OGL_LoadScreen::SetStatus(const std::string& text)
+{
+    status=text;
+    SprintathonLoadingTerminal::status(text);
 }
 
 void OGL_LoadScreen::Stop()
 {
+    // One short completion beat, after all real loading work has finished.
+    // Keep the event pump alive and sleep between frames instead of busy-waiting.
+    if(use){
+        SprintathonLoadingTerminal::finish();
+        const Uint32 finished=SDL_GetTicks();
+        do{
+            SDL_PumpEvents();
+            SprintathonLoadingTerminal::draw();
+            OGL_SwapBuffers();
+            SDL_Delay(33);
+        }while(Uint32(SDL_GetTicks()-finished)<1400);
+    }
 	OGL_ClearScreen();
 	OGL_SwapBuffers();
 	Clear();
@@ -105,54 +76,9 @@ void OGL_LoadScreen::Stop()
 
 void OGL_LoadScreen::Progress(const int progress)
 {
-	OGL_ClearScreen();
-	OGL_Blitter::BoundScreen();
-	
-	blitter.Draw(m_dst);
-
-	if (useProgress) 
-	{
-		glMatrixMode(GL_MODELVIEW);
-		glPushMatrix();
-		glTranslated(x_offset, y_offset, 0.0);
-		glScaled(x_scale, y_scale, 1.0);
-		
-		// draw the progress bar background
-		glColor3us(colors[0].red, colors[0].green, colors[0].blue);
-		OGL_RenderRect(x, y, w, h);
-		
-		int height = h, width = w;
-		int left = x, top = y;
-		if (height > width) 
-		{
-			top = top + height - height * progress / 100;
-			height = height * progress / 100;
-		}
-		else 
-		{
-			width = width * progress / 100;
-		}
-			
-		// draw the progress bar foreground
-		glColor3us(colors[1].red, colors[1].green, colors[1].blue);
-		OGL_RenderRect(left, top, width, height);
-		
-		glPopMatrix();
-	}
-
-	if (!status.empty())
-	{
-		const int screen_width = alephone::Screen::instance()->window_width();
-		const int screen_height = alephone::Screen::instance()->window_height();
-		int text_width = 0;
-		OGL_TextWidth(status.c_str(), static_cast<int>(status.size()), text_width);
-		OGL_RenderText(static_cast<short>((screen_width - text_width) / 2),
-			static_cast<short>(screen_height - 26),
-			status.c_str(), 0xff, 0xff, 0xff);
-	}
-	
-	OGL_SwapBuffers();
-	
+    SprintathonLoadingTerminal::progress(progress);
+    SprintathonLoadingTerminal::draw();
+    OGL_SwapBuffers();
 }
 
 void OGL_LoadScreen::Set(std::string Path, bool Stretch, bool Scale)

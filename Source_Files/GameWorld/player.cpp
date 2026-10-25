@@ -135,6 +135,7 @@ May 22, 2003 (Woody Zenfell):
 #define DONT_REPEAT_DEFINITIONS
 
 #include "cseries.h"
+#include "SprintathonSpritePreload.h"
 #include "map.h"
 #include "player.h"
 #include "preferences.h"
@@ -1419,7 +1420,21 @@ short player_identifier_to_player_index(
 void mark_player_collections(
 	bool loading)
 {
-	mark_collection(player_shapes.collection, loading);
+    // Torso uses player colour; legs and corpses use team colour.
+    // Keep network and uninitialized/invalid cases on the full-palette path.
+    bool selected=false;
+    if(loading && !game_is_networked && dynamic_world->player_count==1){
+        const auto* player=get_player_data(0);
+        if(player_shapes.collection>=0 && player_shapes.collection<MAXIMUM_COLLECTIONS &&
+           player->color>=0 && player->color<MAXIMUM_CLUTS_PER_COLLECTION &&
+           player->team>=0 && player->team<MAXIMUM_CLUTS_PER_COLLECTION){
+            SprintathonSpritePreload::ExactPalette palettes;
+            mark_collection(BUILD_COLLECTION(player_shapes.collection,player->color),true);
+            mark_collection(BUILD_COLLECTION(player_shapes.collection,player->team),true);
+            selected=true;
+        }
+    }
+    if(!selected)mark_collection(player_shapes.collection,loading);
 	// LP change: unload player shapes for single-player game only if
 	// a chase cam cannot exist;
 	if (!ChaseCam_CanExist())

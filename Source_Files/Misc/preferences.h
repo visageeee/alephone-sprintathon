@@ -118,9 +118,13 @@ struct graphics_preferences_data
     int16 flashlight_sway, flashlight_falloff;
     int16 flashlight_offset;
     int16 flashlight_fog_intensity;
+    bool explosion_shockwaves;
+    int16 explosion_shockwave_strength;
     bool flashlight_dust;
     bool flashlight_dust_no_vacuum;
     bool flashlight_flicker;
+    bool flashlight_bounce;
+    int16 flashlight_bounce_intensity, flashlight_bounce_saturation;
     int16 flashlight_dust_density;
     bool flashlight_contact_shadows;
     int16 flashlight_contact_strength;

@@ -1478,7 +1478,12 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
     auto* flashlight_distance_softness_w = new w_toggle(graphics_preferences->flashlight_distance_softness);
     auto* flashlight_max_softness_w = new w_liquid_percent_slider(101,graphics_preferences->flashlight_max_softness);
     auto* flashlight_flicker_w = new w_toggle(graphics_preferences->flashlight_flicker);
+    auto* flashlight_bounce_w = new w_toggle(graphics_preferences->flashlight_bounce);
+    auto* flashlight_bounce_intensity_w = new w_liquid_percent_slider(401,graphics_preferences->flashlight_bounce_intensity);
+    auto* flashlight_bounce_saturation_w = new w_liquid_percent_slider(101,graphics_preferences->flashlight_bounce_saturation);
     auto* flashlight_dust_no_vacuum_w = new w_toggle(graphics_preferences->flashlight_dust_no_vacuum);
+    auto* shockwaves_w = new w_toggle(graphics_preferences->explosion_shockwaves);
+    auto* shockwave_strength_w = new w_liquid_percent_slider(201,graphics_preferences->explosion_shockwave_strength);
     auto* flashlight_dust_w = new w_toggle(graphics_preferences->flashlight_dust);
     auto* flashlight_dust_density_w = new w_liquid_percent_slider(1001,graphics_preferences->flashlight_dust_density);
     auto* flashlight_contacts_w = new w_toggle(graphics_preferences->flashlight_contact_shadows);
@@ -1620,7 +1625,14 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
     flashlight_table->dual_add(flashlight_max_softness_w->label("Maximum Softness"),d);
     flashlight_table->dual_add(flashlight_max_softness_w,d);
     preferences_help(flashlight_table,"Limits distance softness. 0% keeps shadows sharp; 100% allows full blur.",d);
+    preferences_effect(flashlight_table,"Bounce Lighting",flashlight_bounce_w,flashlight_bounce_intensity_w,d);
+    preferences_help(flashlight_table,"Reflects flashlight light onto nearby surfaces. Intensity controls brightness; adds GPU work.",d);
+    flashlight_table->dual_add(flashlight_bounce_saturation_w->label("Bounce Colour Saturation"),d);
+    flashlight_table->dual_add(flashlight_bounce_saturation_w,d);
+    preferences_help(flashlight_table,"0% gives neutral light; 100% preserves the source colour. Only visible surfaces contribute.",d);
     flashlight_page->add(flashlight_table,true);
+    preferences_effect(light_fx,"Explosion Shockwaves",shockwaves_w,shockwave_strength_w,d);
+    preferences_help(light_fx,"Expanding air-distortion rings from rocket and grenade explosions. Strength controls distortion; 0% disables it.",d);
     preferences_effect(light_fx,"Visible Sun",visible_sun_w,visible_sun_brightness_w,d);
     preferences_help(light_fx,"Shows the sun in the landscape sky.",d);
     light_fx->last_row_space(scale_dialog_value(4));
@@ -1892,7 +1904,11 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
         flashlight_falloff_w->set_enabled(flashlight_w->get_selection());
         flashlight_offset_w->set_enabled(flashlight_w->get_selection());
         flashlight_fog_w->set_enabled(flashlight_w->get_selection());
+        shockwave_strength_w->set_enabled(shockwaves_w->get_selection());
         flashlight_flicker_w->set_enabled(flashlight_w->get_selection());
+        flashlight_bounce_w->set_enabled(flashlight_w->get_selection());
+        flashlight_bounce_intensity_w->set_enabled(flashlight_w->get_selection() && flashlight_bounce_w->get_selection());
+        flashlight_bounce_saturation_w->set_enabled(flashlight_w->get_selection() && flashlight_bounce_w->get_selection());
         flashlight_dust_no_vacuum_w->set_enabled(flashlight_w->get_selection() && flashlight_dust_w->get_selection());
         flashlight_dust_w->set_enabled(flashlight_w->get_selection());
         flashlight_dust_density_w->set_enabled(flashlight_w->get_selection() && flashlight_dust_w->get_selection());
@@ -2158,7 +2174,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 		ogl_effects_w, ogl_aniso_w, sprite_upscaling_w, wall_upscaling_w,
 		model_quality_w, liquid_transparency_w, underwater_distortion_w, liquid_depth_fog_w,
 		liquid_ripples_w, baked_landscape_lighting_w, baked_texture_lights_w, baked_scenery_lights_w, liquid_caustics_w, liquid_specular_w, liquid_sprite_reflections_w,
-		flashlight_w, flashlight_contacts_w, flashlight_dust_w, flashlight_dust_no_vacuum_w, flashlight_flicker_w, flashlight_distance_softness_w, fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
+		shockwaves_w, flashlight_w, flashlight_bounce_w, flashlight_contacts_w, flashlight_dust_w, flashlight_dust_no_vacuum_w, flashlight_flicker_w, flashlight_distance_softness_w, fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
 		fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w, fog_haze_w, fog_volume_w, ceiling_fog_cones_w, fog_light_coronas_w, fog_projectile_coronas_w, fog_scenery_coronas_w
 	};
 	for (w_select *widget : graphics_select_widgets)
@@ -2186,7 +2202,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 		ogl_landscape_light_shaft_direction_w,
 		ogl_landscape_light_shaft_elevation_w,
 		ogl_anamorphic_lens_flare_strength_w,
-		liquid_opacity_w, liquid_strength_w, liquid_refraction_w, liquid_wetness_w, fog_quality_w, flashlight_brightness_w, flashlight_width_w, flashlight_origin_width_w, flashlight_sway_w, flashlight_falloff_w, flashlight_offset_w, flashlight_fog_w, flashlight_dust_density_w, flashlight_contact_strength_w, flashlight_max_softness_w,
+		liquid_opacity_w, liquid_strength_w, liquid_refraction_w, liquid_wetness_w, shockwave_strength_w, fog_quality_w, flashlight_bounce_intensity_w, flashlight_bounce_saturation_w, flashlight_brightness_w, flashlight_width_w, flashlight_origin_width_w, flashlight_sway_w, flashlight_falloff_w, flashlight_offset_w, flashlight_fog_w, flashlight_dust_density_w, flashlight_contact_strength_w, flashlight_max_softness_w,
 		fog_drift_intensity_w
 	};
 	for (w_slider *widget : graphics_slider_widgets)
@@ -2269,6 +2285,9 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
         // offset, origin width and sway mostly change appearance, not workload.
         if(flashlight_w->get_selection() && flashlight_brightness_w->get_selection()>0){
             cpu+=1;gpu+=4;
+            if(flashlight_bounce_w->get_selection() && flashlight_bounce_intensity_w->get_selection()>0){
+                cpu+=2;gpu+=32; // source pass, five visibility rays and filtered history
+            }
             const bool shadows=flashlight_contacts_w->get_selection() && flashlight_contact_strength_w->get_selection()>0;
             if(shadows){
                 cpu+=8;gpu+=12; // extra world/sprite shadow-map pass
@@ -2287,6 +2306,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
                 gpu+=(shadows?5:2)*(q==0?1:q==1?2:q==2?8:16);
             }
         }
+        if(shockwaves_w->get_selection() && shockwave_strength_w->get_selection()>0){cpu+=1;gpu+=4;} // while explosions are active
         if(liquid_specular_w->get_selection())gpu+=5;
         if(liquid_sprite_reflections_w->get_selection()){cpu+=5;gpu+=5;}
         if(liquid_caustics_w->get_selection())gpu+=4;
@@ -2465,7 +2485,12 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
     graphics_preferences->flashlight_offset = flashlight_offset_w->get_selection();
     graphics_preferences->flashlight_fog_intensity = flashlight_fog_w->get_selection();
     graphics_preferences->flashlight_flicker = flashlight_flicker_w->get_selection();
+    graphics_preferences->flashlight_bounce = flashlight_bounce_w->get_selection();
+    graphics_preferences->flashlight_bounce_intensity = flashlight_bounce_intensity_w->get_selection();
+    graphics_preferences->flashlight_bounce_saturation = flashlight_bounce_saturation_w->get_selection();
     graphics_preferences->flashlight_dust_no_vacuum = flashlight_dust_no_vacuum_w->get_selection();
+    graphics_preferences->explosion_shockwaves = shockwaves_w->get_selection();
+    graphics_preferences->explosion_shockwave_strength = shockwave_strength_w->get_selection();
     graphics_preferences->flashlight_dust = flashlight_dust_w->get_selection();
     graphics_preferences->flashlight_dust_density = flashlight_dust_density_w->get_selection();
     graphics_preferences->flashlight_contact_shadows = flashlight_contacts_w->get_selection();
@@ -6904,7 +6929,12 @@ InfoTree graphics_preferences_tree()
     root.put_attr("flashlight_offset",graphics_preferences->flashlight_offset);
     root.put_attr("flashlight_fog_intensity",graphics_preferences->flashlight_fog_intensity);
     root.put_attr("flashlight_flicker",graphics_preferences->flashlight_flicker);
+    root.put_attr("flashlight_bounce",graphics_preferences->flashlight_bounce);
+    root.put_attr("flashlight_bounce_intensity",graphics_preferences->flashlight_bounce_intensity);
+    root.put_attr("flashlight_bounce_saturation",graphics_preferences->flashlight_bounce_saturation);
     root.put_attr("flashlight_dust_no_vacuum",graphics_preferences->flashlight_dust_no_vacuum);
+    root.put_attr("explosion_shockwaves",graphics_preferences->explosion_shockwaves);
+    root.put_attr("explosion_shockwave_strength",graphics_preferences->explosion_shockwave_strength);
     root.put_attr("flashlight_dust",graphics_preferences->flashlight_dust);
     root.put_attr("flashlight_dust_density",graphics_preferences->flashlight_dust_density);
     root.put_attr("flashlight_contact_shadows",graphics_preferences->flashlight_contact_shadows);
@@ -7602,9 +7632,14 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
     preferences->flashlight_sway = preferences->flashlight_falloff = 100;
     preferences->flashlight_offset = 100;
     preferences->flashlight_fog_intensity = 100;
+    preferences->explosion_shockwaves = true;
+    preferences->explosion_shockwave_strength = 100;
     preferences->flashlight_dust = true;
     preferences->flashlight_dust_no_vacuum = true;
     preferences->flashlight_flicker = false;
+    preferences->flashlight_bounce = false;
+    preferences->flashlight_bounce_intensity = 100;
+    preferences->flashlight_bounce_saturation = 50;
     preferences->flashlight_dust_density = 100;
     preferences->flashlight_contact_shadows = false;
     preferences->flashlight_contact_strength = 60;
@@ -8199,7 +8234,12 @@ void parse_graphics_preferences(InfoTree root, std::string version)
     root.read_attr_bounded<int16>("flashlight_offset",graphics_preferences->flashlight_offset,0,400);
     root.read_attr_bounded<int16>("flashlight_fog_intensity",graphics_preferences->flashlight_fog_intensity,0,200);
     root.read_attr("flashlight_flicker",graphics_preferences->flashlight_flicker);
+    root.read_attr("flashlight_bounce",graphics_preferences->flashlight_bounce);
+    root.read_attr_bounded<int16>("flashlight_bounce_intensity",graphics_preferences->flashlight_bounce_intensity,0,400);
+    root.read_attr_bounded<int16>("flashlight_bounce_saturation",graphics_preferences->flashlight_bounce_saturation,0,100);
     root.read_attr("flashlight_dust_no_vacuum",graphics_preferences->flashlight_dust_no_vacuum);
+    root.read_attr("explosion_shockwaves",graphics_preferences->explosion_shockwaves);
+    root.read_attr_bounded<int16>("explosion_shockwave_strength",graphics_preferences->explosion_shockwave_strength,0,200);
     root.read_attr("flashlight_dust",graphics_preferences->flashlight_dust);
     root.read_attr_bounded<int16>("flashlight_dust_density",graphics_preferences->flashlight_dust_density,0,1000);
     root.read_attr("flashlight_contact_shadows",graphics_preferences->flashlight_contact_shadows);
