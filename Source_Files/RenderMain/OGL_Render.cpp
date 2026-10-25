@@ -131,6 +131,7 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 #include <vector>
 #include <string.h>
 #include <stdlib.h>
+#include <cstdlib>
 #include <math.h>
 #include <set>
 #include <algorithm>	// pair<>, for_each()
@@ -532,6 +533,7 @@ bool OGL_ClearScreen()
 void OGL_Rasterizer_Init();
 
 // Start an OpenGL run (creates a rendering context)
+extern void OGL_SetProgressRange(int begin,int end,int steps);
 extern void sprintathon_prebake_sky_lighting(void (*progress)());
 extern void sprintathon_begin_sky_loading();
 extern void sprintathon_preload_post_buffers();
@@ -646,10 +648,12 @@ bool OGL_StartRun(bool retain_sprites)
 	OGL_Rasterizer_Init();
 	
 	OGL_ResetForceSpriteDepth();
+	OGL_SetProgressRange(0,5,count_replacement_collections());
 	OGL_SetProgressMessage("replacement textures and models");
 	load_replacement_collections();	
 
 	// Initialize the texture accounting
+	OGL_SetProgressRange(5,6,0);
 	OGL_SetProgressMessage("preparing texture cache");
 	OGL_StartTextures();
 
@@ -661,22 +665,28 @@ bool OGL_StartRun(bool retain_sprites)
 
 	// Setup for 3D-model rendering
 	ModelRenderObject.Clear();
+	OGL_SetProgressRange(6,10,1);
 	OGL_SetProgressMessage("compiling shaders");
 	SetupShaders();
     Shader::warmup([] { OGL_ProgressCallback(0); });
 	OGL_ProgressCallback(1);
 
 	// Avoid lazy initial texture loading
+	OGL_SetProgressRange(10,15,0);
 	OGL_SetProgressMessage("preparing level textures");
     sprintathon_begin_sky_loading();
 	PreloadTextures();
-    OGL_SetProgressMessage("baking static lighting");
+    OGL_SetProgressRange(90,96,0);
+	OGL_SetProgressMessage("baking static lighting");
     sprintathon_prebake_sky_lighting([] { OGL_ProgressCallback(0); });
-    OGL_SetProgressMessage("preparing post-processing buffers");
+    OGL_SetProgressRange(96,98,0);
+	OGL_SetProgressMessage("preparing post-processing buffers");
     sprintathon_preload_post_buffers();
     sprintathon_preload_opaque_geometry();
-    OGL_SetProgressMessage("warming shader draws");
+    OGL_SetProgressRange(98,99,0);
+	OGL_SetProgressMessage("warming shader draws");
     Shader::warmupDraws();
+	OGL_SetProgressRange(99,99,1);
 	OGL_SetProgressMessage("finishing level");
 	OGL_ProgressCallback(1);
 	OGL_StopProgress();
@@ -752,15 +762,16 @@ void PreloadTextures()
 	// upscaling enabled, that creates a visible hitch the first time each frame
 	// or palette is encountered. Warm every frame in the loaded sprite
 	// collections while the level loading screen is still active.
+	OGL_SetProgressRange(15,90,CountSpriteTexturesToPreload());
 	OGL_SetProgressMessage("preparing sprites");
     OGL_ReportUpscaleCache(true);
     sprite_prepare_ms = sprite_progress_ms = sprite_render_ms = 0;
     const auto sprite_start = std::chrono::steady_clock::now();
 	PreloadSpriteTextures();
-    std::fprintf(stderr, "Sprite preload total: %.1f ms\n",
+    if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr, "Sprite preload total: %.1f ms\n",
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-sprite_start).count());
     OGL_ReportUpscaleCache(false);
-    std::fprintf(stderr, "Sprite stages: preparation %.1f ms; render calls %.1f ms; progress updates %.1f ms\n",
+    if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr, "Sprite stages: preparation %.1f ms; render calls %.1f ms; progress updates %.1f ms\n",
         sprite_prepare_ms, sprite_render_ms, sprite_progress_ms);
 }
 
@@ -825,13 +836,13 @@ static void PreloadSpriteTextures()
             SprintathonSpritePreload::done(collection,clut);
 		}
         const auto& selection=SprintathonSpritePreload::state();
-        std::fprintf(stderr,"Sprite preload collection %d: %d/%d palettes, %d frames each; mask %02x; %s%s\n",
+        if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,"Sprite preload collection %d: %d/%d palettes, %d frames each; mask %02x; %s%s\n",
             collection,prepared_palettes,available_palettes,frame_count,selection.requested[collection],
             selection.broad[collection]?"broad collection request":
             !selection.requested[collection]?"no palette information":"explicit palette requests",
             retained?"; GPU textures retained":"");
 	}
-    std::fprintf(stderr,"Sprite preload selection: %d palettes, %d frames; %d unneeded or retained frames skipped\n",palettes,frames,skipped);
+    if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,"Sprite preload selection: %d palettes, %d frames; %d unneeded or retained frames skipped\n",palettes,frames,skipped);
 }
 
 static void PreloadSpriteTexture(short collection, short clut, short frame, short texture_type)

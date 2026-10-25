@@ -137,8 +137,18 @@ bool OGL_CheckExtension(const std::string extension) {
 	return false;
 }
 
-static int ogl_progress;
-static int total_ogl_progress;
+// Stage weights estimate elapsed work; individual assets have very different costs.
+static int stage_begin=0,stage_end=99,stage_steps=0,stage_done=0;
+void OGL_SetProgressRange(int begin,int end,int steps)
+{
+ stage_begin=begin;stage_end=end;stage_steps=steps;stage_done=0;
+}
+static int OGL_LoadingPercent()
+{
+ if(stage_steps<=0)return stage_begin;
+ const int completed=stage_done<stage_steps?stage_done:stage_steps;
+ return stage_begin+int((static_cast<long long>(stage_end-stage_begin)*completed)/stage_steps);
+}
 static bool show_ogl_progress = false;
 static uint64_t last_update_tick;
 extern bool OGL_ClearScreen();
@@ -146,8 +156,7 @@ extern bool OGL_ClearScreen();
 #ifdef HAVE_OPENGL
 void OGL_StartProgress(int total_progress)
 {
-	ogl_progress = 0;
-	total_ogl_progress = total_progress;
+ OGL_SetProgressRange(0,99,total_progress);
 	if (!OGL_LoadScreen::instance()->Start())
 	{
 		OGL_ClearScreen();
@@ -160,15 +169,15 @@ void OGL_StartProgress(int total_progress)
 void OGL_ProgressCallback(int delta_progress)
 {
 	if (!show_ogl_progress) return;
-	ogl_progress += delta_progress;
+ if(delta_progress>0)stage_done+=delta_progress;
 	{
 		uint64_t current_ticks = machine_tick_count();
 		if (current_ticks > last_update_tick + 50)
 		{
 			if (OGL_LoadScreen::instance()->Use())
-				OGL_LoadScreen::instance()->Progress(total_ogl_progress > 0 ? 100 * ogl_progress / total_ogl_progress : 0);
+				OGL_LoadScreen::instance()->Progress(OGL_LoadingPercent());
 			else
-				draw_progress_bar(ogl_progress, total_ogl_progress);
+				draw_progress_bar(OGL_LoadingPercent(), 100);
 			last_update_tick = current_ticks;
 		}
 	}
@@ -183,8 +192,7 @@ void OGL_SetProgressMessage(const char *message)
 	if (OGL_LoadScreen::instance()->Use())
 	{
 		OGL_LoadScreen::instance()->SetStatus(status);
-		const int percent = total_ogl_progress > 0 ?
-			100 * ogl_progress / total_ogl_progress : 0;
+		const int percent = OGL_LoadingPercent();
 		OGL_LoadScreen::instance()->Progress(percent);
 	}
 	else
