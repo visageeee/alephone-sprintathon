@@ -148,7 +148,7 @@ inline void prepare(){
    r.edges.push_back(e);
   }
  }
- fprintf(stderr,"Sky bake: static geometry captured; preparing lightmaps. Restart level to rebake.\n");
+ if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') fprintf(stderr,"Sky bake: static geometry captured; preparing lightmaps. Restart level to rebake.\n");
 }
 inline bool visible(int room,V origin,V direction){
  double t=0;
@@ -363,7 +363,7 @@ inline void preloadTextureSources(bool (*emission)(shape_descriptor,float*),
  bakedSceneryObjects.assign(ObjectList.size(),false);
  for(const auto& source:textureSources)if(source.object>=0)bakedSceneryObjects[source.object]=true;
  textureBakeReady=textureBakeValid=!textureSources.empty();
- fprintf(stderr,"Texture bake: %lu constant sources; static receivers only.\n",static_cast<unsigned long>(textureSources.size()));
+ if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') fprintf(stderr,"Texture bake: %lu constant sources; static receivers only.\n",static_cast<unsigned long>(textureSources.size()));
 }
 inline void bind(Shader* shader,const polygon_data* polygon,int face,V origin,V u,V v,V normal,double width,double height){
  if(shader){textureReceiver=false;shader->setFloat(Shader::U_TextureBakeEnabled,0);shader->setFloat(Shader::U_SkyBakeEnabled,0);shader->setVector4(Shader::U_SkyBakeLayers,0,0,0,1);}
@@ -519,8 +519,8 @@ inline void preload(void (*progress)()){
  }
  pathBakeProgress=nullptr;
  preloadActors(progress);
- fprintf(stderr,"Sky bake: preloaded %lu actor samples (spacing %.0f).\n",static_cast<unsigned long>(actorSamples.size()),actorSpacing);
- fprintf(stderr,"Sky bake: preloaded %lu static surface lightmaps.\n",static_cast<unsigned long>(maps.size()));
+ if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') fprintf(stderr,"Sky bake: preloaded %lu actor samples (spacing %.0f).\n",static_cast<unsigned long>(actorSamples.size()),actorSpacing);
+ if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') fprintf(stderr,"Sky bake: preloaded %lu static surface lightmaps.\n",static_cast<unsigned long>(maps.size()));
 }
 
 }

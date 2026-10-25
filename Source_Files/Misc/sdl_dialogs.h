@@ -480,6 +480,9 @@ extern bool use_theme_images(int widget_type);
 extern bool use_theme_color(int widget_type, int which);
 extern int get_theme_space(int widget_type, int which = 0);
 extern void set_dialog_render_scale(int scale);
+void set_dialog_native_resolution(bool native);
+void set_dialog_terminal_style(bool enabled);
+bool get_dialog_terminal_style();
 extern int get_dialog_render_scale();
 extern int scale_dialog_value(int value);
 

@@ -123,7 +123,7 @@ void sprintathon_update_frame_mouse()
     const double tau = std::max(0, std::min(40,
         int(input_preferences->sprintathon_mouse_smoothing_ms))) / 1000.0;
     if (just_enabled)
-        std::fprintf(stderr, "Sprintathon frame mouse: active, %.1f ms smoothing\n", tau * 1000.0);
+        if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr, "Sprintathon frame mouse: active, %.1f ms smoothing\n", tau * 1000.0);
     double dx = snapshot_delta_x;
     double dy = -snapshot_delta_y;
     snapshot_delta_x = snapshot_delta_y = 0;

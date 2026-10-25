@@ -340,10 +340,10 @@ static ImageDescriptor *cached_upscale_texture_2xsai(const ImageDescriptor& sour
 void OGL_ReportUpscaleCache(bool reset)
 {
     SprintathonUpscaleCache::report(reset);
-    if (!reset) std::fprintf(stderr,
+    if (!reset) if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,
         "Upscale cache: %llu hits, %llu misses, %llu evictions; CPU cache/upscale %.1f ms\n",
         upscale_hits, upscale_misses, upscale_evictions, upscale_ms);
-    if (!reset) std::fprintf(stderr,
+    if (!reset) if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,
         "Sprite detail: 2xSaI %.1f ms; cache lookup/copies/eviction %.1f ms; GL upload/setup %.1f ms\n",
         upscale_algorithm_ms, std::max(0.0, upscale_ms-upscale_algorithm_ms),
         std::max(0.0, texture_place_ms-upscale_ms));
@@ -523,7 +523,7 @@ void OGL_BeginRetainedSpriteReload(bool requested)
         retain_sprite_collection[i] = retained_sprite_signatures[i] == OGL_NativeSpriteSignature(i);
         if (retain_sprite_collection[i]) ++count;
     }
-    std::fprintf(stderr, "Retained sprite reload: %u unchanged native collections\n", count);
+    if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr, "Retained sprite reload: %u unchanged native collections\n", count);
 }
 
 void OGL_EndRetainedSpriteReload(bool success)

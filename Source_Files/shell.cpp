@@ -83,6 +83,7 @@ bool sprintathon_drop_flare();
 #include "sdl_dialogs.h"
 #include "sdl_fonts.h"
 #include "sdl_widgets.h"
+#include "SprintathonLevelPreview.h"
 
 #include "DefaultStringSets.h"
 #include "TextStrings.h"
@@ -760,8 +761,8 @@ public:
 			const char *label = TS_GetCString(kDifficultyLevelsStringSetID, i);
 			std::string text = label ? label : "";
 			const uint32 color = i == static_cast<int>(m_selection) ?
-				SDL_MapRGB(surface->format, 155, 79, 32) :
-				SDL_MapRGB(surface->format, 255, 255, 255);
+				get_theme_color(ITEM_WIDGET, ACTIVE_STATE) :
+				get_theme_color(ITEM_WIDGET, DEFAULT_STATE);
 			draw_text(surface, text.c_str(), x,
 				rect.y + font->get_ascent(),
 				color, font, style);
@@ -850,8 +851,8 @@ short get_level_number_from_user(void)
 	} theme_guard;
 	struct level_dialog_resolution_guard
 	{
-		level_dialog_resolution_guard() { set_dialog_render_scale(2); }
-		~level_dialog_resolution_guard() { set_dialog_render_scale(1); }
+		level_dialog_resolution_guard() { set_dialog_native_resolution(true); set_dialog_terminal_style(true); }
+		~level_dialog_resolution_guard() { set_dialog_terminal_style(false); set_dialog_native_resolution(false); }
 	} resolution_guard;
 
 	// Get levels
@@ -879,34 +880,46 @@ short get_level_number_from_user(void)
 		multiplayer_levels.push_back(unavailable);
 	}
 
-	// Create dialog
+	// Keep the original 600-unit controls on narrow displays; use extra
+    // horizontal space for longer level names when available.
+    const int canvas_width = MainScreenIsOpenGL() ? MainScreenPixelWidth() : 640;
+    const int list_width = std::max(400, std::min(600,
+        canvas_width / get_dialog_render_scale() - 240));
+    const int preview_width = scale_dialog_value(180);
+    // Create dialog
 	dialog d;
 	vertical_placer *placer = new vertical_placer(scale_dialog_value(4));
 	tab_placer *level_tabs = new tab_placer;
 	const vector<string> level_tab_labels = {"SINGLEPLAYER", "MULTIPLAYER"};
 	placer->dual_add(new w_tab(level_tab_labels, level_tabs), d);
 	const size_t visible_singleplayer = MIN(
-		static_cast<size_t>(17), singleplayer_levels.size());
+		static_cast<size_t>(15), singleplayer_levels.size());
 	const size_t visible_multiplayer = MIN(
-		static_cast<size_t>(17), multiplayer_levels.size());
+		static_cast<size_t>(15), multiplayer_levels.size());
 	w_levels *singleplayer_w = new w_levels(singleplayer_levels, &d,
-		scale_dialog_value(600), visible_singleplayer, 0, true);
+		scale_dialog_value(list_width), visible_singleplayer, 0, true);
 	w_levels *multiplayer_w = new w_levels(multiplayer_levels, &d,
-		scale_dialog_value(600), visible_multiplayer, 0, has_multiplayer_levels);
+		scale_dialog_value(list_width), visible_multiplayer, 0, has_multiplayer_levels);
 	singleplayer_w->set_show_best_times(true);
 	multiplayer_w->set_enabled(has_multiplayer_levels);
 	singleplayer_w->set_offset(vidmasterLevelOffset);
 	multiplayer_w->set_offset(vidmasterLevelOffset);
 	vertical_placer *singleplayer_page = new vertical_placer;
 	singleplayer_page->dual_add(new w_levels_header(
-		scale_dialog_value(600), true), d);
+		scale_dialog_value(list_width), true), d);
 	singleplayer_page->dual_add(singleplayer_w, d);
 	vertical_placer *multiplayer_page = new vertical_placer;
 	multiplayer_page->dual_add(new w_levels_header(
-		scale_dialog_value(600), false), d);
+		scale_dialog_value(list_width), false), d);
 	multiplayer_page->dual_add(multiplayer_w, d);
-	level_tabs->add(singleplayer_page, true);
-	level_tabs->add(multiplayer_page, true);
+	horizontal_placer *singleplayer_row = new horizontal_placer(scale_dialog_value(12));
+    singleplayer_row->add(singleplayer_page, true);
+    singleplayer_row->dual_add(new w_level_preview(singleplayer_w, singleplayer_levels, preview_width), d);
+    horizontal_placer *multiplayer_row = new horizontal_placer(scale_dialog_value(12));
+    multiplayer_row->add(multiplayer_page, true);
+    multiplayer_row->dual_add(new w_level_preview(multiplayer_w, multiplayer_levels, preview_width), d);
+    level_tabs->add(singleplayer_row, true);
+    level_tabs->add(multiplayer_row, true);
 	placer->add(level_tabs, true);
 	placer->dual_add(new w_static_text("Difficulty", LABEL_WIDGET), d);
 	w_level_difficulty *difficulty_w =

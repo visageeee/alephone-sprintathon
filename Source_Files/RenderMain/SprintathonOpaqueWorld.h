@@ -185,7 +185,7 @@ inline bool reusePreparation(){static const bool on=[](){
     const char* value=std::getenv("SPRINTATHON_REUSE_SURFACE_PREP");return value && value[0]=='1';
 }();return on;}
 static std::map<std::vector<int64_t>,SurfaceRecord> surfacePreparation;
-static std::map<std::array<float,7>,std::array<float,32>> dynamicPreparation;
+static std::map<std::array<float,11>,std::array<float,32>> dynamicPreparation;
 static unsigned surfacePrepHits=0,surfacePrepMisses=0,dynamicPrepHits=0,dynamicPrepMisses=0;
 inline void prepareSurface(SurfaceRecord&,const polygon_data*,const horizontal_surface_data*,bool,
     const vertical_surface_data*,const view_data*);
@@ -375,7 +375,7 @@ inline void preloadAtlas(){
     }
     glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB,pack);glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB,unpack);
     glPopClientAttrib();glPopAttrib();
-    std::fprintf(stderr,"Opaque baked atlas: %u maps, %u pages, %.1f MiB; built during loading\n",
+    if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,"Opaque baked atlas: %u maps, %u pages, %.1f MiB; built during loading\n",
         unsigned(atlasEntries.size()),unsigned(atlasPages.size()),atlasPages.size()*atlasSize*atlasSize*6.0/(1024*1024));
 }
 inline const BakeEntry* baked(const polygon_data* polygon,int face,int z,int height){
@@ -723,7 +723,7 @@ inline void preload(){
     arraySubImage3D=reinterpret_cast<ArraySubImage3D>(SDL_GL_GetProcAddress("glTexSubImage3D"));
     arrayMode=arraysRequested && major>=3 && units>=9 && fragmentUnits>=9 && arrayImage3D && arraySubImage3D;
     if(arraysRequested && !arrayMode)std::fprintf(stderr,"World texture arrays unsupported; using ordinary materials\n");
-    std::fprintf(stderr,"Opaque world portal clipping: %s\n",
+    if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,"Opaque world portal clipping: %s\n",
         earlyClip?"before rasterization":"fragment discard");
     auto vs=compile(GL_VERTEX_SHADER_ARB,vertexSource),fs=compile(GL_FRAGMENT_SHADER_ARB,fragmentSource);
     if((!vs || !fs) && arrayMode){
@@ -800,7 +800,7 @@ inline void preload(){
     }
     preloadAtlas();
     if(arrayMode)preloadArrays();
-    std::fprintf(stderr,"Opaque world prototype: baked + dynamic lighting; persistent 8 MiB geometry, %u surface rows; shader compiled during loading; parameter textures %u\n",rowLimit,parameterCount);
+    if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,"Opaque world prototype: baked + dynamic lighting; persistent 8 MiB geometry, %u surface rows; shader compiled during loading; parameter textures %u\n",rowLimit,parameterCount);
 }
 inline bool begin(){
     active=requested() && program && buffer && parameterCount && parameters[0] && context==SDL_GL_GetCurrentContext();
@@ -975,7 +975,7 @@ inline void preloadArrays(){
     glActiveTextureARB(GL_TEXTURE0_ARB);glBindTexture(arrayTarget,oldArray);
     glBindBufferARB(GL_PIXEL_PACK_BUFFER_ARB,pack);glBindBufferARB(GL_PIXEL_UNPACK_BUFFER_ARB,unpack);
     glPopClientAttrib();glPopAttrib();glActiveTextureARB(oldActive);
-    std::fprintf(stderr,"World texture arrays: %u materials in %u banks, %.1f MiB extra; built during loading\n",
+    if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,"World texture arrays: %u materials in %u banks, %.1f MiB extra; built during loading\n",
         unsigned(arrayMaterials.size()),banks,used/(1024.0*1024.0));
 }
 

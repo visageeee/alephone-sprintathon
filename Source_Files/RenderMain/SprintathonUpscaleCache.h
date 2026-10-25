@@ -104,7 +104,7 @@ inline bool prepare(){
   s.bytes-=oldest.bytes;s.index.erase(oldest.file.GetPath());s.entries.pop_front();++s.evictions;
  }
  s.ready=true;
- std::fprintf(stderr,"Upscale disk cache: %s\n",s.directory.GetPath());
+ if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,"Upscale disk cache: %s\n",s.directory.GetPath());
  return true;
 }
 inline bool sizeFor(const ImageDescriptor& source,size_t& count,size_t& bytes){
@@ -230,12 +230,12 @@ inline void save(const ImageDescriptor& source,bool wrap,uint64_t memoryHash,con
 inline void report(bool reset){
  auto& s=state();
  if(!reset && s.initialized){
-  std::fprintf(stderr,"Upscale disk timing: hash %.1f ms; read/decode %.1f ms; compress/write %.1f ms; %llu admissions skipped\n",
+  if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,"Upscale disk timing: hash %.1f ms; read/decode %.1f ms; compress/write %.1f ms; %llu admissions skipped\n",
    s.hashMs,s.loadMs,s.saveMs,s.skipped);
-  std::fprintf(stderr,
+  if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,
    "Upscale disk cache: %llu hits, %llu misses, %llu writes, %llu evictions; %.1f / %.0f MiB; %zu entries\n",
    s.hits,s.misses,s.writes,s.evictions,double(s.bytes)/(1024*1024),double(budget())/(1024*1024),s.entries.size());
-  std::fprintf(stderr,
+  if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,
    "Upscale disk working set: %zu unique images, %.1f MiB stored / %.1f MiB decoded in accounted requests%s\n",
    s.requested.size(),double(s.requestedBytes)/(1024*1024),double(s.rawRequestedBytes)/(1024*1024),
    s.requestedBytes>budget() || s.requested.size()>65536?" (exceeds cache capacity)":(s.skipped?" (partial: uncached admissions skipped)":""));

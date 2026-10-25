@@ -2476,8 +2476,16 @@ w_levels::draw_item(vector<entry_point>::const_iterator i, SDL_Surface *s, int16
 	width = width > margin * 2 ? width - margin * 2 : width;
 	y = y + font->get_ascent();
 	char str[256];
-	const uint32 color = get_theme_color(
-		ITEM_WIDGET, selected ? ACTIVE_STATE : DEFAULT_STATE);
+    const bool terminal_selected = selected && get_dialog_terminal_style();
+    if (terminal_selected)
+    {
+        // A filled amber row with black text remains distinct after scanlines.
+        SDL_Rect highlight = {x - scale_dialog_value(4), y - font->get_ascent(),
+            width + scale_dialog_value(8), font->get_line_height()};
+        SDL_FillRect(s, &highlight, SDL_MapRGB(s->format, 255, 255, 255));
+    }
+    const uint32 color = terminal_selected ? SDL_MapRGB(s->format, 0, 0, 0) :
+        get_theme_color(ITEM_WIDGET, selected ? ACTIVE_STATE : DEFAULT_STATE);
 	const int time_column_width = show_best_times ?
 		scale_dialog_value(105) : 0;
 
