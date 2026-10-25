@@ -42,6 +42,7 @@ public:
 	OGL_Blitter(GLuint nearFilter = GL_LINEAR);
 	
 	void Unload();
+    void UpdateSurface(const SDL_Surface& surface, SDL_Rect area);
 
 	void Draw(SDL_Surface *dst_surface, const Image_Rect& dst, const Image_Rect& src) { Draw(dst, src); }
 	void Draw(const Image_Rect& dst) { Draw(dst, crop_rect); }

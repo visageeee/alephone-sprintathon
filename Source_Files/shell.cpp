@@ -731,96 +731,105 @@ quit_game_dialog_action quit_without_saving(void)
 
 const int32 AllPlayableLevels = _single_player_entry_point | _multiplayer_carnage_entry_point | _multiplayer_cooperative_entry_point | _kill_the_man_with_the_ball_entry_point | _king_of_hill_entry_point | _rugby_entry_point | _capture_the_flag_entry_point;
 
+class w_fitted_levels : public w_levels
+{
+public:
+    using w_levels::w_levels;
+    void fit_height(int height)
+    {
+        const int padding = get_theme_space(LIST_WIDGET, T_SPACE) +
+            get_theme_space(LIST_WIDGET, B_SPACE);
+        const int row = MAX(1, static_cast<int>(item_height()));
+        shown_items = MAX(1, (height - padding) / row);
+        saved_min_height = rect.h = padding + static_cast<int>(shown_items) * row;
+    }
+};
+
+class w_level_start : public w_button
+{
+    mutable Uint32 last_pulse = 0;
+public:
+    explicit w_level_start(dialog* d) : w_button("START GAME", dialog_ok, d)
+    {
+        saved_min_width = MAX(saved_min_width, scale_dialog_value(140));
+        rect.w = saved_min_width;
+    }
+    bool is_dirty() override
+    {
+        return dirty || SDL_GetTicks() / 50 != last_pulse;
+    }
+    void draw(SDL_Surface* surface) const override
+    {
+        const Uint32 now = SDL_GetTicks();
+        last_pulse = now / 50;
+        // A gentle two-second breathing cycle; never flashes or goes dark.
+        const float phase = (now % 2400) / 1200.f;
+        const float triangle = phase <= 1.f ? phase : 2.f - phase;
+        const float smooth = triangle * triangle * (3.f - 2.f * triangle);
+        const int brightness = pressed ? 255 : 200 + int(55 * smooth);
+        SDL_Rect box = rect;
+        SDL_FillRect(surface, &box, SDL_MapRGB(surface->format, brightness, brightness, brightness));
+        draw_rectangle(surface, &box, SDL_MapRGB(surface->format, 255, 255, 255));
+        draw_text(surface, text.c_str(), rect.x + (rect.w - text_width(text.c_str(), font, style)) / 2,
+            rect.y + (rect.h - font->get_line_height()) / 2 + font->get_ascent(),
+            SDL_MapRGB(surface->format, 0, 0, 0), font, style);
+    }
+};
+
 class w_level_difficulty : public widget
 {
 public:
-	explicit w_level_difficulty(size_t selection) :
+	explicit w_level_difficulty(size_t& selection) :
 		widget(LABEL_WIDGET), m_selection(selection)
 	{
-		saved_min_width = scale_dialog_value(600);
-		saved_min_height = font->get_line_height();
+		saved_min_width = scale_dialog_value(180);
+		saved_min_height = (font->get_line_height() + scale_dialog_value(4)) * NUMBER_OF_GAME_DIFFICULTY_LEVELS;
 	}
 
-	void draw(SDL_Surface *surface) const override
-	{
-		const int side_margin = scale_dialog_value(8);
-		int widths[NUMBER_OF_GAME_DIFFICULTY_LEVELS];
-		int total_width = 0;
-		for (int i = 0; i < NUMBER_OF_GAME_DIFFICULTY_LEVELS; ++i)
-		{
-			const char *label = TS_GetCString(kDifficultyLevelsStringSetID, i);
-			widths[i] = text_width(label ? label : "", font, style);
-			total_width += widths[i];
-		}
-		const int gap = MAX(scale_dialog_value(8),
-			(rect.w - side_margin * 2 - total_width) /
-			(NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1));
-		int x = rect.x + side_margin;
-		for (int i = 0; i < NUMBER_OF_GAME_DIFFICULTY_LEVELS; ++i)
-		{
-			const char *label = TS_GetCString(kDifficultyLevelsStringSetID, i);
-			std::string text = label ? label : "";
-			const uint32 color = i == static_cast<int>(m_selection) ?
-				get_theme_color(ITEM_WIDGET, ACTIVE_STATE) :
-				get_theme_color(ITEM_WIDGET, DEFAULT_STATE);
-			draw_text(surface, text.c_str(), x,
-				rect.y + font->get_ascent(),
-				color, font, style);
-			x += widths[i] + gap;
-		}
-	}
-
-	void click(int x, int) override
-	{
-		int widths[NUMBER_OF_GAME_DIFFICULTY_LEVELS];
-		int total_width = 0;
-		for (int i = 0; i < NUMBER_OF_GAME_DIFFICULTY_LEVELS; ++i)
-		{
-			const char *label = TS_GetCString(kDifficultyLevelsStringSetID, i);
-			widths[i] = text_width(label ? label : "", font, style);
-			total_width += widths[i];
-		}
-		const int side_margin = scale_dialog_value(8);
-		const int gap = MAX(scale_dialog_value(8),
-			(rect.w - side_margin * 2 - total_width) /
-			(NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1));
-		int left = side_margin;
-		for (int i = 0; i < NUMBER_OF_GAME_DIFFICULTY_LEVELS; ++i)
-		{
-			const int right = left + widths[i] + (i + 1 <
-				NUMBER_OF_GAME_DIFFICULTY_LEVELS ? gap / 2 : 0);
-			if (x <= right)
-			{
-				set_selection(i);
-				return;
-			}
-			left += widths[i] + gap;
-		}
-		set_selection(NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1);
-	}
+    void draw(SDL_Surface* surface) const override
+    {
+        const int row = font->get_line_height() + scale_dialog_value(4);
+        const int pad = scale_dialog_value(6);
+        for (int i = 0; i < NUMBER_OF_GAME_DIFFICULTY_LEVELS; ++i)
+        {
+            const char* label = TS_GetCString(kDifficultyLevelsStringSetID, i);
+            const bool selected = i == static_cast<int>(m_selection);
+            SDL_Rect box = {rect.x, rect.y + i * row, rect.w, row};
+            if (selected) SDL_FillRect(surface, &box, SDL_MapRGB(surface->format, 255, 80, 0));
+            draw_text(surface, label ? label : "", box.x + pad,
+                box.y + scale_dialog_value(2) + font->get_ascent(),
+                selected ? SDL_MapRGB(surface->format, 0, 0, 0) : get_theme_color(ITEM_WIDGET, DEFAULT_STATE),
+                font, style);
+        }
+    }
+    void click(int, int y) override
+    {
+        const int row = font->get_line_height() + scale_dialog_value(4);
+        if (y >= 0 && y / row < NUMBER_OF_GAME_DIFFICULTY_LEVELS) set_selection(y / row);
+    }
 
 	void event(SDL_Event& event) override
 	{
-		if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_LEFT)
+		if (event.type == SDL_KEYDOWN && (event.key.keysym.sym == SDLK_LEFT || event.key.keysym.sym == SDLK_UP))
 		{
 			set_selection(m_selection == 0 ?
 				NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1 : m_selection - 1);
 			event.type = SDL_LASTEVENT;
 		}
-		else if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_RIGHT)
+		else if (event.type == SDL_KEYDOWN && (event.key.keysym.sym == SDLK_RIGHT || event.key.keysym.sym == SDLK_DOWN))
 		{
 			set_selection((m_selection + 1) % NUMBER_OF_GAME_DIFFICULTY_LEVELS);
 			event.type = SDL_LASTEVENT;
 		}
 		else if (event.type == SDL_CONTROLLERBUTTONDOWN &&
-			event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_LEFT)
+			(event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_LEFT || event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_UP))
 		{
 			set_selection(m_selection == 0 ?
 				NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1 : m_selection - 1);
 			event.type = SDL_LASTEVENT;
 		}
 		else if (event.type == SDL_CONTROLLERBUTTONDOWN &&
-			event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT)
+			(event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT || event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_DOWN))
 		{
 			set_selection((m_selection + 1) % NUMBER_OF_GAME_DIFFICULTY_LEVELS);
 			event.type = SDL_LASTEVENT;
@@ -837,7 +846,7 @@ private:
 		if (get_owning_dialog()) get_owning_dialog()->draw_dirty_widgets();
 	}
 
-	size_t m_selection;
+	size_t& m_selection;
 };
 
 short get_level_number_from_user(void)
@@ -883,8 +892,8 @@ short get_level_number_from_user(void)
 	// Keep the original 600-unit controls on narrow displays; use extra
     // horizontal space for longer level names when available.
     const int canvas_width = MainScreenIsOpenGL() ? MainScreenPixelWidth() : 640;
-    const int list_width = std::max(400, std::min(600,
-        canvas_width / get_dialog_render_scale() - 240));
+    const int list_width = std::max(400,
+        canvas_width * 100 / std::max(1, scale_dialog_value(100)) - 240);
     const int preview_width = scale_dialog_value(180);
     // Create dialog
 	dialog d;
@@ -896,9 +905,9 @@ short get_level_number_from_user(void)
 		static_cast<size_t>(15), singleplayer_levels.size());
 	const size_t visible_multiplayer = MIN(
 		static_cast<size_t>(15), multiplayer_levels.size());
-	w_levels *singleplayer_w = new w_levels(singleplayer_levels, &d,
+	w_fitted_levels *singleplayer_w = new w_fitted_levels(singleplayer_levels, &d,
 		scale_dialog_value(list_width), visible_singleplayer, 0, true);
-	w_levels *multiplayer_w = new w_levels(multiplayer_levels, &d,
+	w_fitted_levels *multiplayer_w = new w_fitted_levels(multiplayer_levels, &d,
 		scale_dialog_value(list_width), visible_multiplayer, 0, has_multiplayer_levels);
 	singleplayer_w->set_show_best_times(true);
 	multiplayer_w->set_enabled(has_multiplayer_levels);
@@ -912,19 +921,42 @@ short get_level_number_from_user(void)
 	multiplayer_page->dual_add(new w_levels_header(
 		scale_dialog_value(list_width), false), d);
 	multiplayer_page->dual_add(multiplayer_w, d);
+    size_t difficulty_selection = player_preferences->difficulty_level;
+    auto* faster_single_w = new w_toggle(input_preferences->sprintathon_monster_speed_percent == 200);
+    auto* faster_multi_w = new w_toggle(faster_single_w->get_selection() != 0);
+    faster_single_w->set_selection_changed_callback([&](w_select*) {
+        faster_multi_w->set_selection(faster_single_w->get_selection());
+    });
+    faster_multi_w->set_selection_changed_callback([&](w_select*) {
+        faster_single_w->set_selection(faster_multi_w->get_selection());
+    });
+    auto add_faster_enemies = [&](vertical_placer* column, w_toggle* toggle) {
+        horizontal_placer* row = new horizontal_placer(scale_dialog_value(8));
+        row->dual_add(toggle, d);
+        row->dual_add(toggle->label("Faster enemies"), d);
+        column->add(row, true);
+    };
+    vertical_placer *singleplayer_right = new vertical_placer(scale_dialog_value(6));
+    auto* singleplayer_preview = new w_level_preview(singleplayer_w, singleplayer_levels, preview_width);
+    singleplayer_right->dual_add(singleplayer_preview, d);
+    singleplayer_right->dual_add(new w_static_text("Difficulty", LABEL_WIDGET), d);
+    singleplayer_right->dual_add(new w_level_difficulty(difficulty_selection), d);
+    add_faster_enemies(singleplayer_right, faster_single_w);
+    vertical_placer *multiplayer_right = new vertical_placer(scale_dialog_value(6));
+    auto* multiplayer_preview = new w_level_preview(multiplayer_w, multiplayer_levels, preview_width);
+    multiplayer_right->dual_add(multiplayer_preview, d);
+    multiplayer_right->dual_add(new w_static_text("Difficulty", LABEL_WIDGET), d);
+    multiplayer_right->dual_add(new w_level_difficulty(difficulty_selection), d);
+    add_faster_enemies(multiplayer_right, faster_multi_w);
 	horizontal_placer *singleplayer_row = new horizontal_placer(scale_dialog_value(12));
     singleplayer_row->add(singleplayer_page, true);
-    singleplayer_row->dual_add(new w_level_preview(singleplayer_w, singleplayer_levels, preview_width), d);
+    singleplayer_row->add(singleplayer_right, true);
     horizontal_placer *multiplayer_row = new horizontal_placer(scale_dialog_value(12));
     multiplayer_row->add(multiplayer_page, true);
-    multiplayer_row->dual_add(new w_level_preview(multiplayer_w, multiplayer_levels, preview_width), d);
+    multiplayer_row->add(multiplayer_right, true);
     level_tabs->add(singleplayer_row, true);
     level_tabs->add(multiplayer_row, true);
 	placer->add(level_tabs, true);
-	placer->dual_add(new w_static_text("Difficulty", LABEL_WIDGET), d);
-	w_level_difficulty *difficulty_w =
-		new w_level_difficulty(player_preferences->difficulty_level);
-	placer->dual_add(difficulty_w, d);
 	horizontal_placer *all_weapons_row =
 		new horizontal_placer(scale_dialog_value(8));
 	all_weapons_row->dual_add(
@@ -943,8 +975,8 @@ short get_level_number_from_user(void)
 	all_weapons_column->add(timer_row, true);
 	horizontal_placer *buttons =
 		new horizontal_placer(scale_dialog_value(20));
-	buttons->dual_add(new w_button("START GAME", dialog_ok, &d), d);
-	buttons->dual_add(new w_button("CANCEL", dialog_cancel, &d), d);
+    buttons->dual_add(new w_button("CANCEL", dialog_cancel, &d), d);
+    buttons->dual_add(new w_level_start(&d), d);
 	horizontal_placer *footer =
 		new horizontal_placer(scale_dialog_value(28));
 	footer->add(all_weapons_column, true);
@@ -953,6 +985,25 @@ short get_level_number_from_user(void)
 	placer->add(new w_spacer(scale_dialog_value(6)), true);
 	placer->add(footer, true);
 	placer->add(new w_spacer(scale_dialog_value(16)), true);
+
+    // Measure the completed controls and give the list the remaining height.
+    // Keep a small outer margin, including on displays between font-scale steps.
+    const int canvas_height = MainScreenIsOpenGL() ? MainScreenPixelHeight() : 480;
+    const int frame_height = get_theme_space(DIALOG_FRAME, T_SPACE) +
+        get_theme_space(DIALOG_FRAME, B_SPACE);
+    const int controls_height = placer->min_height() - level_tabs->min_height();
+    const int header_height = singleplayer_page->min_height() - singleplayer_w->min_height();
+    const int list_height = canvas_height - frame_height - controls_height -
+        header_height - scale_dialog_value(16);
+    singleplayer_w->fit_height(list_height);
+    multiplayer_w->fit_height(list_height);
+    // Keep all right-column controls beside the list, including the checkbox.
+    // The preview yields height first; difficulty and footer retain their size.
+    const int sidebar_height = header_height + singleplayer_w->min_height();
+    singleplayer_preview->fit_height(singleplayer_preview->min_height() -
+        std::max(0, singleplayer_right->min_height() - sidebar_height));
+    multiplayer_preview->fit_height(multiplayer_preview->min_height() -
+        std::max(0, multiplayer_right->min_height() - sidebar_height));
 
 	d.activate_widget(singleplayer_w);
 	d.set_widget_placer(placer);
@@ -968,7 +1019,8 @@ short get_level_number_from_user(void)
 		else
 			level = multiplayer_levels[
 				multiplayer_w->get_selection()].level_number;
-		player_preferences->difficulty_level = difficulty_w->get_selection();
+		player_preferences->difficulty_level = difficulty_selection;
+        input_preferences->sprintathon_monster_speed_percent = faster_single_w->get_selection() ? 200 : 100;
 		set_spawn_with_all_weapons(all_weapons_w->get_selection() != 0);
 		input_preferences->sprintathon_level_timer =
 			timer_w->get_selection() != 0;

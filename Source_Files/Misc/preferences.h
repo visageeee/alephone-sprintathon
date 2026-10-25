@@ -330,6 +330,7 @@ struct input_preferences_data
 	bool sprintathon_stamina_bullet_time;
 	bool sprintathon_slide;
 	bool sprintathon_enhanced_enemy_ai;
+    int16 sprintathon_monster_speed_percent;
 	bool sprintathon_bullet_ricochet;
 	bool sprintathon_physics_corpses;
 	bool sprintathon_safe_checkpoints;

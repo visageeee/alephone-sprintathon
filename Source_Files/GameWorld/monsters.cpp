@@ -2030,6 +2030,20 @@ static void cause_shrapnel_damage(
 	}
 }
 
+// Scale displacement, not ticks: attack cadence and Bullet Time keep their
+// existing simulation clock. Never mutate shared monster definitions.
+static int sprintathon_monster_speed_percent(const monster_data* monster)
+{
+    if (!input_preferences->sprintathon_enabled || game_is_networked ||
+        game_is_being_replayed() || MONSTER_IS_PLAYER(monster) || MONSTER_IS_DYING(monster)) return 100;
+    return std::max(100, std::min(200, int(input_preferences->sprintathon_monster_speed_percent)));
+}
+static world_distance sprintathon_monster_step(const monster_data* monster, int distance)
+{
+    const int scaled = distance * sprintathon_monster_speed_percent(monster) / 100;
+    return static_cast<world_distance>(std::max(-32768, std::min(32767, scaled)));
+}
+
 // Experimental flight: no new saved state, random calls, or multiplayer changes.
 static bool sprintathon_organic_flight(const monster_data* monster, const monster_definition* definition)
 {
@@ -3050,7 +3064,8 @@ static bool sprintathon_flock_move(short index, bool* moved)
         fy = nearest_ny*0.35+nearest_nx*steering.side*0.8;
     }
     const double force = std::sqrt(fx*fx+fy*fy);
-    const double speed = std::min<int>(definition->speed, WORLD_ONE/32);
+    const double speed = std::min<int>(definition->speed, WORLD_ONE/32) *
+        (sprintathon_monster_speed_percent(monster) / 100.0);
     if (force > 1) { fx /= force; fy /= force; }
     // Damped acceleration; heavier bodies change their movement more slowly.
     const double response = std::max(0.12, std::min(0.35,
@@ -3339,7 +3354,11 @@ static void update_monster_vertical_physics_model(
 	}
 	
 	/* add our vertical velocity to z */
-	object->location.z= PIN(object->location.z+monster->vertical_velocity, polygon->floor_height, polygon->ceiling_height-definition->height);
+	int vertical_step = monster->vertical_velocity;
+    if ((moving_flags & (_monster_flys | _monster_floats)) &&
+        !monster->external_velocity && monster->action != _monster_is_being_hit)
+        vertical_step = sprintathon_monster_step(monster, vertical_step);
+    object->location.z= PIN(object->location.z+vertical_step, polygon->floor_height, polygon->ceiling_height-definition->height);
 
 	/* if we’re under the floor moving down, put us on the floor and clear our velocity;
 		if we’re above the floor moving up, put us on the floor and clear our velocity if we were previously below ground */
@@ -4476,6 +4495,8 @@ static bool translate_monster(
 	world_point3d new_location;
 	short obstacle_index;
 	bool legal_move= false;
+
+    distance = sprintathon_monster_step(monster, distance);
 
     angle route_facing = object->facing;
     double approach_turn = 0;

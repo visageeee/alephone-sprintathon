@@ -13,6 +13,8 @@ class w_level_preview : public widget
     w_levels* levels;
     const std::vector<entry_point>& entries;
     mutable short displayed = -2;
+    short pending = -2;
+    Uint32 pending_since = 0;
     typedef std::array<float, 4> Edge;
     mutable std::map<short, std::vector<Edge> > cache;
 
@@ -95,8 +97,19 @@ public:
         saved_min_height = width + font->get_line_height() * 3;
         rect.w = saved_min_width; rect.h = saved_min_height;
     }
+    void fit_height(int height)
+    {
+        saved_min_height = rect.h = std::max(font->get_line_height() * 3 + scale_dialog_value(32), height);
+    }
     bool is_selectable() const override { return false; }
-    bool is_dirty() override { return dirty || selected() != displayed; }
+    bool is_dirty() override
+    {
+        const short level = selected();
+        if (level != pending) { pending = level; pending_since = SDL_GetTicks(); }
+        // Avoid reading every intermediate level while scrolling quickly.
+        return dirty || (level != displayed &&
+            (cache.find(level) != cache.end() || Uint32(SDL_GetTicks() - pending_since) >= 120));
+    }
     void draw(SDL_Surface* s) const override
     {
         displayed = selected();
@@ -109,10 +122,10 @@ public:
         }
         const int pad = scale_dialog_value(8);
         const int top = rect.y + font->get_line_height() * 2;
-        const int size = std::max(1, rect.w - pad * 2);
+        const int size = std::max(1, std::min(rect.w - pad * 2, rect.h - font->get_line_height() * 3));
         const uint32 amber = SDL_MapRGB(s->format, 220, 220, 220);
-        draw_text(s, "SECTOR / TOPOLOGY", rect.x + pad, rect.y + font->get_ascent(), amber, font, style);
-        SDL_Rect frame = {rect.x + pad, top, size, size};
+        draw_text(s, "SECTOR / TOPOLOGY", rect.x + pad, rect.y + font->get_ascent(), SDL_MapRGB(s->format, 255, 80, 0), font, style);
+        SDL_Rect frame = {rect.x + (rect.w - size) / 2, top, size, size};
         draw_rectangle(s, &frame, SDL_MapRGB(s->format, 90, 90, 90));
         for (const auto& e : it->second)
         {

@@ -489,6 +489,23 @@ void w_tab::draw(SDL_Surface *s) const
 	{
 		if (i > 0)
 			x += tab_gap;
+        if (get_dialog_terminal_style())
+        {
+            const bool selected = i == pressed_tab;
+            SDL_Rect box = {x, rect.y, widths[i], rect.h};
+            if (selected)
+                SDL_FillRect(s, &box, SDL_MapRGB(s->format, 255, 80, 0));
+            else
+                draw_rectangle(s, &box, get_theme_color(TAB_WIDGET, DEFAULT_STATE, FRAME_COLOR));
+            if (active && i == active_tab)
+                draw_rectangle(s, &box, SDL_MapRGB(s->format, 255, 255, 255));
+            const uint32 color = selected ? SDL_MapRGB(s->format, 0, 0, 0) :
+                get_theme_color(TAB_WIDGET, enabled ? DEFAULT_STATE : DISABLED_STATE);
+            draw_text(s, labels[i].c_str(), x + (widths[i] - font->text_width(labels[i].c_str(), style)) / 2,
+                rect.y + (rect.h - font->get_line_height()) / 2 + font->get_ascent(), color, font, style);
+            x += widths[i];
+            continue;
+        }
 		int state;
 		if (!enabled)
 			state = DISABLED_STATE;
@@ -2345,8 +2362,8 @@ void w_levels_header::draw(SDL_Surface *s) const
 {
 	const int16 margin = scale_dialog_value(48);
 	const int16 baseline = rect.y + font->get_ascent();
-	const uint32 color = get_theme_color(
-		ITEM_WIDGET, DEFAULT_STATE);
+	const uint32 color = get_dialog_terminal_style() ?
+        SDL_MapRGB(s->format, 255, 80, 0) : get_theme_color(ITEM_WIDGET, DEFAULT_STATE);
 	draw_text(s, "Map name", rect.x +
 		get_theme_space(LIST_WIDGET, L_SPACE) + margin, baseline,
 		color, font, style);
@@ -2428,6 +2445,12 @@ void w_levels::draw(SDL_Surface *surface) const
 	w_list<entry_point>::draw(surface);
 	if (!show_scrollbar || num_items <= shown_items)
 		return;
+
+    // The base list draws its own thumb. Clear that strip before drawing
+    // the narrower level-picker indicator, keeping only the inner scrollbar.
+    SDL_Rect strip = {rect.x + trough_rect.x, rect.y + 1,
+        trough_rect.w, MAX(0, rect.h - 2)};
+    SDL_FillRect(surface, &strip, get_theme_color(DIALOG_FRAME, DEFAULT_STATE, BACKGROUND_COLOR));
 
 	const int track_width = scale_dialog_value(8);
 	SDL_Rect track = {

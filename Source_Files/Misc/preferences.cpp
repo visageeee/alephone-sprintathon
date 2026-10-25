@@ -550,6 +550,13 @@ public:
     { return std::to_string(get_selection()) + "%"; }
 };
 
+class w_monster_speed_slider : public w_slider {
+public:
+    explicit w_monster_speed_slider(int percent) :
+        w_slider(101, std::max(100, std::min(200, percent)) - 100) { init_formatted_value(); }
+    std::string formatted_value() override { return std::to_string(get_selection() + 100) + "%"; }
+};
+
 class w_volume_fog_quality : public w_slider {
 public:
     explicit w_volume_fog_quality(int value):w_slider(4,std::max(0,std::min(3,value))){init_formatted_value();}
@@ -643,13 +650,15 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	} theme_guard;
 	struct preferences_resolution_guard
 	{
-		preferences_resolution_guard() { set_dialog_render_scale(2); }
-		~preferences_resolution_guard() { set_dialog_render_scale(1); }
+		preferences_resolution_guard() { set_dialog_native_resolution(true); }
+		~preferences_resolution_guard() { set_dialog_native_resolution(false); }
 	} resolution_guard;
 
 	dialog d;
 	vertical_placer *root = new vertical_placer(get_theme_space(ITEM_WIDGET));
-    root->min_width(scale_dialog_value(610));
+    const int preferences_width = MainScreenIsOpenGL() ?
+        MainScreenPixelWidth() - scale_dialog_value(32) : scale_dialog_value(610);
+    root->min_width(std::max(scale_dialog_value(610), preferences_width));
 
 	tab_placer *pages = new tab_placer(true);
 	const vector<string> categories = {
@@ -1287,6 +1296,12 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	add_sprintathon_page(sprintathon_parkour);
 
 	table_placer *sprintathon_combat = make_sprintathon_table();
+    auto* monster_speed_w = new w_monster_speed_slider(input_preferences->sprintathon_monster_speed_percent);
+    sprintathon_combat->dual_add(monster_speed_w->label("Monster movement speed"), d);
+    sprintathon_combat->dual_add(monster_speed_w, d);
+    preferences_help(sprintathon_combat,"100% is normal; 200% is double movement speed. Single-player only.",d);
+    preferences_help(sprintathon_combat,"Leaves attack timers and projectile speeds unchanged. Respects Bullet Time.",d);
+
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, enhanced_ai_w, sprintathon_enhanced_enemy_ai, "Enhanced enemy AI");
     preferences_help(sprintathon_combat,"Adds improved enemy steering and combat movement.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_combat, ricochet_w, sprintathon_bullet_ricochet, "Bullet Ricochets");
@@ -2130,7 +2145,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 		if (!applying_graphics_preset && graphics_preset_w->get_selection() != 0)
 		{
 			graphics_preset_w->set_selection(0, true);
-			d.draw();
+            d.draw_dirty_widgets();
 		}
 	};
     horror_w->set_selection_changed_callback([&](w_select*) {
@@ -2140,7 +2155,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
         applying_graphics_preset=false;
         d.draw();
     });
-	auto custom_select_changed = [&](w_select*) { update_light_controls(); select_custom_preset(); d.draw(); };
+	auto custom_select_changed = [&](w_select*) { update_light_controls(); select_custom_preset(); d.draw_dirty_widgets(); };
     graphics_resolution_w->set_popup_callback([&](void*) {
         select_custom_preset(); d.draw();
     }, nullptr);
@@ -2155,7 +2170,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
         ogl_anamorphic_lens_flares_w->set_selection(lens_flares_enabled_w->get_selection()?last_lens_flare_style:0);
         update_light_controls();select_custom_preset();d.draw();
     });
-	auto custom_slider_changed = [&](w_slider*) { select_custom_preset(); d.draw(); };
+	auto custom_slider_changed = [&](w_slider*) { select_custom_preset(); d.draw_dirty_widgets(); };
 
 	// Any manual edit outside the Presets page makes the active setup Custom.
 	w_select *graphics_select_widgets[] = {
@@ -2222,19 +2237,21 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 
 	horizontal_placer *body = new horizontal_placer(
 		get_theme_space(ITEM_WIDGET) * 2);
-	body->add_flags(placeable::kFill);
-	body->add(sidebar);
-	body->add_flags(placeable::kDefault);
-	body->add(d.scrollable_content(pages, scroll_content_first), true);
-	root->add(body, true);
+    body->add_flags(placeable::kDefault);
+    body->add(sidebar);
+    body->add_flags(placeable::kFill);
+    body->add(d.scrollable_content(pages, scroll_content_first), true);
+    root->add_flags(placeable::kFill);
+    root->add(body, true);
+    root->add_flags(placeable::kDefault);
 
 	horizontal_placer *footer = new horizontal_placer;
 	footer->dual_add(new w_button(
-		in_game ? "SAVE SETTINGS AND RETURN TO GAME" : "SAVE SETTINGS",
-		dialog_ok, &d), d);
-	footer->dual_add(new w_button(
 		"CANCEL",
 		dialog_cancel, &d), d);
+	footer->dual_add(new w_button(
+		in_game ? "SAVE SETTINGS AND RETURN TO GAME" : "SAVE SETTINGS",
+		dialog_ok, &d), d);
     SDL_DisplayMode meter_desktop_mode{};
     int meter_desktop_width=graphics_preferences->screen_mode.width;
     int meter_desktop_height=graphics_preferences->screen_mode.height;
@@ -2835,6 +2852,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_sprint, sprint_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_enhanced_enemy_ai, enhanced_ai_w);
+    input_preferences->sprintathon_monster_speed_percent = monster_speed_w->get_selection() + 100;
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_bullet_ricochet, ricochet_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_physics_corpses, corpses_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_safe_checkpoints, checkpoints_w);
@@ -7333,6 +7351,7 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_stamina_bullet_time", input_preferences->sprintathon_stamina_bullet_time);
 	root.put_attr("sprintathon_slide", input_preferences->sprintathon_slide);
 	root.put_attr("sprintathon_enhanced_enemy_ai", input_preferences->sprintathon_enhanced_enemy_ai);
+    root.put_attr("sprintathon_monster_speed_percent", input_preferences->sprintathon_monster_speed_percent);
 	root.put_attr("sprintathon_bullet_ricochet", input_preferences->sprintathon_bullet_ricochet);
 	root.put_attr("sprintathon_physics_corpses", input_preferences->sprintathon_physics_corpses);
 	root.put_attr("sprintathon_safe_checkpoints", input_preferences->sprintathon_safe_checkpoints);
@@ -7806,6 +7825,7 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_stamina_bullet_time = true;
 	preferences->sprintathon_slide = true;
 	preferences->sprintathon_enhanced_enemy_ai = true;
+    preferences->sprintathon_monster_speed_percent = 100;
 	preferences->sprintathon_bullet_ricochet = true;
 	preferences->sprintathon_physics_corpses = true;
 	preferences->sprintathon_safe_checkpoints = false;
@@ -8569,6 +8589,9 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_stamina_bullet_time", input_preferences->sprintathon_stamina_bullet_time);
 	root.read_attr("sprintathon_slide", input_preferences->sprintathon_slide);
 	root.read_attr("sprintathon_enhanced_enemy_ai", input_preferences->sprintathon_enhanced_enemy_ai);
+    root.read_attr("sprintathon_monster_speed_percent", input_preferences->sprintathon_monster_speed_percent);
+    input_preferences->sprintathon_monster_speed_percent = std::max(100,
+        std::min(200, int(input_preferences->sprintathon_monster_speed_percent)));
 	root.read_attr("sprintathon_bullet_ricochet", input_preferences->sprintathon_bullet_ricochet);
 	root.read_attr("sprintathon_physics_corpses", input_preferences->sprintathon_physics_corpses);
 	root.read_attr("sprintathon_safe_checkpoints", input_preferences->sprintathon_safe_checkpoints);

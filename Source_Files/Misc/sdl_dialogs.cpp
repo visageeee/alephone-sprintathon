@@ -72,6 +72,7 @@ dialog *top_dialog = NULL;
 
 static SDL_Surface *dialog_surface = NULL;
 static int dialog_render_scale = 1;
+static double dialog_native_scale = 1.0;
 static bool dialog_native_resolution = false;
 static bool dialog_terminal_style = false;
 void set_dialog_terminal_style(bool enabled) { dialog_terminal_style = enabled; }
@@ -84,18 +85,34 @@ static void terminal_tint(SDL_Surface* surface, SDL_Rect area, int screen_y)
     area.x = MAX(0, area.x); area.y = MAX(0, area.y);
     area.w = MIN(area.w, surface->w - area.x);
     area.h = MIN(area.h, surface->h - area.y);
+    // Cache RGB conversion for this 16-bit surface format. Scrolling then
+    // needs just one lookup per pixel instead of SDL_GetRGB/SDL_MapRGB calls.
+    static Uint16 lookup[2][65536];
+    static Uint32 redMask = 0, greenMask = 0, blueMask = 0;
+    const SDL_PixelFormat* format = surface->format;
+    if (redMask != format->Rmask || greenMask != format->Gmask || blueMask != format->Bmask)
+    {
+        redMask = format->Rmask; greenMask = format->Gmask; blueMask = format->Bmask;
+        for (int pixel = 0; pixel < 65536; ++pixel)
+        {
+            Uint8 r, g, b;
+            SDL_GetRGB(pixel, surface->format, &r, &g, &b);
+            const bool orange = r > int(g) * 2 && r > int(b) * 2;
+            for (int row = 0; row < 2; ++row)
+            {
+                int value = MAX(r, MAX(g, b));
+                if (row) value = value * 51 / 100;
+                lookup[row][pixel] = SDL_MapRGB(surface->format, value,
+                    value * (orange ? 43 : 58) / 100, value * (orange ? 6 : 12) / 100);
+            }
+        }
+    }
     if (SDL_LockSurface(surface) != 0) return;
     for (int y = area.y; y < area.y + area.h; ++y)
     {
         Uint16* row = reinterpret_cast<Uint16*>(static_cast<Uint8*>(surface->pixels) + y * surface->pitch);
-        for (int x = area.x; x < area.x + area.w; ++x)
-        {
-            Uint8 r, g, b;
-            SDL_GetRGB(row[x], surface->format, &r, &g, &b);
-            int value = MAX(r, MAX(g, b));
-            if ((y + screen_y) & 1) value = value * 51 / 100;
-            row[x] = SDL_MapRGB(surface->format, value, value * 58 / 100, value * 12 / 100);
-        }
+        const Uint16* colors = lookup[(y + screen_y) & 1];
+        for (int x = area.x; x < area.x + area.w; ++x) row[x] = colors[row[x]];
     }
     SDL_UnlockSurface(surface);
 }
@@ -165,7 +182,9 @@ void set_dialog_native_resolution(bool native)
     native = native && MainScreenIsOpenGL();
     if(native == dialog_native_resolution)return;
     dialog_native_resolution=native;
-    const int scale=native ? MAX(1,MIN(MainScreenPixelWidth()/840,MainScreenPixelHeight()/480)) : 1;
+    dialog_native_scale = native ? std::max(1.0, std::min(
+        MainScreenPixelWidth() / 840.0, MainScreenPixelHeight() / 480.0)) : 1.0;
+    const int scale = static_cast<int>(dialog_native_scale);
     // Force surface recreation even when the font scale stays unchanged.
     dialog_render_scale=0;
     set_dialog_render_scale(scale);
@@ -185,7 +204,11 @@ static void dialog_window_to_surface(int& x,int& y)
 }
 
 int get_dialog_render_scale() { return dialog_render_scale; }
-int scale_dialog_value(int value) { return value * dialog_render_scale; }
+int scale_dialog_value(int value)
+{
+    const double scaled = value * (dialog_native_resolution ? dialog_native_scale : dialog_render_scale);
+    return static_cast<int>(scaled + (scaled < 0 ? -0.5 : 0.5));
+}
 
 /*
  *  Initialize dialog manager
@@ -1008,15 +1031,15 @@ font_info *get_theme_font(int widget_type, uint16 &style)
 		style = i->second.font_spec.style;
 	}
 
-	if (dialog_render_scale == 1)
+	if (scale_dialog_value(100) == 100)
 		return i->second.font;
 	auto cached = scaled_dialog_fonts.find(font_key);
 	if (cached != scaled_dialog_fonts.end())
 		return cached->second;
 
 	TextSpec spec = i->second.font_spec;
-	spec.size *= dialog_render_scale;
-	spec.adjust_height *= dialog_render_scale;
+	spec.size = scale_dialog_value(spec.size);
+	spec.adjust_height = scale_dialog_value(spec.adjust_height);
 	font_info *scaled = load_font(spec);
 	if (!scaled)
 	{
@@ -1033,6 +1056,8 @@ uint32 get_theme_color(int widget_type, int state, int which)
 {
     if (dialog_terminal_style) {
         if (which == BACKGROUND_COLOR) return SDL_MapRGB(dialog_surface->format, 0, 0, 0);
+        if (which == FOREGROUND_COLOR && widget_type == LABEL_WIDGET)
+            return SDL_MapRGB(dialog_surface->format, 255, 80, 0);
         const int v = which == FRAME_COLOR ? 100 : state == DISABLED_STATE ? 85 : state == ACTIVE_STATE ? 255 : 205;
         // Neutral values are tinted once when the widget is drawn.
         return SDL_MapRGB(dialog_surface->format, v, v, v);
@@ -1943,7 +1968,7 @@ void dialog::layout()
     if(scroll_content){
         scroll_content->offset=0;scroll_signature=0;
         scroll_content->limit=100000;
-        const int screenHeight=MainScreenIsOpenGL()?480*dialog_render_scale:MainScreenLogicalHeight();
+        const int screenHeight=MainScreenIsOpenGL()?dialog_surface->h:MainScreenLogicalHeight();
         const int frameHeight=get_theme_space(DIALOG_FRAME,T_SPACE)+get_theme_space(DIALOG_FRAME,B_SPACE);
         const int otherHeight=placer->min_height()-scroll_content->min_height();
         scroll_content->limit=std::max(scale_dialog_value(32),screenHeight-frameHeight-otherHeight-scale_dialog_value(12));
@@ -1984,13 +2009,18 @@ void dialog::update(SDL_Rect r) const
 	if (OGL_IsActive()) {
 		OGL_Blitter::BoundScreen(false);
 		clear_screen(false);
-		OGL_Blitter blitter;
+        // Registered with StopTextures(), so mode/context changes invalidate
+        // GPU objects safely. A full draw refreshes the cache on dialog changes.
+        static OGL_Blitter blitter;
 		SDL_Rect src = { 0, 0, rect.w, rect.h };
 		SDL_Rect dst = { rect.x / dialog_render_scale,
 			rect.y / dialog_render_scale,
 			MAX(1, rect.w / dialog_render_scale),
 			MAX(1, rect.h / dialog_render_scale) };
-		blitter.Load(*dialog_surface, src);
+        if (!blitter.Loaded() || blitter.UnscaledWidth() != src.w || blitter.UnscaledHeight() != src.h)
+            blitter.Load(*dialog_surface, src);
+        else
+            blitter.UpdateSurface(*dialog_surface, r);
         GLint previousMode=GL_MODELVIEW;
         if(dialog_native_resolution){
             dst=rect;
@@ -2110,7 +2140,28 @@ void
 dialog::draw_dirty_widgets() const
 {
 	if (top_dialog != this) return;
+    // Scrolling moves widgets and exposes previously covered pixels. Handle it
+    // before the ordinary dirty-widget fast path, which otherwise returns early.
     if(scroll_redraw){const_cast<dialog*>(this)->draw();return;}
+
+    if (dialog_native_resolution || dialog_terminal_style)
+    {
+        bool changed = false;
+        SDL_Rect damage = {0, 0, 0, 0};
+        for (auto* w : widgets)
+            if (w->visible() && w->is_dirty())
+            {
+                draw_widget(w, false);
+                if (changed) SDL_UnionRect(&damage, &w->rect, &damage);
+                else damage = w->rect;
+                changed = true;
+            }
+        if (changed) update(damage);
+        return;
+    }
+
+
+
         for (unsigned i=0; i<widgets.size(); i++)
 		if (widgets[i]->is_dirty())
 			if (widgets[i]->visible())
@@ -2316,6 +2367,17 @@ widget *dialog::get_widget_by_id(short inID) const
 
 void dialog::event(SDL_Event &e)
 {
+    // The terminal picker always starts on Enter, regardless of focused control.
+    // Preserve Alt/GUI+Enter fullscreen and other modified shortcuts.
+    if (dialog_terminal_style && e.type == SDL_KEYDOWN &&
+        (e.key.keysym.sym == SDLK_RETURN || e.key.keysym.sym == SDLK_KP_ENTER) &&
+        !(e.key.keysym.mod & (KMOD_ALT | KMOD_GUI | KMOD_CTRL | KMOD_SHIFT)))
+    {
+        if (!e.key.repeat) quit(0);
+        e.type = SDL_LASTEVENT;
+        return;
+    }
+
 
   bool handled = false;
   // handle events we do not want widgets to see or modify
@@ -2349,10 +2411,8 @@ void dialog::event(SDL_Event &e)
      (e.type==SDL_MOUSEWHEEL || e.type==SDL_MOUSEBUTTONDOWN)){
       int x,y;
       if(e.type==SDL_MOUSEBUTTONDOWN){x=e.button.x;y=e.button.y;}else SDL_GetMouseState(&x,&y);
-#ifdef HAVE_OPENGL
-      if(OGL_IsActive())OGL_Blitter::WindowToScreen(x,y);
-#endif
-      x=x*dialog_render_scale-rect.x;y=y*dialog_render_scale-rect.y;
+      dialog_window_to_surface(x,y);
+      x-=rect.x;y-=rect.y;
       refresh_scroll_extent();const auto& v=scroll_content->viewport;
       if(y>=v.y && y<v.y+v.h && x>=v.x && x<v.x+v.w+scale_dialog_value(12) && scroll_content->extent>v.h){
           if(e.type==SDL_MOUSEWHEEL){
@@ -2511,8 +2571,11 @@ int dialog::run(bool intro_exit_sounds)
 		if (machine_tick_count() > last_redraw + TICKS_PER_SECOND / 30)
 		{
 			draw_dirty_widgets();
-			SDL_Rect r{0, 0, rect.w, rect.h};
-			update(r);
+            if (!dialog_native_resolution && !dialog_terminal_style)
+            {
+                SDL_Rect r{0, 0, rect.w, rect.h};
+                update(r);
+            }
 			last_redraw = machine_tick_count();
 		}
         

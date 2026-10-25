@@ -135,6 +135,52 @@ void OGL_Blitter::_LoadTextures()
 	return;
 }
 
+// Update the CPU copy and only the existing GPU tiles touched by the edit.
+// Keeping the CPU copy current also permits StopTextures() context recovery.
+void OGL_Blitter::UpdateSurface(const SDL_Surface& surface, SDL_Rect area)
+{
+    if (!m_surface) return;
+    SDL_Rect bounds = {0, 0, m_surface->w, m_surface->h};
+    SDL_Rect clipped;
+    if (!SDL_IntersectRect(&area, &bounds, &clipped)) return;
+    SDL_Rect destination = clipped;
+    if (SDL_BlitSurface(const_cast<SDL_Surface*>(&surface), &clipped, m_surface, &destination) != 0) return;
+    if (!m_textures_loaded) return; // Draw will rebuild from the updated copy.
+
+    std::vector<uint32> pixels(m_tile_width * m_tile_height);
+    GLint previous_texture = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
+    glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    const uint32 rgb_mask = ~m_surface->format->Amask;
+    for (size_t i = 0; i < m_rects.size(); ++i)
+    {
+        SDL_Rect overlap;
+        if (!SDL_IntersectRect(&clipped, &m_rects[i], &overlap)) continue;
+        const SDL_Rect& tile = m_rects[i];
+        for (int y = 0; y < m_tile_height; ++y)
+        {
+            const uint32* row = reinterpret_cast<const uint32*>(
+                static_cast<const uint8*>(m_surface->pixels) +
+                (tile.y + std::min(y, tile.h - 1)) * m_surface->pitch);
+            for (int x = 0; x < m_tile_width; ++x)
+            {
+                uint32 pixel = row[tile.x + std::min(x, tile.w - 1)];
+                if (x >= tile.w || y >= tile.h) pixel &= rgb_mask;
+                pixels[y * m_tile_width + x] = pixel;
+            }
+        }
+        glBindTexture(GL_TEXTURE_2D, m_refs[i]);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_tile_width, m_tile_height,
+            GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    }
+    glPopClientAttrib();
+    glBindTexture(GL_TEXTURE_2D, previous_texture);
+}
+
 void OGL_Blitter::Unload()
 {
 	Image_Blitter::Unload();
