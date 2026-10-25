@@ -208,7 +208,7 @@ inline bool prepare(){
  glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT,GL_COLOR_ATTACHMENT0_EXT,GL_TEXTURE_2D,s.texture,0);
  glDrawBuffer(GL_COLOR_ATTACHMENT0_EXT);glReadBuffer(GL_COLOR_ATTACHMENT0_EXT);
  if(glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT)!=GL_FRAMEBUFFER_COMPLETE_EXT){glDeleteFramebuffersEXT(1,&s.fbo);s.fbo=0;return false;}
- std::fprintf(stderr,"Flashlight bounce: surface-lighting history passes ready\n");
+ if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,"Flashlight bounce: surface-lighting history passes ready\n");
  return true;
 }
 inline void quad(){glBegin(GL_QUADS);glTexCoord2f(0,0);glVertex2f(-1,-1);glTexCoord2f(1,0);glVertex2f(1,-1);glTexCoord2f(1,1);glVertex2f(1,1);glTexCoord2f(0,1);glVertex2f(-1,1);glEnd();}
@@ -260,7 +260,7 @@ inline void draw(GLuint colour,GLuint depth,int width,int height,const GLfloat* 
   if(debugMode()){
     static Uint32 logged=0;
     if(Uint32(SDL_GetTicks()-logged)>1000){logged=SDL_GetTicks();
-      std::fprintf(stderr,"Bounce debug: gain=%.2f mode=%d valid=%d applying=%d size=%dx%d texture=%u source=%u bounce=%u\n",gain(),debugMode(),int(s.valid),int(s.applying),s.width,s.height,s.illumination,unsigned(s.source),unsigned(s.bounce));}
+      std::fprintf(stderr,"Bounce debug: gain=%.2f mode=%d valid=%d applying=%d size=%dx%d texture=%u source_ready=%d bounce_ready=%d\n",gain(),debugMode(),int(s.valid),int(s.applying),s.width,s.height,s.illumination,int(s.source!=0),int(s.bounce!=0));}
   }
   if(debugMode()==1 && s.valid && s.debug){
     glBindFramebufferEXT(GL_FRAMEBUFFER_EXT,fbo);glDrawBuffer(drawBuffer);
