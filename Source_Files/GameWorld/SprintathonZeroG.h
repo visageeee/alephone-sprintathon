@@ -1,6 +1,7 @@
 #ifndef SPRINTATHON_ZERO_G_H
 #define SPRINTATHON_ZERO_G_H
 #include "SprintathonZeroGMath.h"
+#include "SprintathonZeroGControl.h"
 #include "map.h"
 #include "player.h"
 #include "render.h"
@@ -14,7 +15,7 @@ namespace SprintathonZeroG {
 using namespace SprintathonZeroGMath;
 inline void reset();
 inline int mode(){
- const int value=input_preferences && input_preferences->sprintathon_enabled && input_preferences->sprintathon_zero_g?1:0;
+ const int value=SprintathonZeroGControl::effective(input_preferences && input_preferences->sprintathon_enabled && input_preferences->sprintathon_zero_g)?1:0;
  static int previous=-1;
  if(value!=previous){reset();previous=value;}
  return value;
@@ -38,7 +39,7 @@ inline bool active(const player_data* p){
  return false;
 #endif
 }
-struct State {Q previous,q;bool ready=false,jumpHeld=false,crouchHeld=false,kickSpent=false,kickedThisTick=false;
+struct State {Q previous,q;V angularRate;bool ready=false,jumpHeld=false,crouchHeld=false,kickSpent=false,kickedThisTick=false;
  _fixed bodyHeight=0;double animationPhase=0;};
 inline State& state(){static State s;return s;}
 inline void reset(){state()=State{};}
@@ -59,16 +60,23 @@ inline void velocity(player_data* p,V value){auto& v=p->variables.external_veloc
 using ContactQuery=V (*)(player_data*,V);
 template<class Constants> inline void update(player_data* p,uint32 flags,const Constants* constants,double dt,ContactQuery query=nullptr){
  seed(p);auto& s=state();auto& v=p->variables;s.previous=s.q;
- double yaw=(flags&_absolute_yaw_mode)?GET_ABSOLUTE_YAW(flags)-MAXIMUM_ABSOLUTE_YAW/2:
+ // Packed flags are unsigned: decode to signed before subtracting the bias.
+ double yaw=(flags&_absolute_yaw_mode)?static_cast<int>(GET_ABSOLUTE_YAW(flags))-MAXIMUM_ABSOLUTE_YAW/2:
  ((flags&_turning_right)?2.:0.)-((flags&_turning_left)?2.:0.);
- double pitch=(flags&_absolute_pitch_mode)?GET_ABSOLUTE_PITCH(flags)-MAXIMUM_ABSOLUTE_PITCH/2:
+ double pitch=(flags&_absolute_pitch_mode)?static_cast<int>(GET_ABSOLUTE_PITCH(flags))-MAXIMUM_ABSOLUTE_PITCH/2:
  ((flags&_looking_up)?2.:0.)-((flags&_looking_down)?2.:0.);
  double side=((flags&_sidestepping_right)?1.:0.)-((flags&_sidestepping_left)?1.:0.);
  // Sprint has its own binding; Run/Walk may be permanently enabled.
  bool rolling=(flags&_look_dont_turn)!=0;
- s.q=turn(s.q,yaw*2*pi/FULL_CIRCLE,pitch*2*pi/FULL_CIRCLE,rolling?side*.055*dt:0.);
+ // Relative mouse input is already an angular displacement; keyboard input
+ // is a rate and must scale with simulation time.
+ if(!(flags&_absolute_yaw_mode))yaw*=dt;
+ if(!(flags&_absolute_pitch_mode))pitch*=dt;
+ const V rotation=rotationStep(s.angularRate,
+     {yaw*2*pi/FULL_CIRCLE,pitch*2*pi/FULL_CIRCLE,rolling?side*.055*dt:0.},dt);
+ s.q=turn(s.q,rotation.x,rotation.y,rotation.z);
  double forward=(flags&_absolute_position_mode)?
- (GET_ABSOLUTE_POSITION(flags)-MAXIMUM_ABSOLUTE_POSITION/2)/double(MAXIMUM_ABSOLUTE_POSITION/2):
+ (static_cast<int>(GET_ABSOLUTE_POSITION(flags))-MAXIMUM_ABSOLUTE_POSITION/2)/double(MAXIMUM_ABSOLUTE_POSITION/2):
  ((flags&_moving_forward)?1.:0.)-((flags&_moving_backward)?1.:0.);
  bool up=(flags&_swim)!=0,down=(flags&_microphone_button)!=0;
  V speed=velocity(p);
@@ -127,7 +135,12 @@ template<class Constants> inline void update(player_data* p,uint32 flags,const C
 }
 inline void recoil(player_data* p,double magnitude){if(!active(p))return;seed(p);
  velocity(p,velocity(p)-state().q.rotate({1,0,0})*std::max(.012,std::min(.12,magnitude)));}
-inline void correct(player_data* p,double dx,double dy){velocity(p,collide(velocity(p),{dx,dy,0}));}
+inline void impact(player_data* p,V normal){
+ const V incoming=velocity(p);auto& s=state();
+ if(s.ready)s.angularRate=impactSpin(s.angularRate,s.q,incoming,normal);
+ velocity(p,bounce(incoming,normal));
+}
+inline void correct(player_data* p,double dx,double dy){impact(p,{dx,dy,0});}
 inline void applyView(view_data* view,float fraction){
  if(!active(current_player) || !state().ready)return;
  V a=angles(blend(state().previous,state().q,fraction));

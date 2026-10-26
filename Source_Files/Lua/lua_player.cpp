@@ -21,6 +21,8 @@ LUA_PLAYER.CPP
 */
 
 #include "ActionQueues.h"
+#include "../GameWorld/SprintathonZeroGControl.h"
+#include "preferences.h"
 #include <cmath>
 #include "alephversion.h"
 #include "computer_interface.h"
@@ -2839,7 +2841,28 @@ int Lua_Game_Serialize(lua_State* L)
 extern int L_Restore_Passed(lua_State *);
 extern int L_Restore_Saved(lua_State *);
 
+// This is the requested mode; the existing runtime still excludes network play,
+// film playback, dead players and unsupported renderers.
+static int Lua_Game_Get_Zero_Gravity(lua_State* L)
+{
+    lua_pushboolean(L, SprintathonZeroGControl::effective(input_preferences &&
+        input_preferences->sprintathon_enabled && input_preferences->sprintathon_zero_g));
+    return 1;
+}
+
+static int Lua_Game_Set_Zero_Gravity(lua_State* L)
+{
+    if (lua_isnil(L, 2))
+        SprintathonZeroGControl::clear();
+    else if (lua_isboolean(L, 2))
+        SprintathonZeroGControl::set(lua_toboolean(L, 2));
+    else
+        return luaL_error(L, "zero_gravity: expected boolean or nil");
+    return 0;
+}
+
 const luaL_Reg Lua_Game_Get[] = {
+	{"zero_gravity", Lua_Game_Get_Zero_Gravity},
 	{"dead_players_drop_items", Lua_Game_Get_Dead_Players_Drop_Items},
 	{"deserialize", L_TableFunction<Lua_Game_Deserialize>},
 	{"difficulty", Lua_Game_Get_Difficulty},
@@ -2871,6 +2894,7 @@ const luaL_Reg Lua_Game_Get_Mutable[] = {
 };
 
 const luaL_Reg Lua_Game_Set[] = {
+	{"zero_gravity", Lua_Game_Set_Zero_Gravity},
 	{"dead_players_drop_items", Lua_Game_Set_Dead_Players_Drop_Items},
 	{"monsters_replenish", Lua_Game_Set_Monsters_Replenish},
 	{"player", Lua_Game_Set_Player},

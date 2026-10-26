@@ -922,9 +922,9 @@ static void sprintathon_push_character(short player_index, short obstruction,
             variables->external_velocity.i=variables->external_velocity.j=variables->external_velocity.k=0;
         }else{
             if(new_location.z<floor){new_location.z=static_cast<world_distance>(floor);clipped=true;
-                if(variables->external_velocity.k<0)variables->external_velocity.k=0;}
+                SprintathonZeroG::impact(player,{0,0,1});}
             if(new_location.z>roof){new_location.z=static_cast<world_distance>(roof);clipped=true;
-                if(variables->external_velocity.k>0)variables->external_velocity.k=0;}
+                SprintathonZeroG::impact(player,{0,0,-1});}
             SprintathonZeroG::correct(player,double(new_location.x)-attempted_location.x,
                 double(new_location.y)-attempted_location.y);
         }

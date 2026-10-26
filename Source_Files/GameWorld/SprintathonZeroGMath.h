@@ -46,6 +46,48 @@ inline V advanceVelocity(V velocity,Q q,V thrust,double dt,bool brake){
  if(brake && velocity.length()<.0001)velocity={};
  return velocity;
 }
+// Active controls respond quickly; released axes coast with a one-second
+// decay constant (about three seconds to lose 95% of their rotation rate).
+inline double rotationAxis(double& rate,double requestedDelta,double dt){
+ if(dt<=0)return 0;
+ const double response=std::abs(requestedDelta)>1e-12 ? 3.0 : 30.0;
+ const double decay=std::exp(-dt/response);
+ const double target=requestedDelta/dt,difference=rate-target;
+ const double delta=target*dt+difference*response*(1.0-decay);
+ rate=target+difference*decay;
+ return delta;
+}
+inline V rotationStep(V& rate,V requestedDelta,double dt){
+ return {rotationAxis(rate.x,requestedDelta.x,dt),
+         rotationAxis(rate.y,requestedDelta.y,dt),
+         rotationAxis(rate.z,requestedDelta.z,dt)};
+}
+// Approximate contact friction on a finite body. A glancing collision gives
+// a small tumble; a central, head-on impact contributes no spin.
+inline V impactSpin(V rate,Q orientation,V velocity,V correction){
+ const double length=correction.length();if(length<1e-12)return rate;
+ const V normal=correction*(1.0/length);
+ const double inward=-velocity.dot(normal);if(inward<=.003)return rate;
+ V impulse=normal.cross(velocity)*(.8*std::min(1.0,inward/.04));
+ const double spin=impulse.length();if(spin>.035)impulse=impulse*(.035/spin);
+ const Q inverse{orientation.w,-orientation.x,-orientation.y,-orientation.z};
+ const V local=inverse.rotate(impulse);
+ // Quaternion rotation uses negative body Y/X for pitch/roll.
+ const V change{local.z,-local.y,-local.x};
+ V result=rate+change;
+ const double limit=std::max(.12,rate.length()),speed=result.length();
+ if(speed>limit)result=result*(limit/speed);
+ return result;
+}
+inline V bounce(V velocity,V correction){
+ const double length=correction.length();if(length<1e-12)return velocity;
+ const V normal=correction*(1.0/length);
+ const double inward=velocity.dot(normal);
+ if(inward>=0)return velocity;
+ // Gentle contact settles; faster impacts retain 35% of normal speed.
+ const double restitution=inward < -.003 ? .35 : 0.0;
+ return velocity-normal*((1.0+restitution)*inward);
+}
 inline V collide(V velocity,V correction){
  double n=correction.length();if(n<1e-12)return velocity;
  V normal=correction*(1/n);double inward=velocity.dot(normal);

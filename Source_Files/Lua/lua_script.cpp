@@ -1,3 +1,4 @@
+#include "../GameWorld/SprintathonZeroGControl.h"
 /*
 LUA_SCRIPT.CPP
 
@@ -2292,6 +2293,7 @@ void LoadReplayNetLua()
 
 void CloseLuaScript()
 {
+    SprintathonZeroGControl::clear();
     SprintathonLuaSun::reset();
     SprintathonTimeOfDay::reset();
 	// save variables for going into next level
