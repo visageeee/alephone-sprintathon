@@ -50,6 +50,7 @@
 #include "SprintathonTerrainRuntime.h"
 #include "SprintathonPresentTrace.h"
 #include "SprintathonTerrainColor.h"
+#include "SprintathonCubeSky.h"
 #include "SprintathonWaterNormals.h"
 #include "SprintathonSpriteReflection.h"
 #include "SprintathonSkyBake.h"
@@ -577,6 +578,7 @@ void RenderRasterize_Shader::setupGL(Rasterizer_Shader_Class& Rasterizer) {
     sprintathon_world_detail.reset();
     SprintathonWaterNormals::reset();
     SprintathonTerrainColor::reset();
+    SprintathonCubeSky::reset();
 
 	RasPtr = &Rasterizer;
 
@@ -4257,6 +4259,11 @@ void sprintathon_begin_sky_loading() {
     SprintathonSkyBake::reset();
     SprintathonSkyBake::prepare();
 }
+void sprintathon_reset_landscape_cubes(){SprintathonLandscapeCube::reset();}
+void sprintathon_prepare_landscape_cube(int descriptor,double repeats,double azimuth,double centre,double slope){
+    SprintathonLandscapeCube::prepare(descriptor,repeats,azimuth,centre,slope);
+}
+
 void sprintathon_preload_sky_palette(const float ambient[3],const float sunlight[3]) {
     if(SprintathonSkyBake::enabled()) SprintathonSkyBake::landscapeColor(ambient,sunlight);
 }
@@ -4754,6 +4761,7 @@ void RenderRasterize_Shader::render_tree() {
         s->setVector4(Shader::U_TimeOfDayHorizon,day.horizon.r,day.horizon.g,day.horizon.b,0);
 		s->setFloat(Shader::U_FogMix, fogMix);
 		sprintathon_set_visible_sun(s,view);
+        SprintathonCubeSky::bind();
 		s->setFloat(Shader::U_Yaw, virtual_yaw);
 		s->setFloat(Shader::U_Pitch, view->mimic_sw_perspective ? 0.0 : virtual_pitch);
 	}
@@ -5668,6 +5676,7 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 	const OGL_ConfigureData& config = Get_OGL_ConfigureData();
 	const float ripple_phase = sprintathon_liquid_ripple_phase(mediaType);
     sprintathon_set_visible_sun(s,view);
+    if(TMgr->TextureType == OGL_Txtr_Landscape) SprintathonCubeSky::bind(TMgr->ShapeDesc);
     s->setVector4(Shader::U_LiquidFlow,0,0,0,0);
     s->setVector4(Shader::U_WaterSceneryColor0,0,0,0,0);
     s->setVector4(Shader::U_WaterSceneryColor1,0,0,0,0);

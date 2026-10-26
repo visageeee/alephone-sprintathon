@@ -1,3 +1,5 @@
+#include <cmath>
+#include <cstdlib>
 /*
 
 	Copyright (C) 1991-2001 and beyond by Bungie Studios, Inc.
@@ -539,6 +541,8 @@ extern void sprintathon_begin_sky_loading();
 extern void sprintathon_preload_post_buffers();
 extern void sprintathon_preload_opaque_geometry();
 extern void sprintathon_preload_sky_palette(const float ambient[3], const float sunlight[3]);
+extern void sprintathon_reset_landscape_cubes();
+extern void sprintathon_prepare_landscape_cube(int,double,double,double,double);
 
 bool OGL_StartRun(bool retain_sprites)
 {
@@ -718,6 +722,7 @@ bool OGL_StopRun()
 // ZZZ: changes to try to do less redundant work (using a set of pairs etc.)
 void PreloadTextures()
 {
+    sprintathon_reset_landscape_cubes();
 	typedef std::set<TextureWithTransferMode> TextureWithTransferModeSet;
 
 	TextureWithTransferModeSet theSetOfTexturesUsed;
@@ -870,6 +875,7 @@ static void PreloadSpriteTexture(short collection, short clut, short frame, shor
 	if (ready)
 	{
 		TMgr.RenderNormal();
+
 		if (TMgr.IsGlowMapped())
 			TMgr.RenderGlowing();
 	}
@@ -942,6 +948,26 @@ void PreloadWallTexture(const TextureWithTransferMode& inTexture)
             if(TMgr.GetSkyColor(ambient,sunlight)) sprintathon_preload_sky_palette(ambient,sunlight);
         }
 		TMgr.RenderNormal();
+        const char* cubeOption=std::getenv("SPRINTATHON_LANDSCAPE_CUBEMAP");
+        const bool cubeRequested=cubeOption && (cubeOption[0]=='0' || cubeOption[0]=='1')
+            ? cubeOption[0]=='1' : graphics_preferences->landscape_cubemaps;
+        if(IsLandscape && cubeRequested){
+            const LandscapeOptions* options=View_GetLandscapeOptions(TMgr.ShapeDesc);
+            // Full-sphere images already have poles; tiled M1 landscapes keep
+            // their original rendering. Extend ordinary clamped panoramas only.
+            if(!options->SphereMap && !options->VertRepeat){
+                TMgr.SetupTextureMatrix();
+                GLfloat matrix[16];glGetFloatv(GL_TEXTURE_MATRIX,matrix);
+                TMgr.RestoreTextureMatrix();
+                const double vertical=std::ldexp(1.0,options->VertExp+options->OGL_AspRatExp);
+                OGL_SetProgressMessage("extending landscape sky");
+                sprintathon_prepare_landscape_cube(TMgr.ShapeDesc,
+                    std::ldexp(1.0,options->HorizExp),options->Azimuth/double(FULL_CIRCLE),
+                    matrix[13]+0.5*matrix[5],matrix[5]*vertical/(2.0*3.14159265358979323846));
+                OGL_ProgressCallback(0);
+                OGL_SetProgressMessage("preparing level textures");
+            }
+        }
 		if (TMgr.IsGlowMapped()) TMgr.RenderGlowing();
 		if (TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_BumpMap))
 			TMgr.RenderBump();

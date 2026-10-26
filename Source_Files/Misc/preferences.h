@@ -137,6 +137,8 @@ struct graphics_preferences_data
 	bool simplify_distant_surfaces;
 	bool batched_world_rendering;
 	bool world_texture_arrays;
+	bool procedural_space_sky;
+	bool landscape_cubemaps;
 	bool reuse_refraction_capture;
 	int16 colored_light_intensity;
 	int16 texture_light_intensity;

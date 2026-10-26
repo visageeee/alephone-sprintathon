@@ -1720,6 +1720,14 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	textures_page->center_vertically();
 	textures_page->min_width(scale_dialog_value(430));
 	table_placer *textures = make_preferences_table();
+    w_toggle* landscape_cubemaps_w = new w_toggle(graphics_preferences->landscape_cubemaps);
+    preferences_checkbox(textures,"Landscape Cubemaps",landscape_cubemaps_w,d);
+    preferences_help(textures,"Wraps landscapes around you with smooth sky and ground colors.",d);
+    preferences_help(textures,"Prepared during loading. Reload the level after enabling.",d);
+    w_toggle* procedural_space_sky_w = new w_toggle(graphics_preferences->procedural_space_sky);
+    preferences_checkbox(textures,"Procedural Space Sky",procedural_space_sky_w,d);
+    preferences_help(textures,"Twinkling stars and a faint galactic band on Space landscapes.",d);
+    preferences_help(textures,"Requires the OpenGL shader renderer.",d);
 	static const char *texture_names[] = {"Walls", "Landscapes", "Sprites", "Weapons in Hand", "HUD / Terminals"};
 	static const char *texture_quality_labels[] = {"Unlimited", "Normal", "High", "Higher", "Highest", nullptr};
 	static const char *near_filter_labels_main[] = {"None", "Linear", nullptr};
@@ -2053,6 +2061,8 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
             // cannot inherit disabled features from Low or a custom setup.
             batched_world_rendering_w->set_selection(true);
             world_texture_arrays_w->set_selection(true);
+            procedural_space_sky_w->set_selection(high_or_better);
+            landscape_cubemaps_w->set_selection(high_or_better);
             flashlight_w->set_selection(medium_or_better);
             flashlight_contacts_w->set_selection(high_or_better);
             flashlight_bounce_w->set_selection(high_or_better);
@@ -2240,7 +2250,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 		graphics_skip_intro_w, graphics_limit_vertical_w,
 		graphics_bobbing_w, ogl_fader_w, ogl_models_w, ogl_perspective_w,
 		ogl_billboard_w, ogl_bloom_w, ogl_bump_w, simplify_distant_surfaces_w,
-	batched_world_rendering_w, world_texture_arrays_w, reuse_refraction_capture_w,
+	batched_world_rendering_w, world_texture_arrays_w, procedural_space_sky_w, landscape_cubemaps_w, reuse_refraction_capture_w,
 		projectile_motion_blur_w,
 		projectile_lights_per_pixel_w, bright_texture_lights_w, bright_scenery_lights_w, all_visible_scenery_lights_w, per_pixel_light_quality_w, player_light_circle_w, soft_sector_light_edges_w,
 		ogl_refractive_invisibility_w, ogl_sprite_shadows_w,
@@ -2384,6 +2394,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
             }
         }
         if(shockwaves_w->get_selection() && shockwave_strength_w->get_selection()>0){cpu+=1;gpu+=4;} // while explosions are active
+        if(procedural_space_sky_w->get_selection())gpu+=5; // estimated sky-shader cost, Space levels only
         if(liquid_specular_w->get_selection())gpu+=5;
         if(liquid_sprite_reflections_w->get_selection()){cpu+=5;gpu+=5;}
         if(liquid_caustics_w->get_selection())gpu+=4;
@@ -2581,6 +2592,8 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	graphics_preferences->simplify_distant_surfaces = simplify_distant_surfaces_w->get_selection();
 	graphics_preferences->batched_world_rendering = batched_world_rendering_w->get_selection();
 	graphics_preferences->world_texture_arrays = world_texture_arrays_w->get_selection();
+	graphics_preferences->procedural_space_sky = procedural_space_sky_w->get_selection();
+	graphics_preferences->landscape_cubemaps = landscape_cubemaps_w->get_selection();
 	graphics_preferences->reuse_refraction_capture = reuse_refraction_capture_w->get_selection();
 	graphics_preferences->colored_light_intensity = colored_light_intensity_w->get_selection();
 	graphics_preferences->scenery_light_intensity = scenery_light_intensity_w->get_selection();
@@ -7028,6 +7041,8 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("reuse_refraction_capture", graphics_preferences->reuse_refraction_capture);
 	root.put_attr("batched_world_rendering", graphics_preferences->batched_world_rendering);
 	root.put_attr("world_texture_arrays", graphics_preferences->world_texture_arrays);
+	root.put_attr("procedural_space_sky", graphics_preferences->procedural_space_sky);
+	root.put_attr("landscape_cubemaps", graphics_preferences->landscape_cubemaps);
 	root.put_attr("colored_light_intensity", graphics_preferences->colored_light_intensity);
 	root.put_attr("scenery_light_intensity", graphics_preferences->scenery_light_intensity);
 	root.put_attr("texture_light_intensity", graphics_preferences->texture_light_intensity);
@@ -7734,6 +7749,8 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->reuse_refraction_capture = true;
 	preferences->batched_world_rendering = true;
 	preferences->world_texture_arrays = true;
+	preferences->procedural_space_sky = true;
+	preferences->landscape_cubemaps = true;
 	preferences->colored_light_intensity = 150;
 	preferences->scenery_light_intensity = 40;
 	preferences->texture_light_intensity = 200;
@@ -8338,6 +8355,10 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("reuse_refraction_capture", graphics_preferences->reuse_refraction_capture);
 	root.read_attr("batched_world_rendering", graphics_preferences->batched_world_rendering);
 	root.read_attr("world_texture_arrays", graphics_preferences->world_texture_arrays);
+	graphics_preferences->procedural_space_sky = graphics_preferences->graphics_preset >= 3;
+	graphics_preferences->landscape_cubemaps = graphics_preferences->graphics_preset >= 3;
+	root.read_attr("procedural_space_sky", graphics_preferences->procedural_space_sky);
+	root.read_attr("landscape_cubemaps", graphics_preferences->landscape_cubemaps);
 	root.read_attr_bounded<int16>("colored_light_intensity",
 		graphics_preferences->colored_light_intensity, 0, 200);
 	graphics_preferences->texture_light_intensity = graphics_preferences->colored_light_intensity;
