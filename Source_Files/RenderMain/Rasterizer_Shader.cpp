@@ -1,3 +1,4 @@
+#include "../GameWorld/SprintathonZeroG.h"
 /*
  *  Rasterizer_Shader.cpp
  *  Created by Clemens Unterkofler on 1/20/09.
@@ -7,6 +8,7 @@
  */
 
 #include "OGL_Headers.h"
+#include "SprintathonPresentTrace.h"
 
 #include <iostream>
 
@@ -128,10 +130,13 @@ void Rasterizer_Shader_Class::SetView(view_data& view) {
 	// setup the normal view matrix
 
 	glLoadMatrixd(kViewBaseMatrix);
+    double roll = view.roll * 360.0 / float(NUMBER_OF_ANGLES);
+    const bool zeroG=SprintathonZeroG::active(current_player);
+    // Local camera roll must precede pitch in the inverse view transform.
+    if(zeroG)glRotated(roll,1.0,0.0,0.0);
 	if (!view.mimic_sw_perspective)
 		glRotated(pitch, 0.0, 1.0, 0.0);
-	double roll = view.roll * 360.0 / float(NUMBER_OF_ANGLES);
-	glRotated(roll, 1.0, 0.0, 0.0);
+    if(!zeroG)glRotated(roll,1.0,0.0,0.0);
 	glRotated(-yaw, 0.0, 0.0, 1.0);
 	glTranslated(-view.origin.x, -view.origin.y, -view.origin.z);
 }
@@ -192,6 +197,7 @@ void Rasterizer_Shader_Class::End()
 	OGL_RenderFrame(0, 0, view_width, view_height, 1);
 	
 	Rasterizer_OGL_Class::End();
+    SprintathonPresentTrace::mark(2);
 }
 
 #endif

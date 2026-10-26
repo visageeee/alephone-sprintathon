@@ -1,6 +1,7 @@
 #ifndef SPRINTATHON_FLASHLIGHT_SHADOW_H
 #define SPRINTATHON_FLASHLIGHT_SHADOW_H
 #include "SprintathonFlashlight.h"
+#include "SprintathonTerrainRuntime.h"
 #include "map.h"
 #include "OGL_Textures.h"
 #include "AnimatedTextures.h"
@@ -133,13 +134,21 @@ inline void geometry(view_data* view,const GLfloat* modelview) {
     for(size_t index=0;index<pending.size();++index){
         const auto& p=*get_polygon_data(pending[index]);
         if(!p.vertex_count)continue;
-        float lo[3]={32768,32768,float(p.floor_height)},hi[3]={-32768,-32768,float(p.ceiling_height)};
+        const auto* terrain=SprintathonTerrainRuntime::meshFor(get_polygon_data(pending[index]));
+        float lo[3]={32768,32768,terrain?terrain->minZ:float(p.floor_height)},hi[3]={-32768,-32768,float(p.ceiling_height)};
         for(int i=0;i<p.vertex_count;++i){const auto& v=get_endpoint_data(p.endpoint_indexes[i])->vertex;
             lo[0]=std::min(lo[0],float(v.x));lo[1]=std::min(lo[1],float(v.y));hi[0]=std::max(hi[0],float(v.x));hi[1]=std::max(hi[1],float(v.y));}
         float distance2=0;
         for(int i=0;i<3;++i){const float d=std::max(lo[i]-origin[i],std::max(0.0f,origin[i]-hi[i]));distance2+=d*d;}
         if(distance2>f.params[2]*f.params[2])continue;
-        if(!landscape(p.floor_transfer_mode))horizontal(p,p.floor_height);
+        if(terrain){
+            // The depth shader needs only world positions; keep its existing
+            // alpha/texture state and replace the flat floor, never draw both.
+            glBegin(GL_TRIANGLES);
+            for(size_t v=0;v<terrain->positions.size();v+=3)
+                glVertex3f(terrain->positions[v],terrain->positions[v+1],terrain->positions[v+2]);
+            glEnd();
+        }else if(!landscape(p.floor_transfer_mode))horizontal(p,p.floor_height);
         if(!landscape(p.ceiling_transfer_mode))horizontal(p,p.ceiling_height);
         for(int i=0;i<p.vertex_count;++i){
             const auto& a=get_endpoint_data(p.endpoint_indexes[i])->vertex;

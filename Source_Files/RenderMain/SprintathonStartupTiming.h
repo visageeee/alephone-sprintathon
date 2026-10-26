@@ -12,6 +12,7 @@ struct SprintathonStartupTiming {
     unsigned frames=0,uploads=0,compiles=0,evictions=0;
     uint64_t frame_id=0;
     double light_prepare_ms=0,fog_prepare_ms=0;
+    double stage_totals[14]={};
     static bool extended() {
         static const bool enabled=[] { const char* p=std::getenv("SPRINTATHON_RENDER_TRACE"); return p && p[0]=='1'; }();
         return enabled;
@@ -77,12 +78,17 @@ struct SprintathonStartupFrame {
                 static_cast<unsigned long long>(s.frame_id),ms,gap,stages[0],s.light_prepare_ms,
                 stages[1],stages[2],stages[3],stages[4],stages[5],stages[6],stages[7],s.fog_prepare_ms,
                 stages[8],stages[9],stages[10],stages[11],stages[12],stages[13],s.uploads-uploads_before,s.upload_ms-upload_before,s.compiles-compiles_before);
+        for(int i=0;i<14;++i)s.stage_totals[i]+=stages[i];
         s.cpu+=ms;s.cpu_max=std::max(s.cpu_max,ms);
         s.interval_max=std::max(s.interval_max,std::chrono::duration<double,std::milli>(start-s.last).count());
         s.last=start;++s.frames;
         if(std::chrono::duration<double>(now-s.report).count()<1)return;
         std::fprintf(stderr,"Startup CPU: render avg/max %.2f/%.2f ms; frame interval max %.2f ms; uploads %u %.1f ms; shaders %u %.1f ms; evictions %u\n",
             s.cpu/s.frames,s.cpu_max,s.interval_max,s.uploads,s.upload_ms,s.compiles,s.compile_ms,s.evictions);
+        const char* names[]={"prep","world","shaft-source","overlays","depth-copy","AO","flares","fog","shafts","weapon","bloom-geometry","bloom-filter","underwater","tail"};
+        std::fprintf(stderr,"Render CPU averages: frames=%u exclusive wall ms/frame:",s.frames);
+        for(int i=0;i<14;++i){std::fprintf(stderr," %s=%.4f",names[i],s.stage_totals[i]/s.frames);s.stage_totals[i]=0;}
+        std::fprintf(stderr,"\n");
         s.report=now;s.frames=s.uploads=s.compiles=s.evictions=0;
         s.cpu=s.cpu_max=s.interval_max=s.upload_ms=s.compile_ms=0;
     }

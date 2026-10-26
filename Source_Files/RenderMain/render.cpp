@@ -1,3 +1,6 @@
+#include <cstdio>
+#include <cstdlib>
+#include "../GameWorld/SprintathonZeroG.h"
 /*
 RENDER.C
 
@@ -249,6 +252,10 @@ extern WindowPtr screen_window;
 extern bool ShowPosition;
 namespace {
 using SprintathonSceneClock = std::chrono::steady_clock;
+inline bool sprintathon_scene_cpu_trace(){
+    static const bool on=[](){const char* p=std::getenv("SPRINTATHON_RENDER_TRACE");return p && p[0]=='1';}();
+    return on;
+}
 struct SprintathonSceneCpuAccumulator {
     double sums[3] = {};
     unsigned frames = 0;
@@ -260,7 +267,7 @@ class SprintathonSceneCpuProfile {
     bool active;
     SprintathonSceneClock::time_point previous;
 public:
-    explicit SprintathonSceneCpuProfile(bool scene_visible) : active(ShowPosition && scene_visible) {
+    explicit SprintathonSceneCpuProfile(bool scene_visible) : active((ShowPosition || sprintathon_scene_cpu_trace()) && scene_visible) {
         if (!active) {
             sprintathon_scene_cpu_accumulator = SprintathonSceneCpuAccumulator{};
             sprintathon_cpu_scene_timings = SprintathonCpuSceneTimings{};
@@ -285,6 +292,10 @@ public:
             sprintathon_cpu_scene_timings.milliseconds[i] = batch.sums[i] / batch.frames;
             batch.sums[i] = 0;
         }
+        if(sprintathon_scene_cpu_trace())
+            std::fprintf(stderr,"Scene CPU: frames=%u visibility=%.4f polygon-sort=%.4f object-placement=%.4f ms/frame; nodes=%zu polygons=%zu\n",
+                batch.frames,sprintathon_cpu_scene_timings.milliseconds[0],sprintathon_cpu_scene_timings.milliseconds[1],
+                sprintathon_cpu_scene_timings.milliseconds[2],nodes,polygons);
         sprintathon_cpu_scene_timings.portal_nodes = nodes;
         sprintathon_cpu_scene_timings.polygons = polygons;
         sprintathon_cpu_scene_timings.ready = true;
@@ -515,6 +526,12 @@ void render_view(
 			((input_preferences->sprintathon_mouselook_mode > 0 &&
 			  sprintathon_near_vertical_view) ||
 			 (current_player && current_player->slide_roll_ticks_remaining > 0));
+#endif
+#ifdef HAVE_OPENGL
+        // Legacy portal wedges assume an upright camera. Use the established
+        // full-circle path while freely rolling; depth testing still occludes.
+        if(SprintathonZeroG::active(current_player) && OGL_IsActive())
+            RenderVisTree.conservative_full_circle=true;
 #endif
 		SprintathonSceneCpuProfile cpu_profile(!view->overhead_map_active);
 		RenderVisTree.build_render_tree();

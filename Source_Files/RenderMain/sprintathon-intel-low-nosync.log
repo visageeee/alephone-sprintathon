@@ -1,0 +1,563 @@
+[W][88419.328696] pw.conf      | [          conf.c: 1031 try_load_conf()] can't load config client-rt.conf: No such file or directory
+[E][88419.328811] pw.conf      | [          conf.c: 1060 pw_conf_load_conf_for_context()] can't load config client-rt.conf: No such file or directory
+[ALSOFT] (EE) Failed to create PipeWire event context (errno: 2)
+ATTENTION: default value of option vblank_mode overridden by environment.
+Whole frame mode: t=0.101s mode=4 level=-1 tick=0 (0=play, 1=paused/controller-off, 2=screenshot, 3=visual, 4=outside-game); boundary interval omitted
+Shader compile: error (loading)
+Shader compile: bloom (loading)
+Shader compile: landscape (loading)
+Shader compile: landscape_bloom (loading)
+Shader compile: landscape_infravision (loading)
+Shader compile: sprite (loading)
+Shader compile: water_sprite (loading)
+Shader compile: sprite_bloom (loading)
+Shader compile: sprite_infravision (loading)
+Shader compile: sprite_shadow (loading)
+Shader compile: invincible (loading)
+Shader compile: invincible_bloom (loading)
+Shader compile: invisible (loading)
+Shader compile: invisible_bloom (loading)
+Shader compile: wall (loading)
+World shader variant: mask=64 (dynamic=1 all-scenery=2 water-specular=4 sector-blend=8 caustics=16 quality=bits5-6)
+Shader compile: wall_bloom (loading)
+Shader compile: wall_infravision (loading)
+Shader compile: bump (loading)
+World shader variant: mask=64 (dynamic=1 all-scenery=2 water-specular=4 sector-blend=8 caustics=16 quality=bits5-6)
+Shader compile: bump_bloom (loading)
+Shader compile: gamma (loading)
+Shader compile: landscape_sphere (loading)
+Shader compile: landscape_sphere_bloom (loading)
+Shader compile: landscape_sphere_infravision (loading)
+Shader compile: volume_fog (loading)
+Shader compile: volume_fog_composite (loading)
+Startup loading: 25 shaders 93.8 ms; 5519 texture preparations/uploads 752.3 ms
+Whole frame mode: t=8.361s mode=0 level=2 tick=1 (0=play, 1=paused/controller-off, 2=screenshot, 3=visual, 4=outside-game); boundary interval omitted
+Light changes frame 1 tick 1: sources texture=0 scenery=0 lit=0 selected=0 all-scenery=0; observations=0 new-candidates=0 removed=0 recolored=0 brightened=0 on=0 off=0; refresh=0.000 scenery-upload=0.000 ms; alloc=0 subupload=0 bytes=0; bake-active=0 bake-valid=0
+Object records frame 1: scenery 117/117 characters 14/14 projectiles 0/0 other 15/15 unique-render-records/helper-visits; sprite-base-draws 146 depth-test-disabled 0
+Light index frame 1: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 1: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Render slow CPU frame 1: render 8.24 gap 45.50 ms; prep 0.19 (lights 0.00); world 8.03 shaft-source 0.00 overlays 0.00 depth-copy 0.00 AO 0.00 flares 0.00 fog 0.00 (fog-data 0.00) shafts 0.00 weapon 0.01 bloom-geometry 0.00 bloom-filter 0.00 underwater 0.00 tail 0.01; uploads 1 0.24 ms shaders 0
+Scene CPU: frames=12 visibility=0.6889 polygon-sort=0.2211 object-placement=0.2296 ms/frame; nodes=681 polygons=113
+Startup GPU ms: world 6.54; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.07; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.6384 polygon-sort=0.2252 object-placement=0.2095 ms/frame; nodes=681 polygons=113
+Startup GPU ms: world 6.13; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.22; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.6990 polygon-sort=0.2501 object-placement=0.2376 ms/frame; nodes=681 polygons=113
+Startup GPU ms: world 6.13; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.24; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 29 level 2: ticks 30 avg/max 0.91/2.01 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.04 projectiles 0.04 monsters 0.27 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.48
+Startup CPU: render avg/max 6.56/9.33 ms; frame interval max 45.50 ms; uploads 6 2.3 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=39 exclusive wall ms/frame: prep=0.1582 world=6.3777 shaft-source=0.0029 overlays=0.0017 depth-copy=0.0007 AO=0.0002 flares=0.0002 fog=0.0003 shafts=0.0003 weapon=0.0202 bloom-geometry=0.0004 bloom-filter=0.0001 underwater=0.0002 tail=0.0015
+Whole frame: t=9.369s mode=0 level=2 tick=31 frames=38 avg=25.690 max=30.338 ms; ticks=30 frames-with-ticks=30 loops=38
+Whole frame stages (exclusive wall ms): other=0.004 events=0.164 timers=0.014 update=0.971 interpolation=0.120 render=10.047 swap=14.370 limiter=0.000; worst-frame: other=0.003 events=0.040 timers=0.000 update=0.002 interpolation=0.129 render=8.857 swap=21.307 limiter=0.000
+Scene CPU: frames=10 visibility=0.6733 polygon-sort=0.2159 object-placement=0.1884 ms/frame; nodes=681 polygons=113
+Startup GPU ms: world 6.37; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.23; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.6320 polygon-sort=0.2048 object-placement=0.1641 ms/frame; nodes=681 polygons=113
+Startup GPU ms: world 6.34; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.22; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Object records frame 60: scenery 117/117 characters 21/21 projectiles 17/17 other 15/15 unique-render-records/helper-visits; sprite-base-draws 170 depth-test-disabled 0
+Light index frame 60: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 60: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Scene CPU: frames=10 visibility=0.6159 polygon-sort=0.2172 object-placement=0.1850 ms/frame; nodes=681 polygons=113
+Startup GPU ms: world 6.37; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.21; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.7392 polygon-sort=0.2839 object-placement=0.2315 ms/frame; nodes=681 polygons=113
+Startup GPU ms: world 6.54; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.21; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 59 level 2: ticks 30 avg/max 0.86/1.35 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.04 projectiles 0.05 monsters 0.25 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.46
+Startup CPU: render avg/max 6.73/8.83 ms; frame interval max 29.15 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=39 exclusive wall ms/frame: prep=0.1374 world=6.5643 shaft-source=0.0025 overlays=0.0012 depth-copy=0.0004 AO=0.0001 flares=0.0002 fog=0.0008 shafts=0.0003 weapon=0.0220 bloom-geometry=0.0004 bloom-filter=0.0001 underwater=0.0002 tail=0.0026
+Whole frame: t=10.385s mode=0 level=2 tick=62 frames=39 avg=26.050 max=26.874 ms; ticks=31 frames-with-ticks=31 loops=39
+Whole frame stages (exclusive wall ms): other=0.005 events=0.048 timers=0.015 update=0.951 interpolation=0.133 render=10.396 swap=14.502 limiter=0.000; worst-frame: other=0.002 events=0.036 timers=0.015 update=0.869 interpolation=0.075 render=8.578 swap=17.299 limiter=0.000
+Scene CPU: frames=10 visibility=0.6530 polygon-sort=0.2253 object-placement=0.2111 ms/frame; nodes=681 polygons=113
+Startup GPU ms: world 6.56; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.23; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.7830 polygon-sort=0.2876 object-placement=0.2516 ms/frame; nodes=681 polygons=113
+Startup GPU ms: world 6.51; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.24; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.5818 polygon-sort=0.1941 object-placement=0.1973 ms/frame; nodes=681 polygons=113
+Startup GPU ms: world 6.65; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.23; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.7269 polygon-sort=0.2459 object-placement=0.2440 ms/frame; nodes=681 polygons=113
+Startup GPU ms: world 6.68; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.21; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 89 level 2: ticks 30 avg/max 0.87/1.41 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.04 projectiles 0.09 monsters 0.25 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.45
+Whole frame: t=11.386s mode=0 level=2 tick=92 frames=38 avg=26.358 max=27.492 ms; ticks=30 frames-with-ticks=30 loops=38
+Whole frame stages (exclusive wall ms): other=0.004 events=0.216 timers=0.013 update=0.943 interpolation=0.131 render=10.424 swap=14.628 limiter=0.000; worst-frame: other=0.004 events=0.057 timers=0.016 update=1.322 interpolation=0.166 render=11.353 swap=14.575 limiter=0.000
+Startup CPU: render avg/max 6.77/9.34 ms; frame interval max 31.69 ms; uploads 3 1.7 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=39 exclusive wall ms/frame: prep=0.1382 world=6.6091 shaft-source=0.0026 overlays=0.0013 depth-copy=0.0004 AO=0.0001 flares=0.0002 fog=0.0002 shafts=0.0003 weapon=0.0202 bloom-geometry=0.0003 bloom-filter=0.0001 underwater=0.0002 tail=0.0011
+Light changes frame 120 tick 95: sources texture=0 scenery=0 lit=0 selected=0 all-scenery=0; observations=0 new-candidates=0 removed=0 recolored=0 brightened=0 on=0 off=0; refresh=0.000 scenery-upload=0.000 ms; alloc=0 subupload=0 bytes=0; bake-active=0 bake-valid=0
+Object records frame 120: scenery 117/117 characters 16/16 projectiles 33/33 other 26/26 unique-render-records/helper-visits; sprite-base-draws 192 depth-test-disabled 0
+Light index frame 120: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 120: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Scene CPU: frames=10 visibility=0.6381 polygon-sort=0.2476 object-placement=0.2181 ms/frame; nodes=681 polygons=113
+Startup GPU ms: world 6.71; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.20; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.7028 polygon-sort=0.2043 object-placement=0.2247 ms/frame; nodes=596 polygons=107
+Startup GPU ms: world 6.84; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.22; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.5266 polygon-sort=0.1661 object-placement=0.1959 ms/frame; nodes=596 polygons=107
+Startup GPU ms: world 6.75; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.22; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 119 level 2: ticks 30 avg/max 0.96/1.51 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.04 projectiles 0.11 monsters 0.26 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.49
+Scene CPU: frames=10 visibility=0.6764 polygon-sort=0.2310 object-placement=0.2880 ms/frame; nodes=596 polygons=107
+Startup GPU ms: world 6.67; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.23; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Whole frame: t=12.409s mode=0 level=2 tick=123 frames=39 avg=26.233 max=28.194 ms; ticks=31 frames-with-ticks=31 loops=39
+Whole frame stages (exclusive wall ms): other=0.004 events=0.081 timers=0.018 update=1.034 interpolation=0.122 render=10.070 swap=14.905 limiter=0.000; worst-frame: other=0.002 events=0.043 timers=0.001 update=0.002 interpolation=0.115 render=9.078 swap=18.953 limiter=0.000
+Startup CPU: render avg/max 6.33/9.22 ms; frame interval max 29.28 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=39 exclusive wall ms/frame: prep=0.1707 world=6.1297 shaft-source=0.0032 overlays=0.0020 depth-copy=0.0007 AO=0.0002 flares=0.0008 fog=0.0002 shafts=0.0004 weapon=0.0240 bloom-geometry=0.0004 bloom-filter=0.0002 underwater=0.0002 tail=0.0015
+Scene CPU: frames=10 visibility=0.7714 polygon-sort=0.2844 object-placement=0.2926 ms/frame; nodes=596 polygons=107
+Startup GPU ms: world 6.68; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.20; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.6037 polygon-sort=0.2478 object-placement=0.2912 ms/frame; nodes=596 polygons=107
+Startup GPU ms: world 6.51; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.22; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Object records frame 180: scenery 123/123 characters 16/16 projectiles 44/44 other 23/23 unique-render-records/helper-visits; sprite-base-draws 206 depth-test-disabled 0
+Light index frame 180: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 180: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Scene CPU: frames=10 visibility=0.7013 polygon-sort=0.2265 object-placement=0.2473 ms/frame; nodes=596 polygons=107
+Startup GPU ms: world 6.41; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.22; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 149 level 2: ticks 30 avg/max 1.08/2.13 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.04 projectiles 0.12 monsters 0.31 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.54
+Scene CPU: frames=10 visibility=0.6882 polygon-sort=0.2510 object-placement=0.2459 ms/frame; nodes=596 polygons=107
+Startup GPU ms: world 6.47; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.20; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Whole frame: t=13.425s mode=0 level=2 tick=154 frames=39 avg=26.041 max=27.487 ms; ticks=31 frames-with-ticks=31 loops=39
+Whole frame stages (exclusive wall ms): other=0.005 events=0.243 timers=0.017 update=1.146 interpolation=0.140 render=9.725 swap=14.766 limiter=0.000; worst-frame: other=0.004 events=0.052 timers=0.017 update=1.575 interpolation=0.144 render=11.462 swap=14.235 limiter=0.000
+Startup CPU: render avg/max 6.10/7.56 ms; frame interval max 30.22 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=39 exclusive wall ms/frame: prep=0.1867 world=5.8752 shaft-source=0.0044 overlays=0.0015 depth-copy=0.0004 AO=0.0005 flares=0.0003 fog=0.0002 shafts=0.0004 weapon=0.0241 bloom-geometry=0.0004 bloom-filter=0.0002 underwater=0.0002 tail=0.0016
+Scene CPU: frames=9 visibility=0.4841 polygon-sort=0.1799 object-placement=0.2100 ms/frame; nodes=596 polygons=107
+Startup GPU ms: world 6.70; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.21; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.5275 polygon-sort=0.1744 object-placement=0.2003 ms/frame; nodes=596 polygons=107
+Startup GPU ms: world 6.65; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.21; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.6074 polygon-sort=0.1870 object-placement=0.2532 ms/frame; nodes=528 polygons=99
+Startup GPU ms: world 6.58; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.22; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 179 level 2: ticks 30 avg/max 0.96/2.10 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.04 projectiles 0.13 monsters 0.24 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.50
+Scene CPU: frames=9 visibility=0.5096 polygon-sort=0.1564 object-placement=0.2051 ms/frame; nodes=528 polygons=99
+Startup GPU ms: world 6.36; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.22; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Whole frame: t=14.452s mode=0 level=2 tick=185 frames=36 avg=28.539 max=29.979 ms; ticks=31 frames-with-ticks=31 loops=36
+Whole frame stages (exclusive wall ms): other=0.004 events=0.054 timers=0.015 update=1.088 interpolation=0.106 render=10.482 swap=16.790 limiter=0.000; worst-frame: other=0.002 events=0.045 timers=0.000 update=0.002 interpolation=0.107 render=13.433 swap=16.389 limiter=0.000
+Startup CPU: render avg/max 6.46/8.96 ms; frame interval max 32.50 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=36 exclusive wall ms/frame: prep=0.1182 world=6.3091 shaft-source=0.0036 overlays=0.0015 depth-copy=0.0004 AO=0.0001 flares=0.0003 fog=0.0002 shafts=0.0003 weapon=0.0213 bloom-geometry=0.0004 bloom-filter=0.0001 underwater=0.0002 tail=0.0010
+Scene CPU: frames=9 visibility=0.4759 polygon-sort=0.1632 object-placement=0.1903 ms/frame; nodes=500 polygons=84
+Startup GPU ms: world 6.27; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.21; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Light changes frame 240 tick 193: sources texture=0 scenery=0 lit=0 selected=0 all-scenery=0; observations=0 new-candidates=0 removed=0 recolored=0 brightened=0 on=0 off=0; refresh=0.000 scenery-upload=0.000 ms; alloc=0 subupload=0 bytes=0; bake-active=0 bake-valid=0
+Object records frame 240: scenery 111/111 characters 12/12 projectiles 35/35 other 22/22 unique-render-records/helper-visits; sprite-base-draws 180 depth-test-disabled 0
+Light index frame 240: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 240: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Simulation slow tick 195 level 2: total 5.60 ms; lua 0.00 lights 0.01 media 0.00 platforms 0.00 panels 0.00 players 4.79 projectiles 0.10 monsters 0.10 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.01 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.56 other 0.01
+Scene CPU: frames=9 visibility=0.5667 polygon-sort=0.1869 object-placement=0.2040 ms/frame; nodes=650 polygons=100
+Startup GPU ms: world 6.75; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.20; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.6177 polygon-sort=0.2171 object-placement=0.2055 ms/frame; nodes=630 polygons=98
+Startup GPU ms: world 7.54; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.13; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 209 level 2: ticks 30 avg/max 1.22/5.60 ms; lua 0.00 lights 0.01 media 0.00 platforms 0.00 panels 0.00 players 0.28 projectiles 0.13 monsters 0.25 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.50
+Scene CPU: frames=9 visibility=0.7681 polygon-sort=0.2768 object-placement=0.2561 ms/frame; nodes=714 polygons=107
+Startup GPU ms: world 6.40; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.17; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Whole frame: t=15.456s mode=0 level=2 tick=215 frames=35 avg=28.676 max=30.133 ms; ticks=30 frames-with-ticks=30 loops=35
+Whole frame stages (exclusive wall ms): other=0.005 events=0.189 timers=0.017 update=1.387 interpolation=0.123 render=10.701 swap=16.254 limiter=0.000; worst-frame: other=0.002 events=0.048 timers=0.012 update=0.962 interpolation=0.070 render=9.363 swap=19.676 limiter=0.000
+Startup CPU: render avg/max 6.62/8.82 ms; frame interval max 32.26 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=35 exclusive wall ms/frame: prep=0.1795 world=6.4070 shaft-source=0.0035 overlays=0.0013 depth-copy=0.0003 AO=0.0001 flares=0.0003 fog=0.0002 shafts=0.0003 weapon=0.0210 bloom-geometry=0.0004 bloom-filter=0.0002 underwater=0.0002 tail=0.0013
+Scene CPU: frames=9 visibility=0.7320 polygon-sort=0.2559 object-placement=0.2524 ms/frame; nodes=729 polygons=110
+Startup GPU ms: world 6.57; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.21; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation slow tick 224 level 2: total 4.17 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 3.13 projectiles 0.11 monsters 0.22 effects 0.04 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.01 items 0.02 textures 0.01 camera 0.00 sensor 0.02 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.59 other 0.01
+Scene CPU: frames=9 visibility=0.6520 polygon-sort=0.1904 object-placement=0.1796 ms/frame; nodes=699 polygons=105
+Startup GPU ms: world 6.37; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.18; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.6573 polygon-sort=0.2268 object-placement=0.2177 ms/frame; nodes=615 polygons=108
+Startup GPU ms: world 6.55; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.15; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 239 level 2: ticks 30 avg/max 1.44/4.17 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.40 projectiles 0.14 monsters 0.26 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.58
+Scene CPU: frames=9 visibility=0.7515 polygon-sort=0.2888 object-placement=0.2237 ms/frame; nodes=509 polygons=95
+Startup GPU ms: world 6.75; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.15; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Object records frame 300: scenery 105/105 characters 10/10 projectiles 58/58 other 21/21 unique-render-records/helper-visits; sprite-base-draws 194 depth-test-disabled 0
+Light index frame 300: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 300: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Simulation slow tick 245 level 2: total 4.51 ms; lua 0.00 lights 0.01 media 0.00 platforms 0.00 panels 0.00 players 2.75 projectiles 0.39 monsters 0.34 effects 0.04 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.01 items 0.05 textures 0.00 camera 0.00 sensor 0.01 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.89 other 0.01
+Whole frame: t=16.477s mode=0 level=2 tick=246 frames=36 avg=28.357 max=30.412 ms; ticks=31 frames-with-ticks=31 loops=36
+Whole frame stages (exclusive wall ms): other=0.004 events=0.093 timers=0.016 update=1.584 interpolation=0.116 render=10.800 swap=15.744 limiter=0.000; worst-frame: other=0.003 events=0.083 timers=0.015 update=1.377 interpolation=0.089 render=12.397 swap=16.448 limiter=0.000
+Startup CPU: render avg/max 6.63/8.42 ms; frame interval max 34.19 ms; uploads 4 1.7 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=36 exclusive wall ms/frame: prep=0.1604 world=6.4357 shaft-source=0.0027 overlays=0.0016 depth-copy=0.0008 AO=0.0001 flares=0.0002 fog=0.0002 shafts=0.0003 weapon=0.0209 bloom-geometry=0.0004 bloom-filter=0.0001 underwater=0.0002 tail=0.0016
+Scene CPU: frames=9 visibility=0.5234 polygon-sort=0.1489 object-placement=0.1507 ms/frame; nodes=458 polygons=86
+Startup GPU ms: world 7.60; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.19; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation slow tick 256 level 2: total 4.76 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 3.26 projectiles 0.21 monsters 0.66 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.03 textures 0.00 camera 0.00 sensor 0.02 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.54 other 0.01
+Scene CPU: frames=9 visibility=0.4194 polygon-sort=0.1271 object-placement=0.1632 ms/frame; nodes=273 polygons=60
+Startup GPU ms: world 7.66; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.22; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.2790 polygon-sort=0.0677 object-placement=0.1200 ms/frame; nodes=185 polygons=47
+Startup GPU ms: world 7.18; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.20; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 269 level 2: ticks 30 avg/max 1.47/4.76 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.34 projectiles 0.18 monsters 0.26 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.62
+Scene CPU: frames=9 visibility=0.2739 polygon-sort=0.0591 object-placement=0.1092 ms/frame; nodes=130 polygons=41
+Startup GPU ms: world 6.79; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.19; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Whole frame: t=17.491s mode=0 level=2 tick=277 frames=35 avg=28.971 max=31.190 ms; ticks=31 frames-with-ticks=31 loops=35
+Whole frame stages (exclusive wall ms): other=0.005 events=0.095 timers=0.020 update=1.453 interpolation=0.127 render=8.757 swap=18.514 limiter=0.000; worst-frame: other=0.003 events=0.091 timers=0.019 update=1.434 interpolation=0.131 render=10.104 swap=19.407 limiter=0.000
+Startup CPU: render avg/max 4.95/7.50 ms; frame interval max 33.15 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=35 exclusive wall ms/frame: prep=0.1530 world=4.7587 shaft-source=0.0035 overlays=0.0019 depth-copy=0.0005 AO=0.0002 flares=0.0003 fog=0.0002 shafts=0.0004 weapon=0.0255 bloom-geometry=0.0004 bloom-filter=0.0002 underwater=0.0005 tail=0.0018
+Simulation slow tick 278 level 2: total 6.35 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 5.45 projectiles 0.08 monsters 0.10 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.01 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.67 other 0.01
+Scene CPU: frames=10 visibility=0.3060 polygon-sort=0.0980 object-placement=0.1369 ms/frame; nodes=373 polygons=77
+Startup GPU ms: world 5.97; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.21; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation slow tick 289 level 2: total 5.43 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 4.24 projectiles 0.30 monsters 0.20 effects 0.05 objects 0.00 sound 0.00 scenery 0.02 ephemera 0.00 items 0.03 textures 0.00 camera 0.00 sensor 0.01 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.54 other 0.01
+Scene CPU: frames=9 visibility=0.3444 polygon-sort=0.0881 object-placement=0.1357 ms/frame; nodes=231 polygons=56
+Startup GPU ms: world 6.17; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.16; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation slow tick 296 level 2: total 5.17 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 3.84 projectiles 0.15 monsters 0.56 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.04 textures 0.00 camera 0.00 sensor 0.01 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.52 other 0.01
+Light changes frame 360 tick 297: sources texture=0 scenery=0 lit=0 selected=0 all-scenery=0; observations=0 new-candidates=0 removed=0 recolored=0 brightened=0 on=0 off=0; refresh=0.000 scenery-upload=0.000 ms; alloc=0 subupload=0 bytes=0; bake-active=0 bake-valid=0
+Object records frame 360: scenery 79/79 characters 4/4 projectiles 28/28 other 2/2 unique-render-records/helper-visits; sprite-base-draws 113 depth-test-disabled 0
+Light index frame 360: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 360: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Simulation summary tick 299 level 2: ticks 30 avg/max 1.47/6.35 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.50 projectiles 0.15 monsters 0.21 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.55
+Scene CPU: frames=10 visibility=0.2898 polygon-sort=0.0999 object-placement=0.1272 ms/frame; nodes=240 polygons=52
+Startup GPU ms: world 5.73; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.15; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Whole frame: t=18.517s mode=0 level=2 tick=308 frames=37 avg=27.726 max=29.697 ms; ticks=31 frames-with-ticks=31 loops=37
+Whole frame stages (exclusive wall ms): other=0.005 events=0.083 timers=0.022 update=1.495 interpolation=0.116 render=8.121 swap=17.883 limiter=0.000; worst-frame: other=0.004 events=0.074 timers=0.001 update=0.007 interpolation=0.178 render=8.529 swap=20.904 limiter=0.000
+Startup CPU: render avg/max 4.46/7.08 ms; frame interval max 33.09 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=37 exclusive wall ms/frame: prep=0.1467 world=4.2701 shaft-source=0.0046 overlays=0.0022 depth-copy=0.0005 AO=0.0002 flares=0.0003 fog=0.0003 shafts=0.0004 weapon=0.0273 bloom-geometry=0.0009 bloom-filter=0.0002 underwater=0.0002 tail=0.0017
+Scene CPU: frames=10 visibility=0.2788 polygon-sort=0.0946 object-placement=0.1316 ms/frame; nodes=208 polygons=47
+Startup GPU ms: world 5.71; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.13; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.2590 polygon-sort=0.0700 object-placement=0.1009 ms/frame; nodes=223 polygons=65
+Startup GPU ms: world 6.24; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.13; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation slow tick 325 level 2: total 6.81 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 6.04 projectiles 0.09 monsters 0.10 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.01 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.54 other 0.00
+Scene CPU: frames=9 visibility=0.1994 polygon-sort=0.0571 object-placement=0.1060 ms/frame; nodes=137 polygons=33
+Startup GPU ms: world 6.69; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.13; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 329 level 2: ticks 30 avg/max 1.28/6.81 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.34 projectiles 0.13 monsters 0.22 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.53
+Simulation slow tick 332 level 2: total 6.29 ms; lua 0.00 lights 0.01 media 0.00 platforms 0.00 panels 0.00 players 5.11 projectiles 0.29 monsters 0.10 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.70 other 0.03
+Scene CPU: frames=10 visibility=0.1949 polygon-sort=0.0515 object-placement=0.0974 ms/frame; nodes=205 polygons=45
+Startup GPU ms: world 6.35; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.12; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation slow tick 335 level 2: total 6.11 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 5.02 projectiles 0.25 monsters 0.24 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.03 textures 0.00 camera 0.00 sensor 0.01 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.51 other 0.01
+Whole frame: t=19.537s mode=0 level=2 tick=339 frames=37 avg=27.572 max=29.633 ms; ticks=31 frames-with-ticks=31 loops=37
+Whole frame stages (exclusive wall ms): other=0.004 events=0.108 timers=0.018 update=1.646 interpolation=0.123 render=7.339 swap=18.333 limiter=0.000; worst-frame: other=0.003 events=0.080 timers=0.011 update=1.079 interpolation=0.052 render=7.864 swap=20.546 limiter=0.000
+Startup CPU: render avg/max 3.64/4.96 ms; frame interval max 34.43 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=37 exclusive wall ms/frame: prep=0.1384 world=3.4491 shaft-source=0.0056 overlays=0.0026 depth-copy=0.0007 AO=0.0003 flares=0.0004 fog=0.0004 shafts=0.0005 weapon=0.0348 bloom-geometry=0.0008 bloom-filter=0.0003 underwater=0.0003 tail=0.0017
+Scene CPU: frames=10 visibility=0.1587 polygon-sort=0.0396 object-placement=0.0789 ms/frame; nodes=102 polygons=22
+Startup GPU ms: world 5.72; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.12; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Object records frame 420: scenery 29/29 characters 2/2 projectiles 12/12 other 2/2 unique-render-records/helper-visits; sprite-base-draws 45 depth-test-disabled 0
+Light index frame 420: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 420: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Scene CPU: frames=10 visibility=0.1075 polygon-sort=0.0304 object-placement=0.0644 ms/frame; nodes=76 polygons=22
+Startup GPU ms: world 5.36; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.10; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.0839 polygon-sort=0.0225 object-placement=0.0416 ms/frame; nodes=69 polygons=18
+Startup GPU ms: world 5.00; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.18; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 359 level 2: ticks 30 avg/max 1.37/6.29 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.46 projectiles 0.14 monsters 0.19 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.52
+Scene CPU: frames=10 visibility=0.2786 polygon-sort=0.0924 object-placement=0.0862 ms/frame; nodes=294 polygons=59
+Startup GPU ms: world 4.92; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.18; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 2.70/6.84 ms; frame interval max 30.04 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=37 exclusive wall ms/frame: prep=0.1638 world=2.4864 shaft-source=0.0051 overlays=0.0026 depth-copy=0.0007 AO=0.0003 flares=0.0005 fog=0.0004 shafts=0.0004 weapon=0.0353 bloom-geometry=0.0008 bloom-filter=0.0003 underwater=0.0003 tail=0.0030
+Whole frame: t=20.564s mode=0 level=2 tick=370 frames=38 avg=27.035 max=28.798 ms; ticks=31 frames-with-ticks=31 loops=38
+Whole frame stages (exclusive wall ms): other=0.005 events=0.086 timers=0.015 update=1.092 interpolation=0.124 render=6.629 swap=19.083 limiter=0.000; worst-frame: other=0.006 events=0.173 timers=0.033 update=1.940 interpolation=0.084 render=6.071 swap=20.491 limiter=0.000
+Scene CPU: frames=9 visibility=0.3680 polygon-sort=0.1314 object-placement=0.1280 ms/frame; nodes=260 polygons=64
+Startup GPU ms: world 6.04; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.20; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.1896 polygon-sort=0.0694 object-placement=0.1005 ms/frame; nodes=60 polygons=22
+Startup GPU ms: world 5.51; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.22; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation slow tick 387 level 2: total 5.54 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 4.56 projectiles 0.14 monsters 0.28 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.51 other 0.01
+Simulation summary tick 389 level 2: ticks 30 avg/max 1.11/5.54 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.20 projectiles 0.12 monsters 0.24 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.49
+Scene CPU: frames=10 visibility=0.0763 polygon-sort=0.0132 object-placement=0.0437 ms/frame; nodes=20 polygons=20
+Startup GPU ms: world 4.51; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.22; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Light changes frame 480 tick 396: sources texture=0 scenery=0 lit=0 selected=0 all-scenery=0; observations=0 new-candidates=0 removed=0 recolored=0 brightened=0 on=0 off=0; refresh=0.000 scenery-upload=0.000 ms; alloc=0 subupload=0 bytes=0; bake-active=0 bake-valid=0
+Object records frame 480: scenery 17/17 characters 1/1 projectiles 0/0 other 4/4 unique-render-records/helper-visits; sprite-base-draws 22 depth-test-disabled 0
+Light index frame 480: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 480: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Scene CPU: frames=10 visibility=0.0786 polygon-sort=0.0143 object-placement=0.0438 ms/frame; nodes=152 polygons=44
+Startup GPU ms: world 4.66; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.18; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 2.97/7.32 ms; frame interval max 32.96 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=38 exclusive wall ms/frame: prep=0.1350 world=2.7617 shaft-source=0.0054 overlays=0.0024 depth-copy=0.0008 AO=0.0003 flares=0.0005 fog=0.0003 shafts=0.0006 weapon=0.0623 bloom-geometry=0.0007 bloom-filter=0.0003 underwater=0.0004 tail=0.0025
+Whole frame: t=21.584s mode=0 level=2 tick=401 frames=38 avg=26.839 max=28.938 ms; ticks=31 frames-with-ticks=31 loops=38
+Whole frame stages (exclusive wall ms): other=0.005 events=0.092 timers=0.017 update=1.142 interpolation=0.115 render=6.813 swap=18.655 limiter=0.000; worst-frame: other=0.016 events=0.117 timers=0.023 update=1.801 interpolation=0.160 render=8.242 swap=18.578 limiter=0.000
+Scene CPU: frames=9 visibility=0.6065 polygon-sort=0.3907 object-placement=0.1758 ms/frame; nodes=873 polygons=102
+Startup GPU ms: world 6.01; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.19; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.5635 polygon-sort=0.3021 object-placement=0.1416 ms/frame; nodes=1043 polygons=115
+Startup GPU ms: world 7.15; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.22; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 419 level 2: ticks 30 avg/max 0.88/1.83 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.05 projectiles 0.09 monsters 0.16 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.52
+Render slow CPU frame 507: render 6.06 gap 37.11 ms; prep 0.17 (lights 0.01); world 5.87 shaft-source 0.00 overlays 0.00 depth-copy 0.00 AO 0.00 flares 0.00 fog 0.00 (fog-data 0.00) shafts 0.00 weapon 0.02 bloom-geometry 0.00 bloom-filter 0.00 underwater 0.00 tail 0.00; uploads 0 0.00 ms shaders 0
+Simulation slow tick 422 level 2: total 6.00 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 5.18 projectiles 0.10 monsters 0.18 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.01 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.50 other 0.01
+Scene CPU: frames=9 visibility=0.7638 polygon-sort=0.4601 object-placement=0.1837 ms/frame; nodes=1136 polygons=128
+Startup GPU ms: world 7.73; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.27; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation slow tick 425 level 2: total 5.32 ms; lua 0.00 lights 0.01 media 0.00 platforms 0.00 panels 0.00 players 4.22 projectiles 0.22 monsters 0.28 effects 0.03 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.53 other 0.01
+Render slow CPU frame 514: render 7.06 gap 36.74 ms; prep 0.16 (lights 0.01); world 6.88 shaft-source 0.00 overlays 0.00 depth-copy 0.00 AO 0.00 flares 0.00 fog 0.00 (fog-data 0.00) shafts 0.00 weapon 0.01 bloom-geometry 0.00 bloom-filter 0.00 underwater 0.00 tail 0.00; uploads 0 0.00 ms shaders 0
+Render slow CPU frame 518: render 6.64 gap 38.73 ms; prep 0.13 (lights 0.00); world 6.45 shaft-source 0.00 overlays 0.00 depth-copy 0.00 AO 0.00 flares 0.00 fog 0.00 (fog-data 0.00) shafts 0.00 weapon 0.04 bloom-geometry 0.01 bloom-filter 0.00 underwater 0.00 tail 0.00; uploads 0 0.00 ms shaders 0
+Scene CPU: frames=9 visibility=0.9880 polygon-sort=0.6713 object-placement=0.2516 ms/frame; nodes=1230 polygons=147
+Startup GPU ms: world 8.53; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.35; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 7.18/10.35 ms; frame interval max 38.73 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=34 exclusive wall ms/frame: prep=0.1437 world=7.0034 shaft-source=0.0033 overlays=0.0015 depth-copy=0.0004 AO=0.0001 flares=0.0005 fog=0.0002 shafts=0.0003 weapon=0.0244 bloom-geometry=0.0014 bloom-filter=0.0002 underwater=0.0002 tail=0.0010
+Whole frame: t=22.611s mode=0 level=2 tick=432 frames=34 avg=30.193 max=38.727 ms; ticks=31 frames-with-ticks=31 loops=34
+Whole frame stages (exclusive wall ms): other=0.006 events=0.081 timers=0.022 update=1.340 interpolation=0.105 render=11.495 swap=17.143 limiter=0.000; worst-frame: other=0.003 events=0.051 timers=0.017 update=0.832 interpolation=0.046 render=11.116 swap=26.662 limiter=0.000
+Scene CPU: frames=8 visibility=0.7639 polygon-sort=0.3638 object-placement=0.1979 ms/frame; nodes=1189 polygons=147
+Startup GPU ms: world 8.86; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.31; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.5238 polygon-sort=0.2524 object-placement=0.1697 ms/frame; nodes=834 polygons=124
+Startup GPU ms: world 7.54; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.24; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 449 level 2: ticks 30 avg/max 1.32/6.00 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.45 projectiles 0.11 monsters 0.18 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.51
+Object records frame 540: scenery 135/135 characters 7/7 projectiles 52/52 other 25/25 unique-render-records/helper-visits; sprite-base-draws 219 depth-test-disabled 0
+Light index frame 540: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 540: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Scene CPU: frames=9 visibility=1.2366 polygon-sort=0.5008 object-placement=0.2450 ms/frame; nodes=955 polygons=117
+Startup GPU ms: world 6.56; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.20; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.8185 polygon-sort=0.4559 object-placement=0.1701 ms/frame; nodes=861 polygons=114
+Startup GPU ms: world 6.03; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.19; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 7.17/10.68 ms; frame interval max 34.76 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=34 exclusive wall ms/frame: prep=0.1682 world=6.9746 shaft-source=0.0031 overlays=0.0014 depth-copy=0.0004 AO=0.0002 flares=0.0003 fog=0.0002 shafts=0.0003 weapon=0.0215 bloom-geometry=0.0003 bloom-filter=0.0001 underwater=0.0002 tail=0.0014
+Whole frame: t=23.636s mode=0 level=2 tick=463 frames=35 avg=29.289 max=32.013 ms; ticks=31 frames-with-ticks=31 loops=35
+Whole frame stages (exclusive wall ms): other=0.005 events=0.084 timers=0.019 update=1.260 interpolation=0.110 render=11.731 swap=16.079 limiter=0.000; worst-frame: other=0.003 events=0.033 timers=0.013 update=0.829 interpolation=0.045 render=12.248 swap=18.843 limiter=0.000
+Scene CPU: frames=9 visibility=0.5540 polygon-sort=0.2461 object-placement=0.1300 ms/frame; nodes=704 polygons=96
+Startup GPU ms: world 6.23; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.16; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.4590 polygon-sort=0.1772 object-placement=0.1166 ms/frame; nodes=633 polygons=94
+Startup GPU ms: world 5.89; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.17; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 479 level 2: ticks 30 avg/max 0.89/1.98 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.05 projectiles 0.10 monsters 0.17 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.52
+Scene CPU: frames=9 visibility=0.4051 polygon-sort=0.1679 object-placement=0.1006 ms/frame; nodes=512 polygons=87
+Startup GPU ms: world 6.54; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.16; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation slow tick 487 level 2: total 4.12 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 3.32 projectiles 0.10 monsters 0.16 effects 0.03 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.01 items 0.01 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.46 other 0.01
+Scene CPU: frames=9 visibility=0.3448 polygon-sort=0.0950 object-placement=0.0801 ms/frame; nodes=309 polygons=71
+Startup GPU ms: world 6.80; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.17; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 5.28/8.51 ms; frame interval max 33.26 ms; uploads 1 0.8 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=36 exclusive wall ms/frame: prep=0.1331 world=5.1052 shaft-source=0.0052 overlays=0.0020 depth-copy=0.0005 AO=0.0002 flares=0.0003 fog=0.0002 shafts=0.0005 weapon=0.0273 bloom-geometry=0.0005 bloom-filter=0.0002 underwater=0.0002 tail=0.0016
+Whole frame: t=24.662s mode=0 level=2 tick=494 frames=36 avg=28.507 max=29.930 ms; ticks=31 frames-with-ticks=31 loops=36
+Whole frame stages (exclusive wall ms): other=0.005 events=0.077 timers=0.018 update=1.128 interpolation=0.105 render=9.090 swap=18.084 limiter=0.000; worst-frame: other=0.003 events=0.075 timers=0.025 update=0.870 interpolation=0.043 render=7.658 swap=21.255 limiter=0.000
+Scene CPU: frames=10 visibility=0.4185 polygon-sort=0.1173 object-placement=0.1264 ms/frame; nodes=296 polygons=60
+Light changes frame 600 tick 502: sources texture=0 scenery=0 lit=0 selected=0 all-scenery=0; observations=0 new-candidates=0 removed=0 recolored=0 brightened=0 on=0 off=0; refresh=0.000 scenery-upload=0.000 ms; alloc=0 subupload=0 bytes=0; bake-active=0 bake-valid=0
+Startup GPU ms: world 5.38; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.17; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Object records frame 600: scenery 74/74 characters 2/2 projectiles 18/18 other 5/5 unique-render-records/helper-visits; sprite-base-draws 99 depth-test-disabled 0
+Light index frame 600: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 600: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Simulation summary tick 509 level 2: ticks 30 avg/max 1.03/4.12 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.23 projectiles 0.09 monsters 0.15 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.01 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.50
+Scene CPU: frames=10 visibility=0.3136 polygon-sort=0.0887 object-placement=0.0947 ms/frame; nodes=223 polygons=50
+Startup GPU ms: world 4.95; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.16; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.2508 polygon-sort=0.0676 object-placement=0.0761 ms/frame; nodes=105 polygons=34
+Startup GPU ms: world 4.95; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.16; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 4.05/5.64 ms; frame interval max 30.37 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=38 exclusive wall ms/frame: prep=0.1416 world=3.8576 shaft-source=0.0056 overlays=0.0029 depth-copy=0.0007 AO=0.0004 flares=0.0005 fog=0.0004 shafts=0.0005 weapon=0.0345 bloom-geometry=0.0007 bloom-filter=0.0002 underwater=0.0002 tail=0.0019
+Whole frame: t=25.674s mode=0 level=2 tick=525 frames=38 avg=26.642 max=28.209 ms; ticks=31 frames-with-ticks=31 loops=38
+Whole frame stages (exclusive wall ms): other=0.004 events=0.079 timers=0.018 update=1.070 interpolation=0.136 render=7.712 swap=17.622 limiter=0.000; worst-frame: other=0.003 events=0.074 timers=0.032 update=0.812 interpolation=0.052 render=8.269 swap=18.968 limiter=0.000
+Scene CPU: frames=10 visibility=0.1657 polygon-sort=0.0411 object-placement=0.0509 ms/frame; nodes=80 polygons=26
+Startup GPU ms: world 5.12; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.15; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.1041 polygon-sort=0.0243 object-placement=0.0445 ms/frame; nodes=46 polygons=19
+Startup GPU ms: world 5.81; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.16; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 539 level 2: ticks 30 avg/max 0.97/3.50 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.13 projectiles 0.10 monsters 0.15 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.53
+Scene CPU: frames=10 visibility=0.1001 polygon-sort=0.0204 object-placement=0.0438 ms/frame; nodes=57 polygons=21
+Startup GPU ms: world 5.09; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.15; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.0739 polygon-sort=0.0136 object-placement=0.0365 ms/frame; nodes=35 polygons=14
+Startup GPU ms: world 4.63; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.16; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Object records frame 660: scenery 24/24 characters 0/0 projectiles 0/0 other 1/1 unique-render-records/helper-visits; sprite-base-draws 25 depth-test-disabled 0
+Light index frame 660: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 660: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Startup CPU: render avg/max 2.02/4.10 ms; frame interval max 32.05 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=37 exclusive wall ms/frame: prep=0.1330 world=1.8275 shaft-source=0.0058 overlays=0.0032 depth-copy=0.0009 AO=0.0006 flares=0.0007 fog=0.0005 shafts=0.0006 weapon=0.0385 bloom-geometry=0.0010 bloom-filter=0.0003 underwater=0.0004 tail=0.0025
+Simulation slow tick 554 level 2: total 4.05 ms; lua 0.00 lights 0.01 media 0.00 platforms 0.00 panels 0.00 players 2.92 projectiles 0.14 monsters 0.33 effects 0.03 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.10 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.48 other 0.01
+Whole frame: t=26.679s mode=0 level=2 tick=555 frames=37 avg=27.147 max=30.443 ms; ticks=30 frames-with-ticks=30 loops=37
+Whole frame stages (exclusive wall ms): other=0.004 events=0.090 timers=0.019 update=1.076 interpolation=0.109 render=5.887 swap=19.962 limiter=0.000; worst-frame: other=0.006 events=0.153 timers=0.037 update=1.492 interpolation=0.059 render=6.102 swap=22.593 limiter=0.000
+Scene CPU: frames=10 visibility=0.2443 polygon-sort=0.0623 object-placement=0.0940 ms/frame; nodes=243 polygons=62
+Startup GPU ms: world 5.30; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.20; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.2516 polygon-sort=0.0547 object-placement=0.0965 ms/frame; nodes=237 polygons=60
+Startup GPU ms: world 5.91; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.23; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation slow tick 569 level 2: total 4.01 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 3.12 projectiles 0.13 monsters 0.19 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.01 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.49 other 0.01
+Simulation summary tick 569 level 2: ticks 30 avg/max 1.10/4.05 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.29 projectiles 0.10 monsters 0.17 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.48
+Scene CPU: frames=9 visibility=0.3282 polygon-sort=0.0968 object-placement=0.1263 ms/frame; nodes=255 polygons=54
+Startup GPU ms: world 6.47; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.24; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation slow tick 581 level 2: total 8.96 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 1.88 projectiles 0.06 monsters 0.09 effects 0.01 objects 0.00 sound 6.49 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.37 other 0.02
+Simulation update from tick 581: 9.27 ms; real ticks 1 (includes queues, prediction and interface)
+Scene CPU: frames=9 visibility=0.3172 polygon-sort=0.0884 object-placement=0.1161 ms/frame; nodes=211 polygons=49
+Startup GPU ms: world 7.76; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.23; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Render slow CPU frame 697: render 2.43 gap 38.67 ms; prep 0.08 (lights 0.00); world 2.33 shaft-source 0.00 overlays 0.00 depth-copy 0.00 AO 0.00 flares 0.00 fog 0.00 (fog-data 0.00) shafts 0.00 weapon 0.02 bloom-geometry 0.00 bloom-filter 0.00 underwater 0.00 tail 0.00; uploads 0 0.00 ms shaders 0
+Startup CPU: render avg/max 4.22/6.08 ms; frame interval max 38.67 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=35 exclusive wall ms/frame: prep=0.1284 world=4.0515 shaft-source=0.0039 overlays=0.0020 depth-copy=0.0010 AO=0.0002 flares=0.0004 fog=0.0020 shafts=0.0005 weapon=0.0306 bloom-geometry=0.0006 bloom-filter=0.0002 underwater=0.0002 tail=0.0014
+Whole frame: t=27.680s mode=0 level=2 tick=586 frames=35 avg=28.606 max=31.466 ms; ticks=31 frames-with-ticks=31 loops=35
+Whole frame stages (exclusive wall ms): other=0.004 events=0.081 timers=0.018 update=1.453 interpolation=0.125 render=7.919 swap=19.006 limiter=0.000; worst-frame: other=0.003 events=0.087 timers=0.024 update=1.330 interpolation=0.076 render=9.548 swap=20.397 limiter=0.000
+Scene CPU: frames=9 visibility=0.5783 polygon-sort=0.2571 object-placement=0.2075 ms/frame; nodes=674 polygons=98
+Startup GPU ms: world 7.87; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.23; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.6592 polygon-sort=0.2608 object-placement=0.1630 ms/frame; nodes=660 polygons=96
+Startup GPU ms: world 7.45; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.21; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 599 level 2: ticks 30 avg/max 1.28/8.96 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.21 projectiles 0.11 monsters 0.16 effects 0.01 objects 0.00 sound 0.22 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.53
+Light changes frame 720 tick 603: sources texture=0 scenery=0 lit=0 selected=0 all-scenery=0; observations=0 new-candidates=0 removed=0 recolored=0 brightened=0 on=0 off=0; refresh=0.000 scenery-upload=0.000 ms; alloc=0 subupload=0 bytes=0; bake-active=0 bake-valid=0
+Object records frame 720: scenery 88/88 characters 4/4 projectiles 39/39 other 23/23 unique-render-records/helper-visits; sprite-base-draws 154 depth-test-disabled 0
+Light index frame 720: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 720: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Scene CPU: frames=9 visibility=0.6232 polygon-sort=0.2111 object-placement=0.1495 ms/frame; nodes=686 polygons=96
+Startup GPU ms: world 7.52; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.23; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.7474 polygon-sort=0.2943 object-placement=0.1747 ms/frame; nodes=679 polygons=97
+Startup GPU ms: world 7.93; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.23; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 6.03/8.11 ms; frame interval max 33.65 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=34 exclusive wall ms/frame: prep=0.1672 world=5.8315 shaft-source=0.0035 overlays=0.0015 depth-copy=0.0004 AO=0.0002 flares=0.0003 fog=0.0002 shafts=0.0003 weapon=0.0236 bloom-geometry=0.0004 bloom-filter=0.0002 underwater=0.0002 tail=0.0017
+Whole frame: t=28.684s mode=0 level=2 tick=616 frames=34 avg=29.525 max=31.001 ms; ticks=30 frames-with-ticks=30 loops=34
+Whole frame stages (exclusive wall ms): other=0.005 events=0.082 timers=0.018 update=1.200 interpolation=0.129 render=10.266 swap=17.825 limiter=0.000; worst-frame: other=0.003 events=0.108 timers=0.020 update=1.143 interpolation=0.048 render=10.291 swap=19.389 limiter=0.000
+Simulation slow tick 617 level 2: total 4.87 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 3.79 projectiles 0.19 monsters 0.31 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.01 items 0.04 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.47 other 0.01
+Scene CPU: frames=9 visibility=0.7743 polygon-sort=0.2960 object-placement=0.2048 ms/frame; nodes=653 polygons=104
+Startup GPU ms: world 7.45; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.22; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 629 level 2: ticks 30 avg/max 1.28/4.87 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.34 projectiles 0.11 monsters 0.18 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.58
+Scene CPU: frames=9 visibility=0.6630 polygon-sort=0.2488 object-placement=0.2108 ms/frame; nodes=538 polygons=85
+Startup GPU ms: world 6.71; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.25; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.5106 polygon-sort=0.2229 object-placement=0.1717 ms/frame; nodes=493 polygons=77
+Startup GPU ms: world 6.25; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.21; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 6.26/8.67 ms; frame interval max 33.67 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=36 exclusive wall ms/frame: prep=0.1664 world=6.0659 shaft-source=0.0028 overlays=0.0013 depth-copy=0.0010 AO=0.0002 flares=0.0002 fog=0.0002 shafts=0.0003 weapon=0.0203 bloom-geometry=0.0004 bloom-filter=0.0001 underwater=0.0002 tail=0.0014
+Scene CPU: frames=10 visibility=0.5225 polygon-sort=0.1965 object-placement=0.1819 ms/frame; nodes=421 polygons=69
+Startup GPU ms: world 5.97; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.23; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Whole frame: t=29.704s mode=0 level=2 tick=647 frames=36 avg=28.328 max=30.601 ms; ticks=31 frames-with-ticks=31 loops=36
+Whole frame stages (exclusive wall ms): other=0.005 events=0.079 timers=0.015 update=1.403 interpolation=0.147 render=10.148 swap=16.530 limiter=0.000; worst-frame: other=0.005 events=0.079 timers=0.017 update=5.800 interpolation=0.250 render=9.757 swap=14.692 limiter=0.000
+Scene CPU: frames=9 visibility=0.4691 polygon-sort=0.1465 object-placement=0.1371 ms/frame; nodes=353 polygons=62
+Startup GPU ms: world 6.27; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.22; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Object records frame 780: scenery 76/76 characters 5/5 projectiles 31/31 other 20/20 unique-render-records/helper-visits; sprite-base-draws 132 depth-test-disabled 0
+Light index frame 780: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 780: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Simulation summary tick 659 level 2: ticks 30 avg/max 1.02/1.57 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.06 projectiles 0.11 monsters 0.21 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.57
+Scene CPU: frames=9 visibility=0.3998 polygon-sort=0.1339 object-placement=0.1423 ms/frame; nodes=390 polygons=82
+Startup GPU ms: world 7.07; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.19; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation slow tick 665 level 2: total 6.09 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 5.24 projectiles 0.06 monsters 0.09 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.01 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.66 other 0.01
+Simulation slow tick 669 level 2: total 4.36 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 3.46 projectiles 0.12 monsters 0.22 effects 0.03 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.01 items 0.04 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.46 other 0.01
+Scene CPU: frames=9 visibility=0.4918 polygon-sort=0.1525 object-placement=0.1798 ms/frame; nodes=338 polygons=77
+Startup GPU ms: world 7.42; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.05; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 5.14/7.05 ms; frame interval max 32.72 ms; uploads 5 1.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=35 exclusive wall ms/frame: prep=0.1663 world=4.9447 shaft-source=0.0032 overlays=0.0016 depth-copy=0.0004 AO=0.0002 flares=0.0003 fog=0.0002 shafts=0.0004 weapon=0.0231 bloom-geometry=0.0004 bloom-filter=0.0001 underwater=0.0002 tail=0.0015
+Whole frame: t=30.722s mode=0 level=2 tick=678 frames=35 avg=29.084 max=32.325 ms; ticks=31 frames-with-ticks=31 loops=35
+Whole frame stages (exclusive wall ms): other=0.005 events=0.078 timers=0.018 update=1.498 interpolation=0.136 render=8.949 swap=18.400 limiter=0.000; worst-frame: other=0.003 events=0.067 timers=0.018 update=1.090 interpolation=0.119 render=9.451 swap=21.577 limiter=0.000
+Scene CPU: frames=9 visibility=0.4767 polygon-sort=0.1288 object-placement=0.1842 ms/frame; nodes=282 polygons=68
+Startup GPU ms: world 6.12; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.27; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.2805 polygon-sort=0.0742 object-placement=0.1402 ms/frame; nodes=151 polygons=52
+Startup GPU ms: world 5.22; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.39; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 689 level 2: ticks 30 avg/max 1.25/6.09 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.42 projectiles 0.09 monsters 0.15 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.53
+Scene CPU: frames=10 visibility=0.1886 polygon-sort=0.0428 object-placement=0.0877 ms/frame; nodes=82 polygons=26
+Startup GPU ms: world 4.74; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.40; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.4269 polygon-sort=0.1463 object-placement=0.0989 ms/frame; nodes=425 polygons=80
+Startup GPU ms: world 5.34; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.42; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Light changes frame 840 tick 706: sources texture=0 scenery=0 lit=0 selected=0 all-scenery=0; observations=0 new-candidates=0 removed=0 recolored=0 brightened=0 on=0 off=0; refresh=0.000 scenery-upload=0.000 ms; alloc=0 subupload=0 bytes=0; bake-active=0 bake-valid=0
+Object records frame 840: scenery 58/58 characters 3/3 projectiles 25/25 other 7/7 unique-render-records/helper-visits; sprite-base-draws 93 depth-test-disabled 0
+Light index frame 840: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 840: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Startup CPU: render avg/max 4.66/7.13 ms; frame interval max 30.59 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=37 exclusive wall ms/frame: prep=0.1319 world=4.4847 shaft-source=0.0046 overlays=0.0041 depth-copy=0.0005 AO=0.0002 flares=0.0007 fog=0.0002 shafts=0.0004 weapon=0.0332 bloom-geometry=0.0006 bloom-filter=0.0002 underwater=0.0002 tail=0.0019
+Whole frame: t=31.728s mode=0 level=2 tick=708 frames=37 avg=27.207 max=29.058 ms; ticks=30 frames-with-ticks=30 loops=37
+Whole frame stages (exclusive wall ms): other=0.004 events=0.068 timers=0.015 update=0.946 interpolation=0.113 render=8.232 swap=17.829 limiter=0.000; worst-frame: other=0.003 events=0.060 timers=0.001 update=0.002 interpolation=0.154 render=9.952 swap=18.886 limiter=0.000
+Scene CPU: frames=9 visibility=0.3536 polygon-sort=0.1097 object-placement=0.1015 ms/frame; nodes=414 polygons=77
+Startup GPU ms: world 5.54; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.39; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation slow tick 717 level 2: total 4.53 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 3.24 projectiles 0.15 monsters 0.28 effects 0.03 objects 0.00 sound 0.01 scenery 0.00 ephemera 0.01 items 0.05 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.74 other 0.01
+Scene CPU: frames=10 visibility=0.2670 polygon-sort=0.0960 object-placement=0.0646 ms/frame; nodes=290 polygons=56
+Startup GPU ms: world 5.80; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.40; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 719 level 2: ticks 30 avg/max 0.96/4.53 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.16 projectiles 0.10 monsters 0.17 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.48
+Scene CPU: frames=9 visibility=0.3322 polygon-sort=0.0959 object-placement=0.0853 ms/frame; nodes=222 polygons=49
+Startup GPU ms: world 6.99; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.41; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.2005 polygon-sort=0.0642 object-placement=0.0840 ms/frame; nodes=136 polygons=33
+Startup GPU ms: world 6.28; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.25; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 4.11/5.77 ms; frame interval max 31.41 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=36 exclusive wall ms/frame: prep=0.1383 world=3.9293 shaft-source=0.0057 overlays=0.0021 depth-copy=0.0006 AO=0.0004 flares=0.0003 fog=0.0007 shafts=0.0005 weapon=0.0313 bloom-geometry=0.0009 bloom-filter=0.0002 underwater=0.0002 tail=0.0019
+Simulation slow tick 738 level 2: total 4.48 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 3.20 projectiles 0.14 monsters 0.30 effects 0.03 objects 0.00 sound 0.00 scenery 0.01 ephemera 0.01 items 0.06 textures 0.00 camera 0.00 sensor 0.01 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.70 other 0.01
+Whole frame: t=32.743s mode=0 level=2 tick=739 frames=36 avg=28.187 max=29.859 ms; ticks=31 frames-with-ticks=31 loops=36
+Whole frame stages (exclusive wall ms): other=0.006 events=0.085 timers=0.019 update=1.270 interpolation=0.120 render=7.958 swap=18.730 limiter=0.000; worst-frame: other=0.003 events=0.043 timers=0.022 update=1.303 interpolation=0.178 render=8.178 swap=20.131 limiter=0.000
+Scene CPU: frames=10 visibility=0.2104 polygon-sort=0.0519 object-placement=0.0678 ms/frame; nodes=270 polygons=53
+Startup GPU ms: world 4.99; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.25; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 749 level 2: ticks 30 avg/max 1.02/4.48 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.16 projectiles 0.10 monsters 0.18 effects 0.02 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.51
+Scene CPU: frames=10 visibility=0.2759 polygon-sort=0.1020 object-placement=0.0646 ms/frame; nodes=367 polygons=65
+Startup GPU ms: world 4.82; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.44; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Object records frame 900: scenery 36/36 characters 2/2 projectiles 12/12 other 11/11 unique-render-records/helper-visits; sprite-base-draws 61 depth-test-disabled 0
+Light index frame 900: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 900: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Scene CPU: frames=10 visibility=0.3783 polygon-sort=0.1374 object-placement=0.0710 ms/frame; nodes=543 polygons=86
+Startup GPU ms: world 4.94; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.44; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.3591 polygon-sort=0.1282 object-placement=0.1080 ms/frame; nodes=256 polygons=63
+Startup GPU ms: world 5.66; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.42; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 4.63/6.53 ms; frame interval max 31.72 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=37 exclusive wall ms/frame: prep=0.1159 world=4.4698 shaft-source=0.0050 overlays=0.0023 depth-copy=0.0006 AO=0.0002 flares=0.0004 fog=0.0003 shafts=0.0004 weapon=0.0306 bloom-geometry=0.0005 bloom-filter=0.0002 underwater=0.0003 tail=0.0024
+Whole frame: t=33.756s mode=0 level=2 tick=770 frames=37 avg=27.380 max=29.553 ms; ticks=31 frames-with-ticks=31 loops=37
+Whole frame stages (exclusive wall ms): other=0.004 events=0.069 timers=0.017 update=0.943 interpolation=0.103 render=8.498 swap=17.748 limiter=0.000; worst-frame: other=0.002 events=0.038 timers=0.012 update=0.657 interpolation=0.043 render=8.409 swap=20.392 limiter=0.000
+Scene CPU: frames=10 visibility=0.2271 polygon-sort=0.1067 object-placement=0.0806 ms/frame; nodes=313 polygons=55
+Startup GPU ms: world 4.97; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.43; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 779 level 2: ticks 30 avg/max 0.81/1.16 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.04 projectiles 0.10 monsters 0.14 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.01 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.46
+Scene CPU: frames=10 visibility=0.5405 polygon-sort=0.1953 object-placement=0.1117 ms/frame; nodes=426 polygons=81
+Startup GPU ms: world 5.22; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.41; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.2856 polygon-sort=0.0795 object-placement=0.1022 ms/frame; nodes=164 polygons=46
+Startup GPU ms: world 5.34; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.40; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 4.21/7.06 ms; frame interval max 29.59 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=37 exclusive wall ms/frame: prep=0.1335 world=4.0370 shaft-source=0.0045 overlays=0.0023 depth-copy=0.0005 AO=0.0002 flares=0.0004 fog=0.0003 shafts=0.0005 weapon=0.0285 bloom-geometry=0.0009 bloom-filter=0.0002 underwater=0.0002 tail=0.0016
+Scene CPU: frames=10 visibility=0.2719 polygon-sort=0.0725 object-placement=0.0991 ms/frame; nodes=160 polygons=45
+Startup GPU ms: world 4.67; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.37; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Whole frame: t=34.784s mode=0 level=2 tick=801 frames=38 avg=27.055 max=28.456 ms; ticks=31 frames-with-ticks=31 loops=38
+Whole frame stages (exclusive wall ms): other=0.004 events=0.067 timers=0.016 update=0.931 interpolation=0.128 render=7.834 swap=18.074 limiter=0.000; worst-frame: other=0.004 events=0.055 timers=0.018 update=1.004 interpolation=0.050 render=7.386 swap=19.939 limiter=0.000
+Light changes frame 960 tick 806: sources texture=0 scenery=0 lit=0 selected=0 all-scenery=0; observations=0 new-candidates=0 removed=0 recolored=0 brightened=0 on=0 off=0; refresh=0.000 scenery-upload=0.000 ms; alloc=0 subupload=0 bytes=0; bake-active=0 bake-valid=0
+Object records frame 960: scenery 47/47 characters 3/3 projectiles 10/10 other 7/7 unique-render-records/helper-visits; sprite-base-draws 67 depth-test-disabled 0
+Light index frame 960: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 960: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Scene CPU: frames=10 visibility=0.2661 polygon-sort=0.0679 object-placement=0.0896 ms/frame; nodes=160 polygons=45
+Startup GPU ms: world 4.72; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.40; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 809 level 2: ticks 30 avg/max 0.84/1.31 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.04 projectiles 0.09 monsters 0.16 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.50
+Scene CPU: frames=10 visibility=0.2721 polygon-sort=0.0652 object-placement=0.0863 ms/frame; nodes=159 polygons=44
+Startup GPU ms: world 4.67; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.39; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.3084 polygon-sort=0.0816 object-placement=0.0948 ms/frame; nodes=168 polygons=48
+Startup GPU ms: world 4.68; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.40; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 4.07/5.29 ms; frame interval max 29.16 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=38 exclusive wall ms/frame: prep=0.1373 world=3.8881 shaft-source=0.0047 overlays=0.0029 depth-copy=0.0006 AO=0.0002 flares=0.0004 fog=0.0003 shafts=0.0006 weapon=0.0340 bloom-geometry=0.0007 bloom-filter=0.0003 underwater=0.0003 tail=0.0024
+Whole frame: t=35.797s mode=0 level=2 tick=832 frames=38 avg=26.653 max=28.072 ms; ticks=31 frames-with-ticks=31 loops=38
+Whole frame stages (exclusive wall ms): other=0.004 events=0.055 timers=0.015 update=0.948 interpolation=0.132 render=7.805 swap=17.694 limiter=0.000; worst-frame: other=0.004 events=0.036 timers=0.000 update=0.004 interpolation=0.211 render=9.260 swap=18.557 limiter=0.000
+Scene CPU: frames=10 visibility=0.2627 polygon-sort=0.0707 object-placement=0.0923 ms/frame; nodes=168 polygons=47
+Startup GPU ms: world 4.89; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.41; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 839 level 2: ticks 30 avg/max 0.83/1.08 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.04 projectiles 0.10 monsters 0.16 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.49
+Scene CPU: frames=10 visibility=0.2867 polygon-sort=0.0767 object-placement=0.0968 ms/frame; nodes=168 polygons=47
+Startup GPU ms: world 4.91; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.39; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.2304 polygon-sort=0.0639 object-placement=0.0783 ms/frame; nodes=162 polygons=45
+Startup GPU ms: world 4.76; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.43; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Object records frame 1020: scenery 47/47 characters 3/3 projectiles 14/14 other 7/7 unique-render-records/helper-visits; sprite-base-draws 71 depth-test-disabled 0
+Light index frame 1020: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 1020: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Scene CPU: frames=10 visibility=0.2441 polygon-sort=0.0643 object-placement=0.1036 ms/frame; nodes=162 polygons=45
+Startup GPU ms: world 4.69; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.40; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 3.90/5.96 ms; frame interval max 29.00 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=38 exclusive wall ms/frame: prep=0.1340 world=3.7087 shaft-source=0.0060 overlays=0.0025 depth-copy=0.0007 AO=0.0003 flares=0.0005 fog=0.0003 shafts=0.0006 weapon=0.0383 bloom-geometry=0.0007 bloom-filter=0.0002 underwater=0.0003 tail=0.0024
+Whole frame: t=36.810s mode=0 level=2 tick=862 frames=38 avg=26.665 max=28.150 ms; ticks=30 frames-with-ticks=30 loops=38
+Whole frame stages (exclusive wall ms): other=0.004 events=0.045 timers=0.014 update=0.890 interpolation=0.125 render=7.679 swap=17.909 limiter=0.000; worst-frame: other=0.003 events=0.036 timers=0.012 update=0.784 interpolation=0.065 render=6.082 swap=21.168 limiter=0.000
+Scene CPU: frames=10 visibility=0.2660 polygon-sort=0.0690 object-placement=0.0930 ms/frame; nodes=162 polygons=45
+Startup GPU ms: world 4.69; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.39; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 869 level 2: ticks 30 avg/max 0.83/1.27 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.04 projectiles 0.09 monsters 0.15 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.50
+Scene CPU: frames=10 visibility=0.2121 polygon-sort=0.0615 object-placement=0.0767 ms/frame; nodes=162 polygons=45
+Startup GPU ms: world 4.68; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.40; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.2512 polygon-sort=0.0656 object-placement=0.0854 ms/frame; nodes=170 polygons=48
+Startup GPU ms: world 4.66; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.39; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.5463 polygon-sort=0.2094 object-placement=0.1347 ms/frame; nodes=313 polygons=55
+Startup GPU ms: world 5.36; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.42; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 4.26/6.03 ms; frame interval max 29.60 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=38 exclusive wall ms/frame: prep=0.1542 world=4.0603 shaft-source=0.0050 overlays=0.0024 depth-copy=0.0006 AO=0.0003 flares=0.0004 fog=0.0003 shafts=0.0005 weapon=0.0330 bloom-geometry=0.0006 bloom-filter=0.0002 underwater=0.0003 tail=0.0016
+Whole frame: t=37.827s mode=0 level=2 tick=893 frames=38 avg=26.749 max=28.408 ms; ticks=31 frames-with-ticks=31 loops=38
+Whole frame stages (exclusive wall ms): other=0.004 events=0.055 timers=0.016 update=0.976 interpolation=0.126 render=7.997 swap=17.576 limiter=0.000; worst-frame: other=0.004 events=0.088 timers=0.032 update=1.024 interpolation=0.104 render=8.895 swap=18.262 limiter=0.000
+Scene CPU: frames=10 visibility=0.2828 polygon-sort=0.1060 object-placement=0.0660 ms/frame; nodes=260 polygons=50
+Startup GPU ms: world 4.60; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.40; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 899 level 2: ticks 30 avg/max 0.87/1.32 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.04 projectiles 0.10 monsters 0.17 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.49
+Light changes frame 1080 tick 903: sources texture=0 scenery=0 lit=0 selected=0 all-scenery=0; observations=0 new-candidates=0 removed=0 recolored=0 brightened=0 on=0 off=0; refresh=0.000 scenery-upload=0.000 ms; alloc=0 subupload=0 bytes=0; bake-active=0 bake-valid=0
+Object records frame 1080: scenery 30/30 characters 1/1 projectiles 11/11 other 6/6 unique-render-records/helper-visits; sprite-base-draws 48 depth-test-disabled 0
+Light index frame 1080: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 1080: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Scene CPU: frames=10 visibility=0.3245 polygon-sort=0.1206 object-placement=0.0818 ms/frame; nodes=505 polygons=83
+Startup GPU ms: world 4.58; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.42; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.5332 polygon-sort=0.2108 object-placement=0.1161 ms/frame; nodes=497 polygons=83
+Startup GPU ms: world 5.40; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.39; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=9 visibility=0.6140 polygon-sort=0.1468 object-placement=0.1380 ms/frame; nodes=1017 polygons=170
+Startup GPU ms: world 5.90; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.42; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 4.46/7.05 ms; frame interval max 31.94 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=37 exclusive wall ms/frame: prep=0.1652 world=4.2501 shaft-source=0.0052 overlays=0.0022 depth-copy=0.0006 AO=0.0003 flares=0.0004 fog=0.0003 shafts=0.0004 weapon=0.0292 bloom-geometry=0.0006 bloom-filter=0.0002 underwater=0.0002 tail=0.0024
+Whole frame: t=38.843s mode=0 level=2 tick=924 frames=37 avg=27.476 max=30.252 ms; ticks=31 frames-with-ticks=31 loops=37
+Whole frame stages (exclusive wall ms): other=0.004 events=0.064 timers=0.018 update=1.036 interpolation=0.123 render=8.328 swap=17.903 limiter=0.000; worst-frame: other=0.003 events=0.035 timers=0.000 update=0.002 interpolation=0.111 render=6.297 swap=23.804 limiter=0.000
+Scene CPU: frames=9 visibility=1.1841 polygon-sort=0.0943 object-placement=0.2257 ms/frame; nodes=1017 polygons=170
+Startup GPU ms: world 6.22; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.47; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Simulation summary tick 929 level 2: ticks 30 avg/max 0.91/1.51 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.04 projectiles 0.11 monsters 0.17 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.52
+Scene CPU: frames=10 visibility=0.7829 polygon-sort=0.0980 object-placement=0.1164 ms/frame; nodes=1017 polygons=170
+Startup GPU ms: world 5.00; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.40; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.9304 polygon-sort=0.0619 object-placement=0.1330 ms/frame; nodes=1017 polygons=170
+Startup GPU ms: world 2.81; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.31; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Object records frame 1140: scenery 45/45 characters 2/2 projectiles 12/12 other 13/13 unique-render-records/helper-visits; sprite-base-draws 72 depth-test-disabled 0
+Light index frame 1140: queries 0 candidates 0 full-scan 0 build 0.000 ms
+Early material frame 1140: enabled 1 resolved 0 bound 0 avoided-opaque 0 avoided-remaining 0
+Scene CPU: frames=11 visibility=0.8693 polygon-sort=0.0796 object-placement=0.1223 ms/frame; nodes=516 polygons=81
+Startup GPU ms: world 2.82; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.34; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 3.05/7.17 ms; frame interval max 29.83 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=39 exclusive wall ms/frame: prep=0.1508 world=2.8481 shaft-source=0.0050 overlays=0.0033 depth-copy=0.0007 AO=0.0003 flares=0.0005 fog=0.0004 shafts=0.0011 weapon=0.0373 bloom-geometry=0.0007 bloom-filter=0.0002 underwater=0.0006 tail=0.0024
+Whole frame: t=39.862s mode=0 level=2 tick=955 frames=39 avg=26.108 max=29.221 ms; ticks=31 frames-with-ticks=31 loops=39
+Whole frame stages (exclusive wall ms): other=0.003 events=0.051 timers=0.014 update=0.891 interpolation=0.120 render=7.799 swap=17.230 limiter=0.000; worst-frame: other=0.002 events=0.040 timers=0.012 update=0.839 interpolation=0.073 render=5.958 swap=22.297 limiter=0.000
+Simulation summary tick 959 level 2: ticks 30 avg/max 0.83/1.43 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.03 projectiles 0.09 monsters 0.15 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.01 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.51
+Scene CPU: frames=9 visibility=0.3255 polygon-sort=0.1095 object-placement=0.0619 ms/frame; nodes=528 polygons=84
+Startup GPU ms: world 5.30; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.41; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.4929 polygon-sort=0.1918 object-placement=0.0983 ms/frame; nodes=528 polygons=84
+Startup GPU ms: world 5.35; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.40; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Scene CPU: frames=10 visibility=0.4690 polygon-sort=0.1459 object-placement=0.0845 ms/frame; nodes=528 polygons=84
+Startup GPU ms: world 5.40; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.40; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Startup CPU: render avg/max 4.96/6.87 ms; frame interval max 30.15 ms; uploads 0 0.0 ms; shaders 0 0.0 ms; evictions 0
+Render CPU averages: frames=37 exclusive wall ms/frame: prep=0.1142 world=4.7981 shaft-source=0.0043 overlays=0.0025 depth-copy=0.0006 AO=0.0002 flares=0.0008 fog=0.0003 shafts=0.0005 weapon=0.0318 bloom-geometry=0.0005 bloom-filter=0.0001 underwater=0.0011 tail=0.0013
+Scene CPU: frames=10 visibility=0.5231 polygon-sort=0.2214 object-placement=0.1036 ms/frame; nodes=528 polygons=84
+Startup GPU ms: world 5.28; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.41; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Whole frame: t=40.875s mode=0 level=2 tick=985 frames=37 avg=27.396 max=29.000 ms; ticks=30 frames-with-ticks=30 loops=37
+Whole frame stages (exclusive wall ms): other=0.004 events=0.042 timers=0.016 update=0.993 interpolation=0.116 render=8.858 swap=17.367 limiter=0.000; worst-frame: other=0.004 events=0.034 timers=0.016 update=1.170 interpolation=0.094 render=7.380 swap=20.301 limiter=0.000
+Simulation summary tick 989 level 2: ticks 30 avg/max 0.88/1.89 ms; lua 0.00 lights 0.00 media 0.00 platforms 0.00 panels 0.00 players 0.04 projectiles 0.09 monsters 0.17 effects 0.01 objects 0.00 sound 0.00 scenery 0.00 ephemera 0.00 items 0.02 textures 0.00 camera 0.00 sensor 0.00 exploration 0.00 network 0.00 post-lua 0.00 interpolation 0.52
+Scene CPU: frames=9 visibility=0.4271 polygon-sort=0.1575 object-placement=0.0831 ms/frame; nodes=528 polygons=84
+Startup GPU ms: world 5.40; shaft-source 0.00; overlays 0.00; depth-copy 0.00; AO 0.00; flares 0.00; fog 0.00; shafts 0.00; weapon 0.42; bloom-geometry 0.00; bloom-filter 0.00; underwater 0.00
+Whole frame: t=41.904s mode=0 level=2 tick=995 frames=66 avg=15.586 max=33.164 ms; ticks=10 frames-with-ticks=10 loops=12
+Whole frame stages (exclusive wall ms): other=0.001 events=8.192 timers=0.003 update=0.163 interpolation=0.016 render=1.530 swap=5.681 limiter=0.000; worst-frame: other=0.000 events=32.785 timers=0.000 update=0.000 interpolation=0.000 render=0.000 swap=0.379 limiter=0.000
+Whole frame: t=42.307s mode=0 level=2 tick=0 frames=18 avg=22.401 max=103.560 ms; ticks=0 frames-with-ticks=0 loops=0
+Whole frame stages (exclusive wall ms): other=0.000 events=16.087 timers=0.000 update=0.000 interpolation=0.000 render=0.000 swap=6.314 limiter=0.000; worst-frame: other=0.000 events=102.777 timers=0.000 update=0.000 interpolation=0.000 render=0.000 swap=0.783 limiter=0.000
+Whole frame mode: t=42.307s mode=4 level=-1 tick=0 (0=play, 1=paused/controller-off, 2=screenshot, 3=visual, 4=outside-game); boundary interval omitted
+Sprintathon Linux
+https://github.com/visageeee/alephone-sprintathon
+Based on Aleph One Linux 2025-08-29 1.11
+
+Original code by Bungie Software <http://www.bungie.com/>
+Additional work by Loren Petrich, Chris Pruett, Rhys Hill et al.
+TCP/IP networking by Woody Zenfell
+SDL port by Christian Bauer <Christian.Bauer@uni-mainz.de>
+
+This is free software with ABSOLUTELY NO WARRANTY.
+You are welcome to redistribute it under certain conditions.
+For details, see the file COPYING.
+
+Built with network play enabled.
+GL_VENDOR: Intel
+GL_RENDERER: Mesa Intel(R) HD Graphics 4600 (HSW GT2)
+GL_VERSION: 4.6 (Compatibility Profile) Mesa 25.2.8-0ubuntu0.24.04.2

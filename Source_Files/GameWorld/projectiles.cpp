@@ -1,3 +1,4 @@
+#include "../RenderMain/SprintathonTerrainRuntime.h"
 #include "shell_options.h"
 /*
 PROJECTILES.C
@@ -292,7 +293,7 @@ bool preflight_projectile(
 			// it will act like "penetrates_media" here
 			// Added idiot-proofing to media data
 			media_data *media = get_media_data(origin_polygon->media_index);
-			if (origin->z>origin_polygon->floor_height && origin->z<origin_polygon->ceiling_height &&
+			if (origin->z>SprintathonTerrainRuntime::floorAt(origin_polygon_index,origin->x,origin->y) && origin->z<origin_polygon->ceiling_height &&
 				(origin_polygon->media_index==NONE || definition->flags&(_penetrates_media) || (media ? origin->z>media->height : true)))
 			{
 				/* make sure it hits something */
@@ -440,9 +441,11 @@ static bool sprintathon_ricochet(projectile_data *projectile, object_data *objec
 
 	if (flags&_projectile_hit_floor || obstruction_index!=NONE)
 	{
-		// Floor and ceiling: only a shallow approach can bounce.
-		if (std::fabs(vz) > 0.42*length) return false;
-		vz = -vz;
+        std::array<double,3> normal={{0,0,1}};
+        if(flags&_projectile_hit_floor)SprintathonTerrainRuntime::normalAt(polygon_index,impact->x,impact->y,normal);
+        const double dot=vx*normal[0]+vy*normal[1]+vz*normal[2];
+        if(std::fabs(dot)>0.42*length)return false;
+        vx-=2*dot*normal[0];vy-=2*dot*normal[1];vz-=2*dot*normal[2];
 	}
 	else
 	{
@@ -469,7 +472,7 @@ static bool sprintathon_ricochet(projectile_data *projectile, object_data *objec
 	world_point3d hit = *impact;
 	// Step back inside the current polygon so the next tick starts clear of the surface.
 	translate_point3d(impact, WORLD_ONE/64, object->facing, projectile->elevation);
-	if (flags&_projectile_hit_floor) impact->z = std::max<int>(impact->z, get_polygon_data(polygon_index)->floor_height+1);
+	if (flags&_projectile_hit_floor) impact->z = std::max<int>(impact->z, SprintathonTerrainRuntime::floorAt(polygon_index,impact->x,impact->y)+1);
 	else if (obstruction_index!=NONE) impact->z = std::min<int>(impact->z, get_polygon_data(polygon_index)->ceiling_height-1);
 	new_effect(&hit, polygon_index, _effect_bullet_ricochet, object->facing);
 	return true;
@@ -723,6 +726,12 @@ void move_projectiles(
                                     long(dynamic_world->tick_count),int(projectile->type),int(detonation_effect),int(definition->area_of_effect),int(new_location.x),int(new_location.y),int(new_location.z));
                                 SprintathonShockwaveEvents::emit(projectile->type,detonation_effect,new_location);
                                 if(std::getenv("SPRINTATHON_SHOCKWAVE_TRACE"))std::fprintf(stderr,"Shockwave queued=%u\n",unsigned(SprintathonShockwaveEvents::queue().waves.size()));
+                                // Direct rocket-floor detonations only, after the existing
+                                // damage/effect path. Preflight and persistent contacts do not dent.
+                                if((projectile->type==_projectile_rocket || projectile->type==_projectile_juggernaut_rocket) &&
+                                   (flags&_projectile_hit_floor) && !(flags&(_projectile_hit_media|_projectile_hit_landscape)) &&
+                                   definition->area_of_effect>0)
+                                    SprintathonTerrainRuntime::dent(obstruction_index,new_location);
 								L_Call_Projectile_Detonated(projectile->type, projectile->owner_index, new_polygon_index, new_location, flags, obstruction_index, line_index);
 								
 								if (!film_profile.infinity_smg || (!(definition->flags&_penetrates_media_boundary) || !(flags&_projectile_hit_media)))
@@ -1001,9 +1010,11 @@ uint16 translate_projectile(
 	world_point3d intersection;
 	world_distance media_height;
 	short line_index;
-	size_t intersected_object_count;
+	size_t intersected_object_count=0;
 	short contact;
 	uint16 flags= 0;
+    bool terrain_contact=false;
+    world_point3d terrain_entry=*old_location;
 
 	*obstruction_index= NONE;
 
@@ -1034,8 +1045,19 @@ uint16 translate_projectile(
 		}
 		
  		line_index= find_line_crossed_leaving_polygon(old_polygon_index, old_location, new_location);
-		if (line_index!=NONE)
-		{
+
+        const auto* terrain=SprintathonTerrainRuntime::meshFor(old_polygon);
+        world_point3d terrain_end=*new_location;
+        if(terrain && line_index!=NONE){const auto* edge=get_line_data(line_index);
+            find_line_intersection(&get_endpoint_data(edge->endpoint_indexes[0])->vertex,
+                &get_endpoint_data(edge->endpoint_indexes[1])->vertex,old_location,new_location,&terrain_end);}
+        const world_distance collision_floor=terrain?SprintathonTerrainRuntime::floorAt(old_polygon_index,terrain_end.x,terrain_end.y):old_polygon->floor_height;
+        if(terrain && SprintathonTerrainRuntime::segment(old_polygon_index,terrain_entry,terrain_end,intersection)){
+            terrain_contact=true;contact=_hit_floor;*obstruction_index=old_polygon_index;
+            line_index=NONE;
+        }
+        else if (line_index!=NONE)
+        {
 			/* we crossed a line: if the line is solid, we detonate immediately on the wall,
 				otherwise we calculate our Z at the line and compare it to the ceiling and
 				floor heights of the old and new polygon to see if we hit a wall between the
@@ -1060,7 +1082,7 @@ uint16 translate_projectile(
 				// but it will be able to run into a media surface.
 				// Here, test for whether the projectile is above the floor or the media surface;
 				// ignore the latter test if PMB is set.
-				if ((traveled_underneath || intersection.z>media_height) && intersection.z>old_polygon->floor_height)
+				if ((traveled_underneath || intersection.z>media_height) && intersection.z>collision_floor)
 				{
 					// If PMB was set, check to see if the projectile hit the media surface.
 					if ((!traveled_underneath || intersection.z<media_height) && intersection.z<old_polygon->ceiling_height)
@@ -1073,6 +1095,7 @@ uint16 translate_projectile(
 							{
 								/* no intersections, successfully entered new polygon */
 								if (new_polygon_index) *new_polygon_index= adjacent_polygon_index;
+								terrain_entry=intersection;
 								old_polygon_index= adjacent_polygon_index;
 								old_polygon= adjacent_polygon;
 							}
@@ -1105,7 +1128,7 @@ uint16 translate_projectile(
 					*obstruction_index= old_polygon_index;
 					if (adjacent_polygon->floor_transfer_mode==_xfer_landscape) flags|= _projectile_hit_landscape;
 					// LP change: suppress media-hit test only if PMB was set and the projectile was underneath the media
-					contact= (traveled_underneath || old_polygon->floor_height>media_height) ? _hit_floor : _hit_media;
+					contact= (traveled_underneath || collision_floor>media_height) ? _hit_floor : _hit_media;
 				}
 			}
 			else
@@ -1123,7 +1146,7 @@ uint16 translate_projectile(
 			// but it will be able to run into a media surface.
 			// Here, test for whether the projectile is above the floor or the media surface;
 			// ignore the latter test if PMB is set.
-			if ((traveled_underneath || new_location->z>media_height) && new_location->z>old_polygon->floor_height)
+			if ((traveled_underneath || new_location->z>media_height) && new_location->z>collision_floor)
 			{
 				// If PMB was set, check to see if the projectile hit the media surface.
 				if ((!traveled_underneath || new_location->z<media_height) && new_location->z<old_polygon->ceiling_height)
@@ -1146,7 +1169,7 @@ uint16 translate_projectile(
 				*obstruction_index= old_polygon_index;
 				if (old_polygon->floor_transfer_mode==_xfer_landscape) flags|= _projectile_hit_landscape;
 				// LP change: suppress media-hit test only if PMB was set and the projectile was underneath the media
-				contact= (traveled_underneath || old_polygon->floor_height>media_height) ? _hit_floor : _hit_media;
+				contact= (traveled_underneath || collision_floor>media_height) ? _hit_floor : _hit_media;
 			}
 		}
 	}
@@ -1162,7 +1185,7 @@ uint16 translate_projectile(
 				find_floor_or_ceiling_intersection(media_height, old_location, new_location, &intersection);
 				break;
 			case _hit_floor:
-				find_floor_or_ceiling_intersection(old_polygon->floor_height, old_location, new_location, &intersection);
+				if(!terrain_contact)find_floor_or_ceiling_intersection(old_polygon->floor_height, old_location, new_location, &intersection);
 				break;
 			case _hit_ceiling:
 				find_floor_or_ceiling_intersection(old_polygon->ceiling_height, old_location, new_location, &intersection);

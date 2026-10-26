@@ -1,3 +1,4 @@
+#include "../GameWorld/SprintathonZeroG.h"
 #include "../SprintathonFrameTrace.h"
 /*
 
@@ -36,6 +37,7 @@
 
 #ifdef HAVE_OPENGL
 #include "OGL_Headers.h"
+#include "../RenderMain/SprintathonPresentTrace.h"
 #include "OGL_Blitter.h"
 #include "OGL_Faders.h"
 #include "OGL_Textures.h"
@@ -1636,7 +1638,11 @@ void render_screen(short ticks_elapsed)
     const bool scripted_camera = UseLuaCameras(heartbeat_fraction);
     if (!scripted_camera && !screenshot_mode_active() && !surface_editor_active() &&
         world_view->show_weapons_in_hand)
-        sprintathon_apply_frame_mouse_view(heartbeat_fraction);
+    {
+        if(SprintathonZeroG::active(current_player))
+            SprintathonZeroG::applyView(world_view,heartbeat_fraction);
+        else sprintathon_apply_frame_mouse_view(heartbeat_fraction);
+    }
 	if (screenshot_mode_active()) update_screenshot_camera();
 
 #ifdef HAVE_OPENGL
@@ -1665,6 +1671,10 @@ void render_screen(short ticks_elapsed)
 	else if (software_render_dest.empty() || ViewChangedSize)
 		software_render_dest = bitmap_definition_of_sdl_surface(world_pixels);
 	
+#ifdef HAVE_OPENGL
+    if(screen_mode.acceleration!=_no_acceleration)
+        SprintathonPresentTrace::updateBenchmark(dynamic_world->current_level_number);
+#endif
 	// Render world view
 	render_view(world_view, software_render_dest.get());
 
@@ -1735,7 +1745,9 @@ void render_screen(short ticks_elapsed)
 	// then blit the software rendering to the screen
 	if (screen_mode.acceleration != _no_acceleration) {
 #ifdef HAVE_OPENGL
-		if (Screen::instance()->hud()) {
+        SprintathonPresentTrace::mark(3);
+        // Skip only HUD rendering, without resizing the view or changing prefs.
+        if (Screen::instance()->hud() && !SprintathonPresentTrace::suppressHUD()) {
 			if (Screen::instance()->lua_hud())
 				Lua_DrawHUD(ticks_elapsed);
 			else {
@@ -1744,6 +1756,8 @@ void render_screen(short ticks_elapsed)
 			}
 		}
 		
+        SprintathonPresentTrace::mark(4);
+
 		if (world_view->terminal_mode_active) {
 			// Copy 2D rendering to screen
 
@@ -2794,6 +2808,7 @@ bool MainScreenIsOpenGL()
 }
 void MainScreenSwap()
 {
+    SprintathonPresentTrace::mark(5);
 	{ SprintathonFrameTrace::Scope timing(SprintathonFrameTrace::Swap);
 	  SDL_GL_SwapWindow(main_screen); }
 	SprintathonFrameTrace::get().present();

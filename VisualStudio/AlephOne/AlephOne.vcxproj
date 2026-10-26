@@ -965,6 +965,10 @@
       <Link>Plugins\Sprintathon_HUD\Plugin.xml</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="..\..\data\sprintathon_hud\hud-*.png">
+      <Link>Plugins\Sprintathon_HUD\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="..\..\data\sprintathon_hud\Sprintathon_HUD.lua">
       <Link>Plugins\Sprintathon_HUD\Sprintathon_HUD.lua</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

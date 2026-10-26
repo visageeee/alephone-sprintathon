@@ -1,6 +1,7 @@
 #ifndef SPRINTATHON_OPAQUE_WORLD_H
 #define SPRINTATHON_OPAQUE_WORLD_H
 #include "SprintathonFlashlight.h"
+#include "SprintathonBatchLightTiming.h"
 #include "SprintathonFlashlightBounce.h"
 #include <array>
 #include <algorithm>
@@ -99,7 +100,7 @@ struct InstanceKey {
 };
 struct Entry{GLint first=0;GLsizei count=0;unsigned row=0;};
 struct Group{std::vector<GLint> first;std::vector<GLsizei> count;};
-struct Material{std::unique_ptr<TextureManager> manager;GLuint texture=0,bump=0;bool swapped=false;GLuint arrayTexture=0,arrayBump=0;int layer=0;};
+struct Material{std::shared_ptr<TextureManager> manager;GLuint texture=0,bump=0;bool swapped=false;GLuint arrayTexture=0,arrayBump=0;int layer=0;};
 static std::map<InstanceKey,Entry> geometry;
 static std::map<GeometryKey,unsigned> instances;
 struct GroupKey {
@@ -804,6 +805,7 @@ inline void preload(){
 }
 inline bool begin(){
     active=requested() && program && buffer && parameterCount && parameters[0] && context==SDL_GL_GetCurrentContext();
+    SprintathonBatchLightTiming::begin(active && SprintathonStartupTiming::get().active());
     materials.clear();instances.clear();uploadRows=0;firstUploadRow=rowLimit;
     // Retain draw-list capacity between views; never retain submitted draws.
     // Bound historical material keys, and release them when batching is off.
@@ -821,7 +823,7 @@ inline bool begin(){
 }
 inline Material* material(shape_descriptor shape){
     auto it=materials.find(shape);if(it!=materials.end())return it->second.texture?&it->second:nullptr;
-    Material m;m.manager=std::make_unique<TextureManager>();auto& t=*m.manager;t.ShapeDesc=shape;
+    Material m;m.manager=std::make_shared<TextureManager>();auto& t=*m.manager;t.ShapeDesc=shape;
     if(shape!=UNONE){
         get_shape_bitmap_and_shading_table(shape,&t.Texture,&t.ShadingTables,_shading_normal);
         t.TextureType=OGL_Txtr_Wall;t.TransferMode=_textured_transfer;t.TransferData=0;t.IsShadeless=false;
@@ -1064,9 +1066,11 @@ inline void finish(void (*traceDraw)()=nullptr){
         glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
         glPixelStorei(GL_UNPACK_ALIGNMENT,4);glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
         glPixelStorei(GL_UNPACK_SKIP_ROWS,0);glPixelStorei(GL_UNPACK_SKIP_PIXELS,0);
-        glTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB,0,0,firstUploadRow,surfaceColumns,uploadRows-firstUploadRow,GL_RGBA,GL_FLOAT,table.data()+size_t(firstUploadRow)*surfaceFloats);
+        { SprintathonBatchLightTiming::Scope timing(SprintathonBatchLightTiming::ParametersUpload);
+        glTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB,0,0,firstUploadRow,surfaceColumns,uploadRows-firstUploadRow,GL_RGBA,GL_FLOAT,table.data()+size_t(firstUploadRow)*surfaceFloats); }
         glActiveTextureARB(GL_TEXTURE0_ARB+7);glBindTexture(GL_TEXTURE_RECTANGLE_ARB,dynamicTextures[parameterSlot]);
-        glTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB,0,0,0,3,GLsizei(dynamicData.size()/12),GL_RGBA,GL_FLOAT,dynamicData.data());
+        { SprintathonBatchLightTiming::Scope timing(SprintathonBatchLightTiming::LightsUpload);
+        glTexSubImage2D(GL_TEXTURE_RECTANGLE_ARB,0,0,0,3,GLsizei(dynamicData.size()/12),GL_RGBA,GL_FLOAT,dynamicData.data()); }
         glActiveTextureARB(GL_TEXTURE0_ARB+3);glBindTexture(GL_TEXTURE_RECTANGLE_ARB,sceneryTexture);
         glPopClientAttrib();
         glUseProgramObjectARB(program);SprintathonFlashlightBounce::bindSurface(program);SprintathonFlashlight::bindRaw(flashlightLocations);glUniform4fvARB(fogLocation,1,fogSettings);glUniform1fARB(lightLocation,playerLight);
@@ -1134,6 +1138,7 @@ inline void finish(void (*traceDraw)()=nullptr){
         std::fprintf(stderr,"Opaque preparation frame %llu: reuse %s; surface %u hits / %u builds; dynamic %u hits / %u builds\n",
             (unsigned long long)SprintathonStartupTiming::get().frame_id,reusePreparation()?"on":"off",
             surfacePrepHits,surfacePrepMisses,dynamicPrepHits,dynamicPrepMisses);
+    SprintathonBatchLightTiming::finish();
     active=false;
 }
 }

@@ -36,6 +36,7 @@
 #include "OGL_Shader.h"
 #include "SprintathonStartupTiming.h"
 #include "SprintathonPassTest.h"
+#include "SprintathonTextureLightBenchmark.h"
 #include "ChaseCam.h"
 #include "preferences.h"
 #include "SprintathonRenderResolution.h"
@@ -46,6 +47,9 @@
 #include "FileHandler.h"
 
 #ifdef HAVE_OPENGL
+#include "SprintathonTerrainRuntime.h"
+#include "SprintathonPresentTrace.h"
+#include "SprintathonTerrainColor.h"
 #include "SprintathonWaterNormals.h"
 #include "SprintathonSpriteReflection.h"
 #include "SprintathonSkyBake.h"
@@ -62,6 +66,17 @@
 #include <cstring>
 
 extern bool ShowPosition;
+
+extern void FlatBumpTexture();
+
+static const SprintathonTerrain::DrawMesh* sprintathon_terrain_surface(
+    polygon_data* polygon, horizontal_surface_data* surface, bool ceiling)
+{
+    if(ceiling || surface->is_media || !polygon || surface->transfer_mode!=_xfer_normal)return nullptr;
+    return SprintathonTerrainRuntime::meshFor(polygon);
+}
+
+
 
 // Results are read only after availability is reported. A full queue skips
 // sampling rather than waiting for the GPU. No glFinish or result busy-wait.
@@ -561,6 +576,7 @@ void RenderRasterize_Shader::setupGL(Rasterizer_Shader_Class& Rasterizer) {
     sprintathon_gpu_profiler.reset();
     sprintathon_world_detail.reset();
     SprintathonWaterNormals::reset();
+    SprintathonTerrainColor::reset();
 
 	RasPtr = &Rasterizer;
 
@@ -2422,7 +2438,7 @@ struct SprintathonLightChangeTrace {
     unsigned observations=0, added=0, removed=0, recolored=0, brightened=0, activated=0, extinguished=0;
     unsigned allocations=0, uploads=0;
     size_t bytes=0;
-    double refresh_ms=0, upload_ms=0;
+    double refresh_ms=0, upload_ms=0, selection_ms=0;
 };
 static SprintathonLightChangeTrace sprintathon_light_change_trace;
 struct SprintathonLightTraceScope {
@@ -2805,6 +2821,7 @@ static float sprintathon_emitter_radius(bool scenery)
 
 static float sprintathon_emitter_gain(bool scenery)
 {
+    if (!scenery && SprintathonTextureLightBenchmark::suppress()) return 0.0f;
     return (scenery ? graphics_preferences->scenery_light_intensity :
                       graphics_preferences->texture_light_intensity) / 100.0f;
 }
@@ -2995,6 +3012,7 @@ static uint32 sprintathon_emitter_tick = 0;
 
 static void sprintathon_select_view_emitters(const view_data *camera)
 {
+    SprintathonLightTraceScope selectionTiming(sprintathon_light_change_trace.selection_ms);
     const uint32 now = machine_tick_count();
     const float elapsed = sprintathon_emitter_tick ?
         std::min<uint32>(now - sprintathon_emitter_tick, 250) : 16;
@@ -3145,7 +3163,7 @@ struct SprintathonLightIndex {
     uint64_t tested=0, full=0;
     double buildMs=0;
     static SprintathonLightIndex& get(){static SprintathonLightIndex i;return i;}
-    static bool enabled(){static const bool value=[](){const char* v=std::getenv("SPRINTATHON_LIGHT_INDEX");return v && v[0]=='1';}();return value;}
+    static bool enabled(){static const bool value=[](){const char* v=std::getenv("SPRINTATHON_LIGHT_INDEX");return !v || v[0]!='0';}();return value;}
     void reset(){ready=false;queries=0;tested=full=0;buildMs=0;}
     int build(size_t first,size_t last){
         Node n;n.first=first;n.last=last;n.box=boxes[order[first]];
@@ -3179,11 +3197,16 @@ struct SprintathonLightIndex {
         if(!ready){
             const auto start=std::chrono::steady_clock::now();
             boxes.clear();order.clear();nodes.clear();
+            boxes.resize(sprintathon_texture_lights.size());
             for(size_t i=0;i<sprintathon_texture_lights.size();++i){
                 const auto& l=sprintathon_texture_lights[i];
+                // These exclusions are independent of the receiver. Apply once
+                // per view, while retaining original indices for stable ties.
+                if(sprintathon_is_forced_scenery(l) || sprintathon_emitter_gain(l.scenery)<=0.0f ||
+                   (l.scenery?graphics_preferences->scenery_light_limit:graphics_preferences->texture_light_limit)<=0)continue;
                 const double radius=double(std::max(sprintathon_emitter_radius(l.scenery),1.0f))+1.0;
                 Box b={{l.x-radius,l.y-radius,l.z-radius},{l.x+radius,l.y+radius,l.z+radius}};
-                boxes.push_back(b);order.push_back(i);
+                boxes[i]=b;order.push_back(i);
             }
             if(!order.empty())build(0,order.size());
             ready=true;
@@ -3199,7 +3222,8 @@ struct SprintathonLightIndex {
 struct SprintathonLightIndexFrame {
     SprintathonLightIndexFrame(){SprintathonLightIndex::get().reset();}
     ~SprintathonLightIndexFrame(){
-        if(SprintathonLightIndex::enabled() && sprintathon_detail_frame()){
+        if(SprintathonLightIndex::enabled() && (sprintathon_detail_frame() ||
+           (SprintathonStartupTiming::get().active() && SprintathonStartupTiming::get().frame_id%60==0))){
             const auto& t=SprintathonLightIndex::get();
             std::fprintf(stderr,"Light index frame %llu: queries %u candidates %llu full-scan %llu build %.3f ms\n",
                 (unsigned long long)SprintathonStartupTiming::get().frame_id,t.queries,
@@ -3463,7 +3487,7 @@ static void sprintathon_write_view_emitters(LightSink *shader,
             SprintathonTextureTrace::add(light,&SprintathonTextureTrace::Counts::eligible);
             candidates.push_back({&light,light_budget<20?-contribution:distance2});
         }
-        std::sort(candidates.begin(),candidates.end(),[](const Candidate& a,const Candidate& b){
+        const auto nearer=[](const Candidate& a,const Candidate& b){
             if(a.score!=b.score)return a.score<b.score;
             const auto& x=*a.light;const auto& y=*b.light;
             if(x.x!=y.x)return x.x<y.x;
@@ -3472,8 +3496,26 @@ static void sprintathon_write_view_emitters(LightSink *shader,
             // All candidates belong to the same vector: this is a stable tie
             // break while its source population remains unchanged.
             return a.light<b.light;
-        });
-        const int capacity=light_budget-int(sprintathon_dropped_flares.size());
+        };
+        const int capacity=std::max(0,light_budget-int(sprintathon_dropped_flares.size()));
+        // At most capacity candidates of either kind can survive the original
+        // quota-limited merge. Keep exactly those prefixes, then merge in the
+        // same total order instead of sorting every nearby source.
+        auto middle=std::partition(candidates.begin(),candidates.end(),
+            [](const Candidate& c){return !c.light->scenery;});
+        const size_t textureKeep=std::min(size_t(middle-candidates.begin()),
+            size_t(std::max(0,std::min(capacity,int(graphics_preferences->texture_light_limit)))));
+        const size_t sceneryKeep=std::min(size_t(candidates.end()-middle),
+            size_t(std::max(0,std::min(capacity,int(graphics_preferences->scenery_light_limit)))));
+        std::partial_sort(candidates.begin(),candidates.begin()+textureKeep,middle,nearer);
+        std::partial_sort(middle,middle+sceneryKeep,candidates.end(),nearer);
+        static std::vector<Candidate> shortlist;
+        shortlist.clear();shortlist.reserve(textureKeep+sceneryKeep);
+        shortlist.insert(shortlist.end(),candidates.begin(),candidates.begin()+textureKeep);
+        shortlist.insert(shortlist.end(),middle,middle+sceneryKeep);
+        std::sort(shortlist.begin(),shortlist.end(),nearer);
+        std::copy(shortlist.begin(),shortlist.end(),candidates.begin());
+        candidates.resize(shortlist.size());
         int selected=0,texture_count=0,scenery_count=0;
         for(const auto& candidate:candidates) {
             const auto& light=*candidate.light;
@@ -4318,7 +4360,7 @@ static bool sprintathon_surface_commands_requested() {
     return enabled;
 }
 struct SprintathonBloomPacket {
-    std::unique_ptr<TextureManager> material;
+    std::shared_ptr<TextureManager> material;
     std::vector<GLfloat> vertices, uv;
     GLfloat normal[3], tangent[4], color[3];
     float intensity=0, offset=0;
@@ -4330,7 +4372,7 @@ struct SprintathonBloomPacket {
 struct SprintathonBloomReuse {
     using Key=std::vector<int64_t>;
     std::map<Key,SprintathonBloomPacket> packets;
-    bool active=false, commands=false;
+    bool active=false, commands=false, batchCapture=false;
     bool shaftReplayed=false, bloomReplayed=false;
     std::vector<SprintathonBloomPacket*> commandList;
     unsigned shaftCommands=0,bloomCommands=0,shaftSkips=0,bloomSkips=0;
@@ -4339,6 +4381,20 @@ struct SprintathonBloomReuse {
     static SprintathonBloomReuse& get(){static SprintathonBloomReuse r;return r;}
     void begin(){
         static const bool requested=[](){const char* v=std::getenv("SPRINTATHON_BLOOM_REUSE");return v && v[0]=='1';}();
+        static const bool benchmark=[](){const char* v=std::getenv("SPRINTATHON_BLOOM_BATCH_BENCHMARK");return v && v[0]=='1';}();
+        static auto start=std::chrono::steady_clock::now();
+        static int level=-1,lastPhase=-1;
+        const auto now=std::chrono::steady_clock::now();
+        if(level!=dynamic_world->current_level_number){level=dynamic_world->current_level_number;start=now;lastPhase=-1;}
+        const double seconds=std::chrono::duration<double>(now-start).count();
+        const int phase=seconds<15?0:seconds<35?1:seconds<55?2:seconds<75?3:4;
+        if(benchmark && phase!=lastPhase){
+            static const char* labels[]={"warmup","batch-on A","batch-off B","batch-on A2","complete (batch on)"};
+            std::fprintf(stderr,"Bloom batch benchmark: %s; %.1f seconds\n",labels[phase],seconds);
+            lastPhase=phase;
+        }
+        const char* batchOption=std::getenv("SPRINTATHON_BLOOM_BATCH_REUSE");
+        batchCapture=benchmark ? phase!=2 : (!batchOption || batchOption[0]!='0');
         commandList.clear();packets.clear();hits=misses=0;
         shaftReplayed=bloomReplayed=false;
         shaftCommands=bloomCommands=shaftSkips=bloomSkips=0;
@@ -4346,12 +4402,12 @@ struct SprintathonBloomReuse {
         const char* opaqueOrder=std::getenv("SPRINTATHON_OPAQUE_FIRST");
         // Match the established main-world opaque-first ordering. Custom/order-
         // sensitive configurations retain the original traversal in every pass.
-        commands=sprintathon_surface_commands_requested() &&
+        commands=!benchmark && sprintathon_surface_commands_requested() &&
             graphics_preferences->projectile_lights_per_pixel &&
             (!opaqueOrder || opaqueOrder[0]!='0') && !current_player->infravision_duration;
         active=!current_player->infravision_duration &&
             ((commands && SprintathonPassTest::get().shafts() && Get_OGL_ConfigureData().LandscapeLightShafts) ||
-             ((requested || commands) && SprintathonPassTest::get().bloom() &&
+             ((requested || commands || benchmark) && SprintathonPassTest::get().bloom() &&
               TEST_FLAG(Get_OGL_ConfigureData().Flags,OGL_Flag_Blur)));
     }
     SprintathonBloomPacket* find(const Key& key){
@@ -4359,7 +4415,10 @@ struct SprintathonBloomReuse {
         if(i==packets.end()){++misses;return nullptr;}
         ++hits;return &i->second;
     }
-    void save(const Key& key,std::unique_ptr<TextureManager>& material,GLenum mode,int count,
+    static std::shared_ptr<TextureManager> retain(std::unique_ptr<TextureManager>& m){return std::move(m);}
+    static std::shared_ptr<TextureManager> retain(std::shared_ptr<TextureManager>& m){return m;}
+    template<class Owner>
+    void save(const Key& key,Owner& material,GLenum mode,int count,
               const GLfloat* vertices,const GLfloat* uv,float nx,float ny,float nz,
               float tx,float ty,float tz,float sign,float intensity,float offset,
               const float* projectile,bool voidPresent,clipping_window_data* window,bool opaque){
@@ -4377,7 +4436,7 @@ struct SprintathonBloomReuse {
         for(int i=0;i<3;++i)p.color[i]=graphics_preferences->projectile_lights_per_pixel ?
             intensity:std::min(1.0f,intensity+projectile[i]);
         p.intensity=intensity;p.offset=offset;p.voidPresent=voidPresent;p.mode=mode;
-        p.material=std::move(material);
+        p.material=retain(material);
     }
     void end(){
         if(active && sprintathon_detail_frame())
@@ -4397,6 +4456,8 @@ struct SprintathonBloomReuseFrame {
 };
 
 void RenderRasterize_Shader::render_tree() {
+    SprintathonPresentTrace::WorldScope presentTrace;
+    SprintathonTextureLightBenchmark::begin(dynamic_world->current_level_number);
     const auto& passTest=SprintathonPassTest::get();
     passTest.frame();
     SprintathonSkyBake::prepare();
@@ -4495,6 +4556,8 @@ void RenderRasterize_Shader::render_tree() {
     sprintathon_upload_all_scenery_lights();
     sprintathon_select_view_emitters(view);
     light_prepare.finish();
+    SprintathonTextureLightBenchmark::sample(sprintathon_light_change_trace.refresh_ms,
+        sprintathon_light_change_trace.selection_ms,sprintathon_light_change_trace.upload_ms);
     if(SprintathonStartupTiming::get().active()) {
         const auto& t=sprintathon_light_change_trace;
         const auto frame=SprintathonStartupTiming::get().frame_id;
@@ -5807,7 +5870,8 @@ void setupBlendFunc(short blendType) {
 	}
 }
 
-bool setupGlow(struct view_data *view, std::unique_ptr<TextureManager>& TMgr, float wobble, float intensity, float flare, float selfLuminosity, float offset, RenderStep renderStep) {
+template<class Owner>
+bool setupGlow(struct view_data *view, Owner& TMgr, float wobble, float intensity, float flare, float selfLuminosity, float offset, RenderStep renderStep) {
     SprintathonObjectOps::Scope opsGlow(SprintathonObjectOps::Glow);
     // Glow is an extra material draw, not an additional sky opening. Its
     // normal surface already supplies the occluding depth and cutout alpha.
@@ -6268,6 +6332,7 @@ struct DynamicSink {
     }
 };
 inline bool prepareDynamic(int count,const float* vertices,bool baked,float* row,const view_data* view){
+    SprintathonBatchLightTiming::Scope dynamicTiming(SprintathonBatchLightTiming::Dynamic);
     SprintathonSurfaceLightBounds bounds;
     bounds.x0=bounds.x1=vertices[0];bounds.y0=bounds.y1=vertices[1];bounds.z0=bounds.z1=vertices[2];bounds.valid=true;
     for(int i=1;i<count;++i){
@@ -6287,10 +6352,13 @@ inline bool prepareDynamic(int count,const float* vertices,bool baked,float* row
     }
     ++dynamicPrepMisses;
     DynamicSink sink;
-    sprintathon_write_view_emitters(&sink,&bounds,true,baked);
-    if(graphics_preferences->projectile_lights_per_pixel)
+    { SprintathonBatchLightTiming::Scope timing(SprintathonBatchLightTiming::TextureFilter);
+      sprintathon_write_view_emitters(&sink,&bounds,true,baked); }
+    if(graphics_preferences->projectile_lights_per_pixel) {
+        SprintathonBatchLightTiming::Scope timing(SprintathonBatchLightTiming::Projectile);
         sprintathon_write_projectile_light(&sink,(bounds.x0+bounds.x1)*.5f,(bounds.y0+bounds.y1)*.5f,
-            (bounds.z0+bounds.z1)*.5f,&bounds);
+            (bounds.z0+bounds.z1)*.5f,&bounds); }
+    SprintathonBatchLightTiming::Scope recordTiming(SprintathonBatchLightTiming::Records);
     row[32]=sink.count;row[33]=sink.first;row[34]=sink.end;
     for(int i=0;i<int(sink.count) && i<20;++i){
         const int id=storeLight(sink.emitterRecords[i]);if(id<0)return false;row[36+i]=float(id);
@@ -6384,7 +6452,7 @@ inline bool submitRetained(Material& material,RetainedSurface& record,float shad
         record.bake,&detail,&record.geometry,detailWeight);
 }
 static bool transfer(short mode){return mode==_xfer_normal || mode==_xfer_2x || mode==_xfer_4x;}
-static bool floor(clipping_window_data* window,polygon_data* polygon,horizontal_surface_data* surface,bool ceiling,const view_data* view){
+static bool floor(clipping_window_data* window,polygon_data* polygon,horizontal_surface_data* surface,bool ceiling,const view_data* view,bool voidPresent,const SprintathonBloomReuse::Key* bloomKey){
     if(!active)return false;
     ++seen;
     if(surface->is_media || !transfer(surface->transfer_mode)){++fallback;return false;}
@@ -6396,6 +6464,15 @@ static bool floor(clipping_window_data* window,polygon_data* polygon,horizontal_
     if(surface->transfer_mode==_xfer_2x)scale*=2;
     if(surface->transfer_mode==_xfer_4x)scale*=4;
     if(!(scale>0)){++fallback;return false;}
+    auto captureBloom=[&](int count,const GLfloat* vertices,const GLfloat* uv,float shade){
+        auto& reuse=SprintathonBloomReuse::get();
+        // Legacy vertex lighting needs its per-surface projectile contribution.
+        // Leave that configuration on the original bloom preparation path.
+        if(!bloomKey || !reuse.batchCapture || !graphics_preferences->projectile_lights_per_pixel)return;
+        const float projectile[3]={0,0,0};
+        reuse.save(*bloomKey,m->manager,GL_POLYGON,count,vertices,uv,
+            0,0,ceiling?-1:1,0,1,0,ceiling?1:-1,shade,0,projectile,voidPresent,window,true);
+    };
     RetainedKey retainedKey{};
     if(retainedEnabled()){
         retainedKey={{int64_t(reinterpret_cast<uintptr_t>(polygon)),0,ceiling?1:0,surface->height,
@@ -6408,7 +6485,7 @@ static bool floor(clipping_window_data* window,polygon_data* polygon,horizontal_
                 ++fallback;return false;
             }
             const float shade=get_light_intensity(surface->lightsource_index)/float(FIXED_ONE-1);
-            if(submitRetained(*m,*record,shade,0,window,view,polygon,surface,ceiling))return true;
+            if(submitRetained(*m,*record,shade,0,window,view,polygon,surface,ceiling)){captureBloom(record->count,record->vertices.data(),record->uv.data(),shade);return true;}
             ++fallback;return false;
         }
     }
@@ -6430,10 +6507,10 @@ static bool floor(clipping_window_data* window,polygon_data* polygon,horizontal_
     SurfaceRecord detail;if(detailWeight>0.0f || retainedEnabled())prepareSurface(detail,polygon,surface,ceiling,nullptr,view);
     if(retainedEnabled())rememberSurface(retainedKey,polygon->vertex_count,vertices,uv,detail,bake);
     const float shade=get_light_intensity(surface->lightsource_index)/float(FIXED_ONE-1);
-    if(submit(*m,polygon->vertex_count,vertices,uv,shade,0,window,view,bake,&detail,nullptr,detailWeight))return true;
+    if(submit(*m,polygon->vertex_count,vertices,uv,shade,0,window,view,bake,&detail,nullptr,detailWeight)){captureBloom(polygon->vertex_count,vertices,uv,shade);return true;}
     ++fallback;return false;
 }
-static bool side(clipping_window_data* window,vertical_surface_data* surface,bool voidPresent,const view_data* view){
+static bool side(clipping_window_data* window,vertical_surface_data* surface,bool voidPresent,const view_data* view,const SprintathonBloomReuse::Key* bloomKey){
     if(!active)return false;
     ++seen;
     if(!transfer(surface->transfer_mode)){++fallback;return false;}
@@ -6446,6 +6523,17 @@ static bool side(clipping_window_data* window,vertical_surface_data* surface,boo
     if(surface->transfer_mode==_xfer_2x)scale*=2;
     if(surface->transfer_mode==_xfer_4x)scale*=4;
     if(!(scale>=1 && scale<=65535)){++fallback;return false;}
+    auto captureBloom=[&](int count,const GLfloat* vertices,const GLfloat* uv,float shade){
+        auto& reuse=SprintathonBloomReuse::get();
+        // Legacy vertex lighting needs its per-surface projectile contribution.
+        // Leave that configuration on the original bloom preparation path.
+        if(!bloomKey || !reuse.batchCapture || !graphics_preferences->projectile_lights_per_pixel)return;
+        const float projectile[3]={0,0,0};
+        const float dx=float((surface->p1.i-surface->p0.i)/double(surface->length));
+        const float dy=float((surface->p1.j-surface->p0.j)/double(surface->length));
+        reuse.save(*bloomKey,m->manager,GL_QUADS,count,vertices,uv,
+            -dy,dx,0,dx,dy,0,1,shade,voidPresent?0:-2,projectile,voidPresent,window,true);
+    };
     RetainedKey retainedKey{};
     if(retainedEnabled()){
         const auto* t=surface->texture_definition;
@@ -6461,7 +6549,7 @@ static bool side(clipping_window_data* window,vertical_surface_data* surface,boo
                 ++fallback;return false;
             }
             const float shade=(get_light_intensity(surface->lightsource_index)+surface->ambient_delta)/float(FIXED_ONE-1);
-            if(submitRetained(*m,*record,shade,voidPresent?0:-2,window,view,nullptr,nullptr,false,surface))return true;
+            if(submitRetained(*m,*record,shade,voidPresent?0:-2,window,view,nullptr,nullptr,false,surface)){captureBloom(record->count,record->vertices.data(),record->uv.data(),shade);return true;}
             ++fallback;return false;
         }
     }
@@ -6491,7 +6579,7 @@ static bool side(clipping_window_data* window,vertical_surface_data* surface,boo
     SurfaceRecord detail;if(detailWeight>0.0f || retainedEnabled())prepareSurface(detail,nullptr,nullptr,false,surface,view);
     if(retainedEnabled())rememberSurface(retainedKey,4,vertices,uv,detail,bake);
     const float shade=(get_light_intensity(surface->lightsource_index)+surface->ambient_delta)/float(FIXED_ONE-1);
-    if(submit(*m,4,vertices,uv,shade,voidPresent?0:-2,window,view,bake,&detail,nullptr,detailWeight))return true;
+    if(submit(*m,4,vertices,uv,shade,voidPresent?0:-2,window,view,bake,&detail,nullptr,detailWeight)){captureBloom(4,vertices,uv,shade);return true;}
     ++fallback;return false;
 }
 }
@@ -6500,15 +6588,14 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
 	polygon_data *polygon, horizontal_surface_data *surface, bool void_present, bool ceil, RenderStep renderStep) {
     SprintathonDetailScope detailScope;
     if(surface_editor_noclip() && ceil && !surface->is_media)return;
-    if(renderStep==kDiffuse && world_surface_pass==WorldSurfacePass::opaque &&
-       SprintathonOpaqueWorld::floor(window,polygon,surface,ceil,view)){
-        SprintathonPortalTrace::get().surface(polygon,nullptr,ceil?1:0);return;
-    }
+    const auto* terrain=sprintathon_terrain_surface(polygon,surface,ceil);
+    const bool terrainColor=terrain && SprintathonTerrainColor::requested();
+    if(terrain && SprintathonOpaqueBatch::active)flush_opaque_batch();
 
     const bool batchTransfer=surface->transfer_mode==_xfer_normal ||
         surface->transfer_mode==_xfer_2x || surface->transfer_mode==_xfer_4x;
     auto& bloomReuse=SprintathonBloomReuse::get();
-    const bool reuseEligible=bloomReuse.active && batchTransfer && (!sprintathon_fast_shaft_source() || bloomReuse.commands) && !surface->is_media;
+    const bool reuseEligible=!terrain && bloomReuse.active && batchTransfer && (!sprintathon_fast_shaft_source() || bloomReuse.commands) && !surface->is_media;
     SprintathonBloomReuse::Key bloomKey;
     if(reuseEligible){
         bloomKey={0,reinterpret_cast<intptr_t>(window),void_present,
@@ -6529,6 +6616,11 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
                 return;
             }
         }
+    }
+
+    if(!terrain && renderStep==kDiffuse && world_surface_pass==WorldSurfacePass::opaque &&
+       SprintathonOpaqueWorld::floor(window,polygon,surface,ceil,view,void_present,reuseEligible ? &bloomKey : nullptr)){
+        SprintathonPortalTrace::get().surface(polygon,nullptr,ceil?1:0);return;
     }
 
     if (SprintathonOpaqueBatch::active && (!batchTransfer || void_present)) flush_opaque_batch();
@@ -6560,6 +6652,12 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
     if(!surface->is_media){
         surface_bounds.nz=ceil?-1.0f:1.0f;
         surface_bounds.planeOffset=-surface_bounds.nz*float(surface->height);
+    }
+    if(terrain){
+        // The flat floor bounds cannot cull a displaced mesh.
+        outside_frustum=false;
+        surface_bounds.z0=terrain->minZ;surface_bounds.z1=terrain->maxZ;
+        surface_bounds.nx=surface_bounds.ny=surface_bounds.nz=surface_bounds.planeOffset=0;
     }
     // Opaque preparation and bloom do not collect diffuse texture emitters.
     if (outside_frustum && (sprintathon_fast_shaft_source() || world_surface_pass == WorldSurfacePass::opaque ||
@@ -6603,7 +6701,7 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
             if(rejectOpaque)++trace.skippedOpaque;else ++trace.skippedRemaining;
             // Emitter observations still occur in the remaining traversal,
             // including off-screen opaque surfaces. No shader or texture binds.
-            if(rejectRemaining && graphics_preferences->projectile_lights_per_pixel)
+            if(!terrainColor && rejectRemaining && graphics_preferences->projectile_lights_per_pixel)
                 { SprintathonSetupScope preparationTime(SprintathonSetupTrace::EmitterRecord);
                 sprintathon_record_texture_light(resolvedMaterial.get(),surface_light_x,surface_light_y,
                     surface_light_z,renderStep,false,false,surface->lightsource_index,
@@ -6638,7 +6736,7 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
     }
     if (world_surface_pass == WorldSurfacePass::opaque && skip_world_surface(opaque_surface)) return;
     const bool lava_surface = surface->is_media && surface->media_type == _media_lava;
-    if (graphics_preferences->projectile_lights_per_pixel &&
+    if (!terrainColor && graphics_preferences->projectile_lights_per_pixel &&
         world_surface_pass != WorldSurfacePass::opaque) {
         { SprintathonSetupScope preparationTime(SprintathonSetupTrace::EmitterRecord);
                 sprintathon_record_texture_light(TMgr.get(), surface_light_x, surface_light_y,
@@ -6687,6 +6785,11 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
             V(x0,y0,surface->height),V(1,0,0),V(0,1,0),V(0,0,ceil?-1:1),x1-x0,y1-y0);
     }
 
+    if(terrain){
+        SprintathonSkyBake::textureReceiver=false;
+        Shader* shader=sprintathon_surface_shader(renderStep,TMgr->TextureType);
+        if(shader){shader->setFloat(Shader::U_SkyBakeEnabled,0);shader->setFloat(Shader::U_TextureBakeEnabled,0);}
+    }
     if(renderStep == kDiffuse)
         sprintathon_set_floor_cone_pools(sprintathon_surface_shader(renderStep, TMgr->TextureType),
             polygon, surface, ceil);
@@ -6767,6 +6870,47 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
 		}
 		glNormal3f(N[0], N[1], N[2]);
 		glMultiTexCoord4fARB(GL_TEXTURE1_ARB, T[0], T[1], T[2], sign);
+
+
+        if(terrain){
+            // Keep the existing material, world transform, portal clip and depth
+            // ordering. Submit actual XYZ vertices in diffuse/glow/shaft passes.
+            GLint oldBuffer=0;glGetIntegerv(GL_ARRAY_BUFFER_BINDING_ARB,&oldBuffer);
+            glPushAttrib(GL_ENABLE_BIT);glDisable(GL_CULL_FACE);
+            glPushClientAttrib(GL_CLIENT_VERTEX_ARRAY_BIT);
+            glBindBufferARB(GL_ARRAY_BUFFER_ARB,0);
+            glEnableClientState(GL_VERTEX_ARRAY);glEnableClientState(GL_NORMAL_ARRAY);
+            glVertexPointer(3,GL_FLOAT,0,terrain->positions.data());
+            glNormalPointer(GL_FLOAT,0,terrain->normals.data());
+            glClientActiveTextureARB(GL_TEXTURE1_ARB);glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+            glTexCoordPointer(4,GL_FLOAT,0,terrain->tangents.data());
+            glClientActiveTextureARB(GL_TEXTURE0_ARB);glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+            glTexCoordPointer(2,GL_FLOAT,0,terrain->uv.data());
+            auto drawTerrain=[&](){
+                Shader* shader=sprintathon_surface_shader(renderStep,TMgr->TextureType);
+                // Baked maps describe the old flat floor, not the terrain.
+                if(shader){shader->setFloat(Shader::U_SkyBakeEnabled,0);shader->setFloat(Shader::U_TextureBakeEnabled,0);}
+                sprintathon_shaft_draw_arrays(GL_TRIANGLES,0,GLsizei(terrain->positions.size()/3));
+            };
+            bool customColor=false;
+            if(terrainColor){
+                customColor=SprintathonTerrainColor::bind();
+                if(customColor){
+                    // OBJ UVs are direct image coordinates, with V pointing up.
+                    // The custom upload flips rows; no Marathon texture rotation.
+                    glMatrixMode(GL_TEXTURE);glLoadIdentity();glMatrixMode(GL_MODELVIEW);
+                    glActiveTextureARB(GL_TEXTURE1_ARB);FlatBumpTexture();glActiveTextureARB(GL_TEXTURE0_ARB);
+                    Shader* shader=sprintathon_surface_shader(renderStep,TMgr->TextureType);
+                    if(shader){shader->setFloat(Shader::U_Glow,0);shader->setFloat(Shader::U_EmitterShade,1);
+                        if(renderStep==kGlow){shader->setFloat(Shader::U_BloomScale,0);shader->setFloat(Shader::U_BloomShift,0);}}
+                }
+            }
+            drawTerrain();
+            if(!customColor && setupGlow(view,TMgr,0,intensity,weaponFlare,selfLuminosity,offset,renderStep))drawTerrain();
+            glPopClientAttrib();glBindBufferARB(GL_ARRAY_BUFFER_ARB,GLuint(oldBuffer));glPopAttrib();
+            Shader::disable();glMatrixMode(GL_TEXTURE);glLoadIdentity();glMatrixMode(GL_MODELVIEW);
+            return;
+        }
 
 		GLfloat vertex_array[MAXIMUM_VERTICES_PER_POLYGON * 3];
 		GLfloat texcoord_array[MAXIMUM_VERTICES_PER_POLYGON * 2];
@@ -7049,6 +7193,7 @@ inline void prepareSurface(SurfaceRecord& data,const polygon_data* polygon,
     const horizontal_surface_data* floorSurface,bool ceiling,const vertical_surface_data* wallSurface,
     const view_data* view)
 {
+    SprintathonBatchLightTiming::Scope surfaceTiming(SprintathonBatchLightTiming::Surface);
     std::vector<int64_t> key;
     if(reusePreparation()){
         const polygon_data* owner=wallSurface?wallSurface->blend_polygon:polygon;
@@ -7086,10 +7231,6 @@ inline void prepareSurface(SurfaceRecord& data,const polygon_data* polygon,
 
 void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vertical_surface_data *surface, bool void_present, RenderStep renderStep) {
     SprintathonDetailScope detailScope;
-    if(renderStep==kDiffuse && world_surface_pass==WorldSurfacePass::opaque &&
-       SprintathonOpaqueWorld::side(window,surface,void_present,view)){
-        SprintathonPortalTrace::get().surface(surface->blend_polygon,surface->texture_definition,2);return;
-    }
     const bool batchTransfer=surface->transfer_mode==_xfer_normal ||
         surface->transfer_mode==_xfer_2x || surface->transfer_mode==_xfer_4x;
     auto& bloomReuse=SprintathonBloomReuse::get();
@@ -7114,6 +7255,11 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
                 return;
             }
         }
+    }
+
+    if(renderStep==kDiffuse && world_surface_pass==WorldSurfacePass::opaque &&
+       SprintathonOpaqueWorld::side(window,surface,void_present,view,reuseEligible ? &bloomKey : nullptr)){
+        SprintathonPortalTrace::get().surface(surface->blend_polygon,surface->texture_definition,2);return;
     }
 
     if (SprintathonOpaqueBatch::active && (!batchTransfer || void_present)) flush_opaque_batch();

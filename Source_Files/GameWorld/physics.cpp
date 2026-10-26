@@ -97,6 +97,7 @@ running backwards shouldn’t mean doom in a fistfight
 #include <cmath>
 #include <vector>
 #include "vbl.h"
+#include "../RenderMain/SprintathonTerrainRuntime.h"
 
 /* ---------- constants */
 
@@ -113,6 +114,8 @@ running backwards shouldn’t mean doom in a fistfight
 /* ---------- private prototypes */
 
 /* needed for set_player_position -SB */
+#include "SprintathonZeroG.h"
+
 /*static*/ struct physics_constants *get_physics_constants_for_model(short physics_model, uint32 action_flags);
 // Preserve tangential movement at character contact instead of cancelling XY.
 // Only the player moves here; heavy character yielding remains in push_character.
@@ -247,7 +250,7 @@ void initialize_player_physics_variables(
 	short player_index)
 {
 	if (player_index == local_player_index)
-		resync_virtual_aim();
+    { SprintathonZeroG::reset(); resync_virtual_aim(); }
 	
 	struct player_data *player= get_player_data(player_index);
 	struct monster_data *monster= get_monster_data(player->monster_index);
@@ -347,6 +350,48 @@ void initialize_player_physics_variables(
 #endif
 }
 
+// Read-only short collision probes. Ordinary portals do not provide a
+// foothold: only a surface that blocks the player's collision body can kick.
+static SprintathonZeroGMath::V sprintathon_zero_g_contact(player_data* player,SprintathonZeroGMath::V toward)
+{
+    using SprintathonZeroGMath::V;
+    auto& variables=player->variables;
+    auto* object=get_object_data(get_monster_data(player->monster_index)->object_index);
+    const double reach=WORLD_ONE/8.0;
+    double closest=reach+1;V normal{};
+    auto consider=[&](double gap,V n){
+        if(n.dot(toward)<-.65 && gap>=-2 && gap<=reach && gap<closest){closest=gap;normal=n;}
+    };
+    consider(object->location.z-FIXED_TO_WORLD(variables.floor_height),{0,0,1});
+    consider(FIXED_TO_WORLD(variables.ceiling_height-variables.actual_height)-object->location.z,{0,0,-1});
+    for(int i=0;i<8;++i){
+        const double angle=i*SprintathonZeroGMath::pi/4;
+        const double dx=std::cos(angle)*reach,dy=std::sin(angle)*reach;
+        const int x=int(object->location.x)+int(std::lround(dx));
+        const int y=int(object->location.y)+int(std::lround(dy));
+        if(x<INT16_MIN || x>INT16_MAX || y<INT16_MIN || y>INT16_MAX)continue;
+        world_point3d target=object->location;
+        target.x=static_cast<world_distance>(x);target.y=static_cast<world_distance>(y);
+        const world_point3d intended=target;
+        world_distance floor,ceiling;short support;
+        keep_line_segment_out_of_walls(object->polygon,&object->location,&target,
+            WORLD_ONE/3,FIXED_TO_WORLD(variables.actual_height),&floor,&ceiling,&support);
+        V correction{double(target.x)-intended.x,double(target.y)-intended.y,0};
+        const double length=correction.length();
+        if(length>1){
+            V n=correction*(1/length);
+            const double approach=-(dx*n.x+dy*n.y);
+            if(approach>1)consider(std::max(0.0,approach-length),n);
+        }
+    }
+    if(SprintathonZeroG::debug())std::fprintf(stderr,
+        "ZeroG contact: toward=(%.3f,%.3f,%.3f) normal=(%.3f,%.3f,%.3f) gap=%.1f pos=(%d,%d,%d) floor=%d ceiling=%d body=%d\n",
+        toward.x,toward.y,toward.z,normal.x,normal.y,normal.z,closest,
+        int(object->location.x),int(object->location.y),int(object->location.z),
+        int(FIXED_TO_WORLD(variables.floor_height)),int(FIXED_TO_WORLD(variables.ceiling_height)),int(FIXED_TO_WORLD(variables.actual_height)));
+    return normal;
+}
+
 void update_player_physics_variables(
 	short player_index,
 	uint32 action_flags,
@@ -356,6 +401,16 @@ void update_player_physics_variables(
 	struct physics_variables *variables= &player->variables;
 	struct physics_constants *constants= get_physics_constants_for_model(static_world->physics_model, action_flags);
 	struct physics_constants slowed_constants;
+    const bool zeroTrace=player_index==local_player_index && SprintathonZeroG::traceFrame(action_flags);
+    if(zeroTrace)std::fprintf(stderr,
+        "ZeroG before: tick=%ld mode=%d active=%d predictive=%d flags=%08lx jump=%d crouch=%d jumpHeld=%d crouchHeld=%d ready=%d pos=(%.4f,%.4f,%.4f) vel=(%.5f,%.5f,%.5f) body=%.4f fixedBody=%.4f\n",
+        long(dynamic_world->tick_count),SprintathonZeroG::mode(),int(SprintathonZeroG::active(player)),int(predictive),
+        static_cast<unsigned long>(action_flags),int(bool(action_flags&_swim)),int(bool(action_flags&_microphone_button)),
+        int(SprintathonZeroG::state().jumpHeld),int(SprintathonZeroG::state().crouchHeld),int(SprintathonZeroG::state().ready),
+        variables->position.x/double(FIXED_ONE),variables->position.y/double(FIXED_ONE),variables->position.z/double(FIXED_ONE),
+        variables->external_velocity.i/double(FIXED_ONE),variables->external_velocity.j/double(FIXED_ONE),variables->external_velocity.k/double(FIXED_ONE),
+        variables->actual_height/double(FIXED_ONE),SprintathonZeroG::state().bodyHeight/double(FIXED_ONE));
+
 	if (sprintathon_bullet_time_active())
 	{
 		/* Keep velocity limits and view rotation unchanged. Scaling the rates
@@ -379,8 +434,27 @@ void update_player_physics_variables(
 		constants= &slowed_constants;
 	}
 
-	physics_update(constants, variables, player, action_flags);
+    if(SprintathonZeroG::active(player)){
+        SprintathonZeroG::update(player,action_flags,constants,
+            sprintathon_bullet_time_active()?sprintathon_scale_for_bullet_time(FIXED_ONE)/double(FIXED_ONE):1.0,
+            sprintathon_zero_g_contact);
+        if(SprintathonZeroG::state().kickedThisTick)
+            sprintathon_play_wall_kick_sound(player->monster_index);
+    }
+    else physics_update(constants, variables, player, action_flags);
+    if(zeroTrace)std::fprintf(stderr,
+        "ZeroG integrated: pos=(%.4f,%.4f,%.4f) vel=(%.5f,%.5f,%.5f) kick=%d pose=%d poseTicks=%d exitTicks=%d\n",
+        variables->position.x/double(FIXED_ONE),variables->position.y/double(FIXED_ONE),variables->position.z/double(FIXED_ONE),
+        variables->external_velocity.i/double(FIXED_ONE),variables->external_velocity.j/double(FIXED_ONE),variables->external_velocity.k/double(FIXED_ONE),
+        int(SprintathonZeroG::state().kickedThisTick),int(player->flying_kick_active),int(player->flying_kick_ticks),int(player->flying_kick_exit_ticks));
 	instantiate_physics_variables(constants, variables, player_index, false, !predictive);
+    if(zeroTrace)std::fprintf(stderr,
+        "ZeroG resolved: pos=(%.4f,%.4f,%.4f) vel=(%.5f,%.5f,%.5f) camera=(%d,%d,%d) body=%.4f floor=%.4f ceiling=%.4f flags=%04x\n",
+        variables->position.x/double(FIXED_ONE),variables->position.y/double(FIXED_ONE),variables->position.z/double(FIXED_ONE),
+        variables->external_velocity.i/double(FIXED_ONE),variables->external_velocity.j/double(FIXED_ONE),variables->external_velocity.k/double(FIXED_ONE),
+        int(player->camera_location.x),int(player->camera_location.y),int(player->camera_location.z),
+        variables->actual_height/double(FIXED_ONE),variables->floor_height/double(FIXED_ONE),variables->ceiling_height/double(FIXED_ONE),unsigned(variables->flags));
+
 
 #ifdef DIVERGENCE_CHECK
 	if (saved_point_count<SAVED_POINT_COUNT)
@@ -794,6 +868,67 @@ static void sprintathon_push_character(short player_index, short obstruction,
 			}
 		}
 	}
+
+
+    // Only player support changes here. Walls, objects, monsters and projectiles
+    // keep their existing collision rules. Resolve XY before sampling the mesh.
+    if(!PLAYER_IS_DEAD(player) && SprintathonTerrainRuntime::enabled()){
+        const world_point3d previous_location=legs->location;
+        short destination=legs->polygon;
+        for(int guard=0;guard<dynamic_world->polygon_count;++guard){
+            short edge=find_line_crossed_leaving_polygon(destination,&legs->location,&new_location);
+            if(edge==NONE)break;
+            short next=find_adjacent_polygon(destination,edge);
+            if(next==NONE){destination=NONE;break;}
+            destination=next;
+            if(guard+1==dynamic_world->polygon_count)destination=NONE;
+        }
+        double mesh_floor=0;
+        if(destination!=NONE && SprintathonTerrainRuntime::height(destination,new_location.x,new_location.y,mesh_floor)){
+            world_distance terrain_floor=static_cast<world_distance>(std::lround(mesh_floor));
+            // Preserve a genuinely higher adjacent support/solid object.
+            if(player->supporting_polygon_index==destination || player->supporting_polygon_index==legs->polygon)
+                adjusted_floor_height=terrain_floor;
+            else adjusted_floor_height=MAX(adjusted_floor_height,terrain_floor);
+            const world_distance support=MAX(adjusted_floor_height,object_floor);
+            const world_distance body_height=FIXED_TO_WORLD(variables->actual_height);
+            if(int(support)+body_height>adjusted_ceiling_height){
+                // A rising slope must not push the player's head through a roof.
+                new_location=previous_location;clipped=true;
+                adjusted_floor_height=first_time?get_polygon_data(legs->polygon)->floor_height:FIXED_TO_WORLD(variables->floor_height);
+                adjusted_ceiling_height=first_time?get_polygon_data(legs->polygon)->ceiling_height:FIXED_TO_WORLD(variables->ceiling_height);
+                object_floor=INT16_MIN;player->supporting_polygon_index=legs->polygon;
+            } else {
+                const double old_floor=first_time?get_polygon_data(legs->polygon)->floor_height:FIXED_TO_WORLD(variables->floor_height);
+                double corrected=new_location.z;
+                if(!SprintathonZeroG::active(player) && SprintathonTerrain::groundContact(previous_location.z,old_floor,new_location.z,support,
+                    variables->external_velocity.k,first_time,2.0,corrected)){
+                    new_location.z=static_cast<world_distance>(std::lround(corrected));
+                    variables->position.z=WORLD_TO_FIXED(new_location.z);
+                    if(variables->external_velocity.k<0)variables->external_velocity.k=0;
+                    variables->flags&=~(_BELOW_GROUND_BIT|_ABOVE_GROUND_BIT);
+                }
+                player->supporting_polygon_index=destination;
+            }
+        }
+    }
+
+    if(SprintathonZeroG::active(player)){
+        // The normal physics path resolves vertical contact before moving. In
+        // zero-g resolve it here against destination geometry and solid objects.
+        const int floor=MAX(adjusted_floor_height,object_floor);
+        const int roof=int(adjusted_ceiling_height)-FIXED_TO_WORLD(variables->actual_height);
+        if(roof<floor){new_location=legs->location;clipped=true;
+            variables->external_velocity.i=variables->external_velocity.j=variables->external_velocity.k=0;
+        }else{
+            if(new_location.z<floor){new_location.z=static_cast<world_distance>(floor);clipped=true;
+                if(variables->external_velocity.k<0)variables->external_velocity.k=0;}
+            if(new_location.z>roof){new_location.z=static_cast<world_distance>(roof);clipped=true;
+                if(variables->external_velocity.k>0)variables->external_velocity.k=0;}
+            SprintathonZeroG::correct(player,double(new_location.x)-attempted_location.x,
+                double(new_location.y)-attempted_location.y);
+        }
+    }
 
 	/* translate_map_object will handle crossing polygon boundaries */
 	if (translate_map_object(monster->object_index, &new_location, NONE))

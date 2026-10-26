@@ -1280,6 +1280,9 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
     preferences_help(sprintathon_movement,"Press crouch while sprinting to do a slide tackle.",d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_movement, dodge_w, sprintathon_dodge, "Dodging");
     preferences_help(sprintathon_movement,"Quick evasions by double tapping in a direction.",d);
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_movement, zero_g_w, sprintathon_zero_g, "Zero gravity (experimental)");
+    preferences_help(sprintathon_movement,"Free rotation, directional thrust and weapon recoil. Single-player OpenGL only.",d);
+    preferences_help(sprintathon_movement,"Jump / crouch: vertical thrust; both: brake. Sprint + strafe: roll.",d);
 	add_sprintathon_page(sprintathon_movement);
 
 	table_placer *sprintathon_parkour = make_sprintathon_table();
@@ -1991,16 +1994,17 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 			static const char *descriptions[][3] = {
 				{ "Uses individually chosen graphics settings.",
 				  "Change any option to return to Custom." },
-				{ "Prioritizes speed with basic lighting.",
-				  "Turns off fog, ripples, and sprite upscaling." },
-				{ "Adds shadows and gentle water ripples.",
-				  "Keeps sprite upscaling and flares off." },
+				{ "Classic Marathon-style visuals with Sprintathon movement.",
+				  "Crisp textures and original lighting; added effects off.",
+				  "Batch rendering and texture arrays enabled." },
+				{ "Adds gentle water ripples and a basic flashlight.",
+				  "No bloom, flashlight shadows or bounced light." },
 				{ "Adds sprite upscaling and animated fog.",
 				  "Enables light shafts and lens flares.",
-				  "Adds dynamic lighting from bright surfaces." },
+				  "Full flashlight effects, bounce lighting and shockwaves." },
 				{ "Enables all Sprintathon visual effects.",
 				  "Includes drifting fog, lens flares, and ripples.",
-				  "Adds dynamic lighting from bright surfaces." }
+				  "Full flashlight effects, bounce lighting and shockwaves." }
 			};
 			const int index = A1_PIN(preset, 0, 4);
 			graphics_preset_description_w->set_description(
@@ -2045,6 +2049,25 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 			const bool medium_or_better = preset >= 2;
 			const bool high_or_better = preset >= 3;
 			const bool total = preset == 4;
+            // Apply every feature explicitly so lowering or raising a preset
+            // cannot inherit disabled features from Low or a custom setup.
+            batched_world_rendering_w->set_selection(true);
+            world_texture_arrays_w->set_selection(true);
+            flashlight_w->set_selection(medium_or_better);
+            flashlight_contacts_w->set_selection(high_or_better);
+            flashlight_bounce_w->set_selection(high_or_better);
+            flashlight_dust_w->set_selection(high_or_better);
+            flashlight_flicker_w->set_selection(high_or_better);
+            flashlight_distance_softness_w->set_selection(high_or_better);
+            flashlight_brightness_w->set_selection(100);
+            flashlight_fog_w->set_selection(medium_or_better ? 100 : 0);
+            flashlight_contact_strength_w->set_selection(60);
+            flashlight_max_softness_w->set_selection(40);
+            flashlight_bounce_intensity_w->set_selection(100);
+            flashlight_bounce_saturation_w->set_selection(50);
+            flashlight_dust_density_w->set_selection(100);
+            shockwaves_w->set_selection(high_or_better);
+            shockwave_strength_w->set_selection(100);
 			// Screenshot lighting defaults for High and Total Sprintathon.
 			projectile_lights_per_pixel_w->set_selection(high_or_better);
 			projectile_motion_blur_w->set_selection(medium_or_better);
@@ -2064,7 +2087,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 			player_light_circle_w->set_selection(false);
 			soft_sector_light_edges_w->set_selection(medium_or_better);
 			sector_shading_softness_w->set_selection(50);
-			ogl_bloom_w->set_selection(medium_or_better);
+			ogl_bloom_w->set_selection(high_or_better);
 			ogl_bump_w->set_selection(medium_or_better);
 			simplify_distant_surfaces_w->set_selection(true);
 			ogl_refractive_invisibility_w->set_selection(medium_or_better);
@@ -2134,6 +2157,43 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
             fog_scenery_coronas_w->set_selection(high_or_better);
             ceiling_fog_cone_strength_w->set_selection(high_or_better ? 100 : 50);
             fog_corona_strength_w->set_selection(high_or_better ? 25 : 50);
+            if (preset == 1)
+            {
+                // A predictable classic baseline, including when coming from
+                // High, Total, Horror or a heavily customized setup.
+                // Keep movement, mouse look, resolution and FOV as configured.
+                ogl_fader_w->set_selection(true);
+                ogl_models_w->set_selection(false);
+                player_light_circle_w->set_selection(true);
+                colored_light_intensity_w->set_selection(0);
+                texture_light_intensity_w->set_selection(0);
+                scenery_light_intensity_w->set_selection(0);
+                texture_light_limit_w->set_selection(0);
+                scenery_light_limit_w->set_selection(0);
+                baked_texture_lights_w->set_selection(false);
+                baked_scenery_lights_w->set_selection(false);
+                baked_landscape_ambient_w->set_selection(0);
+                baked_landscape_sector_w->set_selection(100);
+                liquid_fluorescence_w->set_selection(0);
+                liquid_refraction_w->set_selection(0);
+                flashlight_w->set_selection(false);
+                flashlight_contacts_w->set_selection(false);
+                flashlight_bounce_w->set_selection(false);
+                flashlight_dust_w->set_selection(false);
+                flashlight_flicker_w->set_selection(false);
+                flashlight_fog_w->set_selection(0);
+                shockwaves_w->set_selection(false);
+                bullet_time_blur_w->set_selection(false);
+                bullet_time_heavy_blur_w->set_selection(false);
+                pistol_scope_blur_w->set_selection(false);
+                ogl_effects_w->set_selection(0);
+                ogl_aniso_w->set_selection(0);
+                for (int i = 0; i < OGL_NUMBER_OF_TEXTURE_TYPES; ++i)
+                {
+                    texture_near_w[i]->set_selection(0);
+                    if (texture_far_w[i]) texture_far_w[i]->set_selection(0);
+                }
+            }
 			applying_graphics_preset = false;
             update_light_controls();
 		});
@@ -2850,6 +2910,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_jump, jump_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_crouch, crouch_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_sprint, sprint_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_zero_g, zero_g_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_enhanced_enemy_ai, enhanced_ai_w);
     input_preferences->sprintathon_monster_speed_percent = monster_speed_w->get_selection() + 100;
@@ -7339,6 +7400,7 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_jump", input_preferences->sprintathon_jump);
 	root.put_attr("sprintathon_crouch", input_preferences->sprintathon_crouch);
 	root.put_attr("sprintathon_sprint", input_preferences->sprintathon_sprint);
+	root.put_attr("sprintathon_zero_g", input_preferences->sprintathon_zero_g);
 	root.put_attr("sprintathon_sprint_drain_percent",
 		input_preferences->sprintathon_sprint_drain_percent);
 	root.put_attr("sprintathon_oxygen_recovery_percent",
@@ -7670,8 +7732,8 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
     preferences->per_pixel_light_quality = 0;
 	preferences->simplify_distant_surfaces = true;
 	preferences->reuse_refraction_capture = true;
-	preferences->batched_world_rendering = false;
-	preferences->world_texture_arrays = false;
+	preferences->batched_world_rendering = true;
+	preferences->world_texture_arrays = true;
 	preferences->colored_light_intensity = 150;
 	preferences->scenery_light_intensity = 40;
 	preferences->texture_light_intensity = 200;
@@ -7815,6 +7877,7 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_jump = true;
 	preferences->sprintathon_crouch = true;
 	preferences->sprintathon_sprint = true;
+	preferences->sprintathon_zero_g = false;
 	preferences->sprintathon_sprint_drain_percent = 125;
 	preferences->sprintathon_oxygen_recovery_percent = 200;
 	preferences->sprintathon_no_vacuum_drain = false;
@@ -8577,6 +8640,7 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_jump", input_preferences->sprintathon_jump);
 	root.read_attr("sprintathon_crouch", input_preferences->sprintathon_crouch);
 	root.read_attr("sprintathon_sprint", input_preferences->sprintathon_sprint);
+	root.read_attr("sprintathon_zero_g", input_preferences->sprintathon_zero_g);
 	root.read_attr_bounded<int16>("sprintathon_sprint_drain_percent",
 		input_preferences->sprintathon_sprint_drain_percent, 10, 400);
 	root.read_attr_bounded<int16>("sprintathon_oxygen_recovery_percent",

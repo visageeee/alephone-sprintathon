@@ -1,3 +1,4 @@
+#include "../RenderMain/SprintathonTerrainRuntime.h"
 /*
 MONSTERS.C
 
@@ -362,6 +363,33 @@ monster_definition *get_monster_definition_external(
 }
 
 
+
+static bool sprintathon_terrain_translate_monster(short object_index,world_point3d* next,short requested_polygon)
+{
+    auto* object=get_object_data(object_index);
+    if(SprintathonTerrainRuntime::enabled() && GET_OBJECT_OWNER(object)==_object_is_monster){
+        auto* monster=get_monster_data(object->permutation);
+        if(!MONSTER_IS_PLAYER(monster)){
+            auto* definition=get_monster_definition(monster->type);
+            short destination=requested_polygon==NONE?find_new_object_polygon(&object->location,next,object->polygon):requested_polygon;
+            double ground;
+            if(destination!=NONE && SprintathonTerrainRuntime::height(destination,next->x,next->y,ground)){
+                const double oldFloor=SprintathonTerrainRuntime::floorAt(object->polygon,object->location.x,object->location.y);
+                const bool walking=!(definition->flags&(_monster_flys|_monster_floats)) &&
+                    monster->vertical_velocity<=0 && std::abs(object->location.z-oldFloor)<=WORLD_ONE/16;
+                const int z=(walking || next->z<ground)?int(std::lround(ground)):next->z;
+                if(z+definition->height>get_polygon_data(destination)->ceiling_height){
+                    *next=object->location;return false;
+                }
+                next->z=world_distance(z);
+                if(walking || next->z<=ground+1){monster->desired_height=world_distance(std::lround(ground));
+                    if(monster->vertical_velocity<0)monster->vertical_velocity=0;}
+            }
+        }
+    }
+    return translate_map_object(object_index,next,requested_polygon);
+}
+
 /* returns new monster index if successful, NONE otherwise */
 short new_monster(
 	struct object_location *location,
@@ -498,6 +526,16 @@ void move_monsters(
 		{
 			struct object_data *object= get_object_data(monster->object_index);
 			
+            if(!MONSTER_IS_ACTIVE(monster) && SprintathonTerrainRuntime::enabled()){
+                const auto* definition=get_monster_definition(monster->type);double ground;
+                if(!(definition->flags&(_monster_flys|_monster_floats)) &&
+                   SprintathonTerrainRuntime::height(object->polygon,object->location.x,object->location.y,ground) &&
+                   (std::abs(int(object->location.z)-get_polygon_data(object->polygon)->floor_height)<=2 || object->location.z<ground) &&
+                   ground+definition->height<=get_polygon_data(object->polygon)->ceiling_height){
+                    world_point3d next=object->location;next.z=world_distance(std::lround(ground));
+                    sprintathon_terrain_translate_monster(monster->object_index,&next,object->polygon);
+                }
+            }
             sprintathon_begin_character_contact(monster_index);
             const bool recovering_overlap = sprintathon_recover_ground_overlap(monster_index);
 			if (MONSTER_IS_ACTIVE(monster))
@@ -1285,7 +1323,7 @@ void sprintathon_move_corpses()
         const int proposed_z = int(object->location.z) + velocity.z;
         next.z = std::max<int>(floor, std::min<int>(top, proposed_z));
         if (proposed_z <= floor || proposed_z >= top) velocity.z = 0;
-        translate_map_object(index, &next, NONE);
+        sprintathon_terrain_translate_monster(index, &next, NONE);
         const bool grounded = next.z <= floor;
         velocity.x = velocity.x * (grounded ? 3 : 31) / (grounded ? 4 : 32);
         velocity.y = velocity.y * (grounded ? 3 : 31) / (grounded ? 4 : 32);
@@ -2125,7 +2163,7 @@ static bool sprintathon_ground_corridor(object_data* object, world_point3d* next
         const short line_index = find_line_crossed_leaving_polygon(polygon, &object->location, next);
         if (line_index == NONE) {
             const auto* room = get_polygon_data(polygon);
-            next->z = room->floor_height;
+            next->z = SprintathonTerrainRuntime::floorAt(polygon,next->x,next->y);
             return int(next->z)+definition->height <= room->ceiling_height;
         }
         const auto* line = get_line_data(line_index);
@@ -2173,7 +2211,7 @@ static bool sprintathon_spring_body(short index)
     const auto* object = get_object_data(monster->object_index);
     const auto* polygon = get_polygon_data(object->polygon);
     return !OBJECT_IS_INVISIBLE(object) && polygon->type != _polygon_is_platform &&
-        std::abs(int(object->location.z)-polygon->floor_height) <= WORLD_ONE/16;
+        std::abs(int(object->location.z)-SprintathonTerrainRuntime::floorAt(object->polygon,object->location.x,object->location.y)) <= WORLD_ONE/16;
 }
 
 static bool sprintathon_spring_pair(short first, short second)
@@ -2328,7 +2366,7 @@ static void sprintathon_apply_body_spring(short index)
         state.vx=state.vy=state.rx=state.ry=0;return;
     }
     world_point3d next={world_distance(x),world_distance(y),object->location.z};
-    world_distance floor=get_polygon_data(object->polygon)->floor_height;
+    world_distance floor=SprintathonTerrainRuntime::floorAt(object->polygon,object->location.x,object->location.y);
     world_distance ceiling=get_polygon_data(object->polygon)->ceiling_height;
     short supporting=object->polygon;
     bool valid=sprintathon_ground_corridor(object,&next,definition);
@@ -2351,7 +2389,7 @@ static void sprintathon_apply_body_spring(short index)
     }
     state.rx-=dx;state.ry-=dy;
     const short old_polygon=object->polygon;
-    if (translate_map_object(monster->object_index,&next,NONE)) monster_moved(index,old_polygon);
+    if (sprintathon_terrain_translate_monster(monster->object_index,&next,NONE)) monster_moved(index,old_polygon);
 }
 
 struct SprintathonOverlapRecovery {
@@ -2496,7 +2534,7 @@ static bool sprintathon_recover_ground_overlap(short index)
         { sprintathon_overlap_recovery.erase(index); return false; }
     auto* object = get_object_data(monster->object_index);
     if (OBJECT_IS_INVISIBLE(object) ||
-        std::abs(int(object->location.z)-get_polygon_data(object->polygon)->floor_height) > WORLD_ONE/16)
+        std::abs(int(object->location.z)-SprintathonTerrainRuntime::floorAt(object->polygon,object->location.x,object->location.y)) > WORLD_ONE/16)
         { sprintathon_overlap_recovery.erase(index); return false; }
     world_distance radius, height;
     get_monster_dimensions(index, &radius, &height);
@@ -2552,7 +2590,7 @@ static bool sprintathon_recover_ground_overlap(short index)
     if (x < -32768 || x > 32767 || y < -32768 || y > 32767) return waiting;
     world_point3d next = {static_cast<world_distance>(std::round(x)),
         static_cast<world_distance>(std::round(y)), object->location.z};
-    world_distance floor = get_polygon_data(object->polygon)->floor_height;
+    world_distance floor = SprintathonTerrainRuntime::floorAt(object->polygon,object->location.x,object->location.y);
     world_distance ceiling = get_polygon_data(object->polygon)->ceiling_height;
     short supporting = object->polygon;
     if (!sprintathon_ground_corridor(object, &next, definition)) return waiting;
@@ -2569,7 +2607,7 @@ static bool sprintathon_recover_ground_overlap(short index)
     const double old_dy = double(object->location.y)-body->location.y;
     if (dx*dx+dy*dy <= old_dx*old_dx+old_dy*old_dy) return waiting;
     const short old_polygon = object->polygon;
-    if (translate_map_object(monster->object_index, &next, NONE)) monster_moved(index, old_polygon);
+    if (sprintathon_terrain_translate_monster(monster->object_index, &next, NONE)) monster_moved(index, old_polygon);
     state.hold_until = now+TICKS_PER_SECOND/2;
     monster_needs_path(index, false);
     return true;
@@ -2658,7 +2696,7 @@ static bool sprintathon_ground_step(short index, world_distance distance, bool f
         monster->action == _monster_is_being_hit || monster->external_velocity || distance <= 0) return false;
     auto* object = get_object_data(monster->object_index);
     // Do not snap a falling or airborne ground enemy onto the floor.
-    if (std::abs(int(object->location.z)-get_polygon_data(object->polygon)->floor_height) > WORLD_ONE/16)
+    if (std::abs(int(object->location.z)-SprintathonTerrainRuntime::floorAt(object->polygon,object->location.x,object->location.y)) > WORLD_ONE/16)
         return false;
     auto& state = sprintathon_ground_state(index);
     angle heading = object->facing;
@@ -2690,7 +2728,7 @@ static bool sprintathon_ground_step(short index, world_distance distance, bool f
                     double(next.x)-object->location.x,double(next.y)-object->location.y,0);
         }
         sprintathon_slide_bodies(index, next, state.side);
-        world_distance floor = get_polygon_data(object->polygon)->floor_height;
+        world_distance floor = SprintathonTerrainRuntime::floorAt(object->polygon,object->location.x,object->location.y);
         world_distance ceiling = get_polygon_data(object->polygon)->ceiling_height;
         short supporting = object->polygon;
         if (!sprintathon_ground_corridor(object, &next, definition)) continue;
@@ -2712,7 +2750,7 @@ static bool sprintathon_ground_step(short index, world_distance distance, bool f
         const int dx = int(next.x)-object->location.x, dy = int(next.y)-object->location.y;
         if (dx*dx+dy*dy < 4) continue;
         const short old_polygon = object->polygon;
-        if (translate_map_object(monster->object_index, &next, NONE))
+        if (sprintathon_terrain_translate_monster(monster->object_index, &next, NONE))
             monster_moved(index, old_polygon);
 
         SET_MONSTER_IDLE_STATUS(monster, false);
@@ -3227,7 +3265,7 @@ static void sprintathon_float_coast(short index)
     if (next.z < floor || int(next.z)+definition->height > ceiling ||
         legal_monster_move(index, heading, &next) != NONE) { motion.speed = 0; return; }
     const short previous = object->polygon;
-    if (translate_map_object(monster->object_index, &next, NONE)) monster_moved(index, previous);
+    if (sprintathon_terrain_translate_monster(monster->object_index, &next, NONE)) monster_moved(index, previous);
     // Coasting never consumes the path: it may happen during a firing animation.
 }
 
@@ -3246,10 +3284,11 @@ static void update_monster_vertical_physics_model(
 	struct monster_definition *definition= get_monster_definition(monster->type);
 	struct object_data *object= get_object_data(monster->object_index);
 	struct polygon_data *polygon= get_polygon_data(object->polygon);
+    const world_distance terrain_floor=SprintathonTerrainRuntime::floorAt(object->polygon,object->location.x,object->location.y);
 	struct media_data *media= polygon->media_index==NONE ? (struct media_data *) NULL : get_media_data(polygon->media_index);
 	uint32 moving_flags= MONSTER_IS_DYING(monster) ? 0 : (definition->flags&(_monster_flys|_monster_floats));
 	world_distance gravity= (static_world->environment_flags&_environment_low_gravity) ? (definition->gravity>>1) : definition->gravity;
-	world_distance floor_height= polygon->floor_height;
+	world_distance floor_height= terrain_floor;
 	world_distance desired_height;
 	world_distance old_height= object->location.z;
 	bool above_ground, below_ground;
@@ -3282,7 +3321,7 @@ static void update_monster_vertical_physics_model(
 			if (damage) damage_monster(monster_index, NONE, NONE, NULL, damage, NONE);
 		}
 	}
-	desired_height= (monster->desired_height==NONE||MONSTER_IS_DYING(monster)) ? polygon->floor_height : monster->desired_height;
+	desired_height= (monster->desired_height==NONE||MONSTER_IS_DYING(monster)) ? terrain_floor : monster->desired_height;
     if (soft_float) {
         auto& motion = sprintathon_float_motion[monster_index];
         const int now = dynamic_world->tick_count;
@@ -3298,7 +3337,7 @@ static void update_monster_vertical_physics_model(
         if (int(floor_height) < motion.floor - WORLD_ONE/16)
             motion.ledge_until = now + TICKS_PER_SECOND/3;
         motion.floor = floor_height;
-        const int top = std::max(int(polygon->floor_height), int(polygon->ceiling_height)-definition->height);
+        const int top = std::max(int(terrain_floor), int(polygon->ceiling_height)-definition->height);
         int target = std::max(int(floor_height), int(desired_height));
         // Keep an explicit terrain climb through pauses to fire. The normal
         // desired_height is reset to the current floor each tick.
@@ -3308,7 +3347,7 @@ static void update_monster_vertical_physics_model(
         // Rise more promptly; retain the slow delayed descent over drops.
         if (now >= motion.ledge_until || target > motion.goal)
             motion.goal += (target-motion.goal)*(climbing ? 0.18 : 0.09);
-        motion.goal = std::max(double(polygon->floor_height), std::min(double(top), motion.goal));
+        motion.goal = std::max(double(terrain_floor), std::min(double(top), motion.goal));
         desired_height = world_distance(motion.goal);
     }
 	above_ground= object->location.z>desired_height;
@@ -3358,7 +3397,7 @@ static void update_monster_vertical_physics_model(
     if ((moving_flags & (_monster_flys | _monster_floats)) &&
         !monster->external_velocity && monster->action != _monster_is_being_hit)
         vertical_step = sprintathon_monster_step(monster, vertical_step);
-    object->location.z= PIN(object->location.z+vertical_step, polygon->floor_height, polygon->ceiling_height-definition->height);
+    object->location.z= PIN(object->location.z+vertical_step, terrain_floor, polygon->ceiling_height-definition->height);
 
 	/* if we’re under the floor moving down, put us on the floor and clear our velocity;
 		if we’re above the floor moving up, put us on the floor and clear our velocity if we were previously below ground */
@@ -3401,7 +3440,7 @@ static void update_monster_vertical_physics_model(
 				monster->random_desired_height= floor_height + ((delta>0) ? (global_random()%delta) : 0);
 			}
 			
-			monster->desired_height= MONSTER_IS_DYING(monster) ? polygon->floor_height : monster->random_desired_height;
+			monster->desired_height= MONSTER_IS_DYING(monster) ? terrain_floor : monster->random_desired_height;
 		}
 	}
 	else
@@ -3429,7 +3468,7 @@ static void update_monster_vertical_physics_model(
             const int goal = base_height + int(amplitude*sprintathon_flight_wave(monster_index, 5*TICKS_PER_SECOND));
             monster->desired_height = std::max(bottom+clearance, std::min(top-clearance, goal));
         }
-        if ((object->location.z <= polygon->floor_height && monster->vertical_velocity < 0) ||
+        if ((object->location.z <= terrain_floor && monster->vertical_velocity < 0) ||
             (object->location.z >= top && monster->vertical_velocity > 0)) monster->vertical_velocity = 0;
     }
 
@@ -3493,12 +3532,12 @@ static void update_monster_physics_model(
 		{
 			short old_polygon_index= object->polygon;
 			
-			if (translate_map_object(monster->object_index, &new_location, NONE)) monster_moved(monster_index, old_polygon_index);
+			if (sprintathon_terrain_translate_monster(monster->object_index, &new_location, NONE)) monster_moved(monster_index, old_polygon_index);
 		}
 		
 		/* slow him down if he’s touching the ground or flying */
 		polygon= get_polygon_data(object->polygon);
-		if (object->location.z<=polygon->floor_height || (definition->flags&(_monster_flys|_monster_floats)))
+		if (object->location.z<=SprintathonTerrainRuntime::floorAt(object->polygon,object->location.x,object->location.y) || (definition->flags&(_monster_flys|_monster_floats)))
 		{
 			if ((monster->external_velocity-= MONSTER_EXTERNAL_DECELERATION)<MONSTER_MINIMUM_EXTERNAL_VELOCITY)
 			{
@@ -4553,7 +4592,7 @@ static bool translate_monster(
                     if (next.z < floor || int(next.z)+definition->height > ceiling ||
                         legal_monster_move(monster_index, sideways, &next) != NONE) return false;
                     const short old_polygon = object->polygon;
-                    if (translate_map_object(monster->object_index, &next, NONE)) monster_moved(monster_index, old_polygon);
+                    if (sprintathon_terrain_translate_monster(monster->object_index, &next, NONE)) monster_moved(monster_index, old_polygon);
                     dodge.motion[0] = float(object->location.x)-before.x;
                     dodge.motion[1] = float(object->location.y)-before.y;
                     dodge.motion[2] = float(object->location.z)-before.z;
@@ -4684,7 +4723,7 @@ static bool translate_monster(
 				short old_polygon_index= object->polygon;
 				
 				/* update the monster’s object to reflect his new position */
-				if (translate_map_object(monster->object_index, &new_location, NONE)) monster_moved(monster_index, old_polygon_index);
+				if (sprintathon_terrain_translate_monster(monster->object_index, &new_location, NONE)) monster_moved(monster_index, old_polygon_index);
 			}
 	
 			legal_move= true;
@@ -4718,7 +4757,7 @@ static bool translate_monster(
                     !MONSTER_IS_ATTACKING(monster) && !monster->external_velocity &&
                     !monster->vertical_velocity && monster->action != _monster_is_being_hit &&
                     std::abs(int(object->location.z)-
-                        get_polygon_data(object->polygon)->floor_height) <= WORLD_ONE/16) {
+                        SprintathonTerrainRuntime::floorAt(object->polygon,object->location.x,object->location.y)) <= WORLD_ONE/16) {
                     if (sprintathon_ground_step(monster_index, distance, false)) return true;
                     auto& steering = sprintathon_ground_state(monster_index);
                     if (dynamic_world->tick_count >= steering.body_repath) {
@@ -4823,7 +4862,7 @@ static bool attempt_evasive_manouvers(
 	struct object_data *object= get_object_data(monster->object_index);
 	world_point2d destination= { object->location.x, object->location.y };
 	angle new_facing= NORMALIZE_ANGLE(object->facing + ((global_random()&1) ? QUARTER_CIRCLE : -QUARTER_CIRCLE));
-	world_distance original_floor_height= get_polygon_data(object->polygon)->floor_height;
+	world_distance original_floor_height= SprintathonTerrainRuntime::floorAt(object->polygon,object->location.x,object->location.y);
 	short polygon_index= object->polygon;
 	bool successful= true;
 	
@@ -5583,7 +5622,7 @@ static short find_obstructing_terrain_feature(
 				{
 					monster->desired_height= polygon->floor_height;
                     if (sprintathon_soft_float(monster, definition) &&
-                        polygon->floor_height > get_polygon_data(object->polygon)->floor_height) {
+                        polygon->floor_height > SprintathonTerrainRuntime::floorAt(object->polygon,object->location.x,object->location.y)) {
                         auto& motion = sprintathon_float_motion[monster_index];
                         motion.climb_floor = polygon->floor_height;
                         // A little clearance prevents damped motion from
@@ -5642,7 +5681,7 @@ static short find_obstructing_terrain_feature(
 					}
 					if (media && media->height-polygon->floor_height>height)
 					{
-						if (get_polygon_data(object->polygon)->floor_height>polygon->floor_height)
+						if (SprintathonTerrainRuntime::floorAt(object->polygon,object->location.x,object->location.y)>polygon->floor_height)
 						{
 							feature_type= _standing_on_sniper_ledge;
 							if (monster->mode!=_monster_locked) monster_needs_path(monster_index, false);

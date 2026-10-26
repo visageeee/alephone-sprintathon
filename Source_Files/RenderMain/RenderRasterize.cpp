@@ -45,6 +45,7 @@ Sep 2, 2000 (Loren Petrich):
 #include "preferences.h"
 #include "screen.h"
 #include "platforms.h"
+#include "SprintathonTerrainRuntime.h"
 
 #include <string.h>
 
@@ -291,7 +292,10 @@ void RenderRasterizerClass::render_node(
 			}
 			
 			/* render floor if below viewer */
-			if (floor_surface.height<view->origin.z)
+            // A viewer standing in a valley can be below the old flat floor.
+            const auto* terrain_floor=SprintathonTerrainRuntime::meshFor(polygon);
+            if (floor_surface.height<view->origin.z ||
+                (terrain_floor && terrain_floor->minZ<view->origin.z))
 			{
 				// LP change: indicated that the void is on other side
 				render_node_floor_or_ceiling(window, polygon, &floor_surface, true, false, renderStep);

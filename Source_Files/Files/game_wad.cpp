@@ -1,3 +1,5 @@
+#include "../GameWorld/SprintathonZeroG.h"
+#include "../RenderMain/SprintathonTerrainRuntime.h"
 /*
 GAME_WAD.C
 
@@ -1633,6 +1635,10 @@ bool process_map_wad(
 	bool is_preprocessed_map= false;
 
 	assert(version==MARATHON_INFINITY_DATA_VERSION || version==MARATHON_TWO_DATA_VERSION || version==MARATHON_ONE_DATA_VERSION);
+
+    // Experimental dents belong to this visit, never a saved game or the map.
+    SprintathonTerrainRuntime::reset();
+    SprintathonZeroG::reset();
 
 	/* zero everything so no slots are used */	
 	initialize_map_for_new_level();

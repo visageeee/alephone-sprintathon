@@ -1,3 +1,4 @@
+#include "SprintathonZeroG.h"
 #include "shell_options.h"
 /*
 	weapons.c
@@ -2157,8 +2158,14 @@ static void fire_weapon(
 		play_weapon_sound(player_index, trigger_definition->firing_sound, FIXED_ONE);
 					
 		/* Push them back.. */
-		if(trigger_definition->recoil_magnitude)
-		{
+		if(SprintathonZeroG::active(player))
+        {
+            // Once per successful firing event, not per projectile/pellet.
+            if(definition->weapon_class!=_melee_class)
+                SprintathonZeroG::recoil(player,trigger_definition->recoil_magnitude/double(WORLD_ONE));
+        }
+        else if(trigger_definition->recoil_magnitude)
+        {
 			accelerate_monster(player->monster_index, 
 				-(trigger_definition->recoil_magnitude*sine_table[player->elevation])>>TRIG_SHIFT,
 				NORMALIZE_ANGLE(player->facing+HALF_CIRCLE), 

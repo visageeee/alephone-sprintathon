@@ -1,3 +1,4 @@
+#include "SprintathonZeroG.h"
 #include <cmath>
 /*
 PLAYER.C
@@ -820,7 +821,7 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 
 		player->run_key = action_flags & _run_dont_walk;
 
-		const bool sprint_key_down = input_preferences->sprintathon_enabled &&
+		const bool sprint_key_down = !SprintathonZeroG::active(player) && input_preferences->sprintathon_enabled &&
 			input_preferences->sprintathon_sprint &&
 			(action_flags & _look_dont_turn) != 0;
 
@@ -843,7 +844,7 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 		const int16 sprint_start_oxygen =
 			PLAYER_MAXIMUM_SUIT_OXYGEN / 5;
 		const bool crouch_key_down =
-			(action_flags & _microphone_button) != 0;
+            !SprintathonZeroG::active(player) && (action_flags & _microphone_button) != 0;
 		const bool fresh_crouch_press=
 			crouch_key_down && !player->crouch_key_was_down;
 		const bool lateral_dodge=
@@ -1023,7 +1024,7 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive,
 		// if (GET_GAME_TYPE()==_game_of_kill_man_with_ball && dynamic_world->game_player_index==player_index) action_flags&= ~_run_dont_walk;
 		
 		// if our head is under media, we can’t run (that sucks, too)
-		if (IsSwimming && (action_flags&_run_dont_walk)) action_flags&= ~_run_dont_walk, action_flags|= _swim;
+		if (!SprintathonZeroG::active(player) && IsSwimming && (action_flags&_run_dont_walk)) action_flags&= ~_run_dont_walk, action_flags|= _swim;
 
 		update_player_physics_variables(player_index, action_flags, inPredictive);
 

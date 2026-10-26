@@ -320,6 +320,7 @@ struct input_preferences_data
 	bool sprintathon_jump;
 	bool sprintathon_crouch;
 	bool sprintathon_sprint;
+	bool sprintathon_zero_g;
 	int16 sprintathon_sprint_drain_percent;
 	int16 sprintathon_oxygen_recovery_percent;
 	bool sprintathon_no_vacuum_drain;

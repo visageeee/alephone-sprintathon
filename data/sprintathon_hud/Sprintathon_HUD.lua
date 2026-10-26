@@ -9,6 +9,17 @@ local weapon_shapes = {}
 local weapon_switch_visible_until = 0
 local last_current_weapon = nil
 
+-- Uploaded once and reused by the image blitter. Set false for a comparison run.
+local use_background_images = true
+local background_images = {}
+local function background_image(name, x, y, width, height)
+  local image = background_images[name]
+  if not image then return false end
+  image:rescale(width, height)
+  image:draw(x, y)
+  return true
+end
+
 local white = {0.92, 1.00, 0.92, 1.00}
 local dim = {0.34, 0.58, 0.36, 1.00}
 local green = {0.15, 1.00, 0.22, 1.00}
@@ -73,6 +84,8 @@ local function draw_edge_panel_shape(x, y, width, height, color, rounded_right)
 end
 
 local function draw_edge_panel(x, y, width, height, rounded_right)
+  if background_image(rounded_right and "hud-panel-left.png" or
+      "hud-panel-right.png", x, y, width, height) then return end
   local inset = 2.5 * scale
   draw_edge_panel_shape(x, y, width, height,
     {0.035, 0.045, 0.040, 0.56}, rounded_right)
@@ -220,40 +233,43 @@ local function draw_tracker(x, y, size)
   local cy = y + size / 2
   local radius = size * (Player.tracker_compass and 0.33 or 0.47)
 
-  -- Build a genuinely circular translucent face instead of putting the
-  -- tracker inside a square panel.
-  local step = math.max(1, math.floor(2 * scale))
-  for offset = -radius, radius, step do
-    local half_width = math.sqrt(math.max(0,
-      radius * radius - offset * offset))
-    Screen.fill_rect(cx - half_width, cy + offset,
-      half_width * 2, step + 0.5, dark_green)
-  end
-
-  Screen.fill_rect(cx - 0.5 * scale, cy - radius,
-    scale, radius * 2, dim)
-  Screen.fill_rect(cx - radius, cy - 0.5 * scale,
-    radius * 2, scale, dim)
-  for ring = 1, 2 do
-    local rr = radius * ring / 2
-    for degree = 0, 355, 5 do
-      local angle = math.rad(degree)
-      Screen.fill_rect(cx + math.cos(angle) * rr - 1.2 * scale,
-        cy + math.sin(angle) * rr - 1.2 * scale,
-        2.4 * scale, 2.4 * scale, dim)
+  if not background_image(Player.tracker_compass and "hud-tracker-compass.png" or "hud-tracker.png",
+      x, y, size, size) then
+    -- Build a genuinely circular translucent face instead of putting the
+    -- tracker inside a square panel.
+    local step = math.max(1, math.floor(2 * scale))
+    for offset = -radius, radius, step do
+      local half_width = math.sqrt(math.max(0,
+        radius * radius - offset * offset))
+      Screen.fill_rect(cx - half_width, cy + offset,
+        half_width * 2, step + 0.5, dark_green)
     end
+
+    Screen.fill_rect(cx - 0.5 * scale, cy - radius,
+      scale, radius * 2, dim)
+    Screen.fill_rect(cx - radius, cy - 0.5 * scale,
+      radius * 2, scale, dim)
+    for ring = 1, 2 do
+      local rr = radius * ring / 2
+      for degree = 0, 355, 5 do
+        local angle = math.rad(degree)
+        Screen.fill_rect(cx + math.cos(angle) * rr - 1.2 * scale,
+          cy + math.sin(angle) * rr - 1.2 * scale,
+          2.4 * scale, 2.4 * scale, dim)
+      end
+    end
+    -- Dense samples make the outside circumference read as one solid ring.
+    for degree = 0, 359 do
+      local angle = math.rad(degree)
+      Screen.fill_rect(cx + math.cos(angle) * radius - 1.6 * scale,
+        cy + math.sin(angle) * radius - 1.6 * scale,
+        3.2 * scale, 3.2 * scale, dim)
+    end
+    Screen.fill_rect(cx - 2 * scale, cy - 8 * scale,
+      4 * scale, 13 * scale, green)
+    Screen.fill_rect(cx - 5 * scale, cy - 7 * scale,
+      10 * scale, 3 * scale, green)
   end
-  -- Dense samples make the outside circumference read as one solid ring.
-  for degree = 0, 359 do
-    local angle = math.rad(degree)
-    Screen.fill_rect(cx + math.cos(angle) * radius - 1.6 * scale,
-      cy + math.sin(angle) * radius - 1.6 * scale,
-      3.2 * scale, 3.2 * scale, dim)
-  end
-  Screen.fill_rect(cx - 2 * scale, cy - 8 * scale,
-    4 * scale, 13 * scale, green)
-  Screen.fill_rect(cx - 5 * scale, cy - 7 * scale,
-    10 * scale, 3 * scale, green)
 
   draw_tracker_compass(cx, cy, radius)
 
@@ -685,6 +701,12 @@ local function draw_weapon(x, y, width, height)
 end
 
 function Triggers.init()
+  background_images = {}
+  if use_background_images then
+    for _, name in ipairs({"hud-panel-left.png", "hud-panel-right.png", "hud-tracker.png", "hud-tracker-compass.png"}) do
+      background_images[name] = Images.new{path = name}
+    end
+  end
   font = Fonts.new{file = "mono", size = 14}
   small_font = Fonts.new{file = "mono", size = 11}
   weapon_switch_visible_until = 0
