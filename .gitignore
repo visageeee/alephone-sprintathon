@@ -48,3 +48,8 @@ flatpak-repo/
 *~
 
 /Source_Files/sprintathon
+
+# Local build outputs
+/flatpak-repo-*/
+/releases/
+/sprintathon-*.patch
