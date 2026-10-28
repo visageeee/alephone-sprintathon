@@ -1576,6 +1576,42 @@ uniform vec4 visibleSunColor;
 uniform vec4 scriptSunEffects;
 uniform vec4 liquidSkyParams; // w: shaft strength
 
+// Adapted from mu6k's lensflare, https://www.shadertoy.com/view/4sX3Rs.
+// Procedural noise replaces iChannel0; only positive optical light is added.
+float solarNoise(float p) {
+    float i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+    return mix(fract(sin(i*127.1)*43758.5453),fract(sin((i+1.0)*127.1)*43758.5453),f);
+}
+vec3 solarLensFlare(vec2 uv,vec2 pos) {
+    vec2 delta=uv-pos,uvd=uv*length(uv);
+    float ang=atan(delta.x,delta.y+0.0000001);
+    float rays=sin(solarNoise(sin(ang*2.0+pos.x)*4.0-cos(ang*3.0+pos.y))*16.0);
+    // Localized glare avoids washing the entire room in white.
+    float f0=(0.7+0.3*rays)*exp(-length(delta)*22.0)*0.12;
+    vec3 f2=0.25/(vec3(1.0)+32.0*vec3(
+        dot(uvd+0.8*pos,uvd+0.8*pos),
+        dot(uvd+0.85*pos,uvd+0.85*pos),
+        dot(uvd+0.9*pos,uvd+0.9*pos)));
+    vec2 uvx=mix(uv,uvd,-0.5);
+    vec3 f4=max(vec3(0.01)-pow(vec3(length(uvx+0.4*pos),length(uvx+0.45*pos),length(uvx+0.5*pos)),vec3(2.4)),vec3(0.0))*vec3(6.0,5.0,3.0);
+    vec3 f6=max(vec3(0.01)-pow(vec3(length(uvx-0.3*pos),length(uvx-0.325*pos),length(uvx-0.35*pos)),vec3(1.6)),vec3(0.0))*vec3(6.0,3.0,5.0);
+    uvx=mix(uv,uvd,-0.4);
+    vec3 f5=max(vec3(0.01)-pow(vec3(length(uvx+0.2*pos),length(uvx+0.4*pos),length(uvx+0.6*pos)),vec3(5.5)),vec3(0.0))*2.0;
+    return (f2*0.45+f4+f5+f6)*1.95+vec3(f0);
+}
+float solarSourceVisibility(vec2 center,vec2 radius) {
+    float visibility=0.0;
+    for(int y=-1;y<=1;++y)for(int x=-1;x<=1;++x) {
+        vec2 at=center+vec2(float(x),float(y))*radius*0.55;
+        if(at.x<0.5 || at.y<0.5 || at.x>pixelWidth-0.5 || at.y>pixelHeight-0.5)continue;
+        float depth=texture2DRect(texture2,at).r;
+        float sky=smoothstep(0.9995,0.99995,depth);
+        vec3 source=texture2DRect(texture0,at).rgb;
+        visibility+=sky*smoothstep(0.35,0.85,max(source.r,max(source.g,source.b)));
+    }
+    return visibility/9.0;
+}
+
 // Fixed Gaussian weights; preserve the existing nine-by-nine kernel.
 float solarBlurWeight(int i) {
     int k=i<0 ? -i : i;
@@ -1626,6 +1662,21 @@ void main(void) {
         float sigma=clamp(pixelHeight*(7.0/1080.0),4.0,16.0);
         vec2 sunCenter=(visibleSunEye.xy*0.5+0.5)*vec2(pixelWidth,pixelHeight);
         vec2 sunRadius=radii*0.5*vec2(pixelWidth,pixelHeight);
+        if(scriptSunEffects.z>0.0 && scriptSunEffects.x>0.0) {
+            float edge=max(abs(visibleSunEye.x),abs(visibleSunEye.y));
+            float fade=1.0-smoothstep(0.90,1.12,edge);
+            if(fade>0.0) {
+                float visibility=solarSourceVisibility(sunCenter,max(sunRadius,vec2(1.0)));
+                if(visibility>0.0) {
+                    vec2 screen=vec2(pixelWidth,pixelHeight);
+                    vec2 uv=(p-screen*0.5)/pixelHeight;
+                    vec2 pos=(sunCenter-screen*0.5)/pixelHeight;
+                    light+=solarLensFlare(uv,pos)*visibleSunColor.rgb*
+                        min(visibleSunColor.w,1.5)*visibility*fade*
+                        scriptSunEffects.z*scriptSunEffects.x;
+                }
+            }
+        }
         vec2 reach=sunRadius+vec2(3.0*sigma);
         if(all(lessThan(abs(p-sunCenter),reach))) {
             vec3 glow=vec3(0.0);

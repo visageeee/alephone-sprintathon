@@ -2872,6 +2872,14 @@ struct SprintathonFlockState {
     short object = NONE, target = NONE;
     int tick = -1, stuck = 0, recover_until = -1, lane_check = -1;
     double vx = 0, vy = 0;
+    int position_check = -1, position_until = -1, choice_until = -1;
+    double preferred = 0;
+    int escape_until = -1, escape_check = -1;
+    int progress_tick = -1;
+    world_point3d progress_position = {0,0,0};
+    double escape_x = 0, escape_y = 0;
+    bool rush = false;
+    world_point3d position_goal = {0, 0, 0};
     int high_check = -1, high_until = -1;
     world_point3d high_goal = {0, 0, 0};
     bool clear = false;
@@ -2912,6 +2920,78 @@ static bool sprintathon_raised_shot(short index, world_point3d goal, short polyg
     short obstruction = NONE;
     return preflight_projectile(&goal, polygon, &aim, 0, definition->ranged_attack.type,
         index, monster->type, &obstruction) && (obstruction == NONE || obstruction == monster->target_index);
+}
+// Stable tactical choices do not consume Marathon's simulation RNG.
+static unsigned sprintathon_position_seed(unsigned seed)
+{
+    seed ^= seed >> 16; seed *= 0x7feb352du;
+    seed ^= seed >> 15; seed *= 0x846ca68bu;
+    return seed ^ (seed >> 16);
+}
+static bool sprintathon_seek_firing_position(short index, SprintathonFlockState& state,
+    double preferred, double& fx, double& fy)
+{
+    const auto* monster = get_monster_data(index);
+    auto* object = get_object_data(monster->object_index);
+    const auto* definition = get_monster_definition(monster->type);
+    const auto* target = get_object_data(get_monster_data(monster->target_index)->object_index);
+    const int now = dynamic_world->tick_count;
+    if (now >= state.position_check && now >= state.position_until) {
+        state.position_check = now+TICKS_PER_SECOND+index%11;
+        const unsigned seed = sprintathon_position_seed(unsigned(index+1)*2654435761u ^ unsigned(now));
+        const double bearing = std::atan2(double(object->location.y)-target->location.y,
+            double(object->location.x)-target->location.x);
+        double best = 1.0e30;
+        for (int sample=0; sample<8; ++sample) {
+            // Search the near side of the target, not a continuously rotating orbit.
+            const double offset = sample==0 ? 0 :
+                (double((sprintathon_position_seed(seed+sample)>>8)&65535)/65535.0-.5)*2.4;
+            const double angle = bearing+offset;
+            const double x = target->location.x+std::cos(angle)*preferred;
+            const double y = target->location.y+std::sin(angle)*preferred;
+            if (x < -32768 || x > 32767 || y < -32768 || y > 32767) continue;
+            world_point3d goal = {static_cast<world_distance>(x),static_cast<world_distance>(y),object->location.z};
+            const double dx=x-object->location.x, dy=y-object->location.y;
+            const double travel=std::sqrt(dx*dx+dy*dy);
+            if (travel>4*WORLD_ONE) continue; // bounded local probe; stock paths handle longer routes
+            short polygon=NONE;
+            if (!sprintathon_raised_route(object,goal,definition,polygon) ||
+                !sprintathon_raised_shot(index,goal,polygon)) continue;
+            // Reject occupied destinations using actual body collision checks.
+            if (legal_monster_move(index,arctangent(int(dx),int(dy)),&goal)!=NONE) continue;
+            double score=travel/WORLD_ONE;
+            for (const auto& peer:sprintathon_flock) {
+                if (peer.first==index || peer.second.position_until<=now || now-peer.second.tick> TICKS_PER_SECOND) continue;
+                const double px=double(peer.second.position_goal.x)-goal.x;
+                const double py=double(peer.second.position_goal.y)-goal.y;
+                if (px*px+py*py < double(WORLD_ONE)*WORLD_ONE) score+=2;
+            }
+            if (score<best) {
+                best=score;state.position_goal=goal;
+                state.position_until=now+(3+int(seed%3))*TICKS_PER_SECOND;
+            }
+        }
+    }
+    if (state.position_until<=now) return false;
+    world_point3d goal=state.position_goal;
+    short polygon=NONE;
+    // Retarget if the player has moved well away from the chosen firing range.
+    const double gx=double(goal.x)-target->location.x, gy=double(goal.y)-target->location.y;
+    const bool civilian=(definition->_class & _class_human_civilian)!=0;
+    const double minimum_range=std::min(2.5*WORLD_ONE,preferred*0.85);
+    if ((civilian && std::sqrt(gx*gx+gy*gy)<minimum_range) ||
+        std::abs(std::sqrt(gx*gx+gy*gy)-preferred)>WORLD_ONE ||
+        !sprintathon_raised_route(object,goal,definition,polygon) ||
+        ((now+index)%15==0 && !sprintathon_raised_shot(index,goal,polygon))) {
+        state.position_until=now;return false;
+    }
+    const double dx=double(goal.x)-object->location.x,dy=double(goal.y)-object->location.y;
+    const double distance=std::sqrt(dx*dx+dy*dy);
+    const double scale=1/std::max(double(WORLD_ONE)/4,distance);
+    fx=distance<WORLD_ONE/8 ? 0 : dx*scale;
+    fy=distance<WORLD_ONE/8 ? 0 : dy*scale;
+    state.high_until=now;
+    return true;
 }
 static void sprintathon_seek_raised_position(short index, SprintathonFlockState& state,
     double preferred, double& fx, double& fy)
@@ -3038,27 +3118,35 @@ static bool sprintathon_flock_move(short index, bool* moved)
     }
     // Actual friendly-fire rejections override cached planning immediately.
     const bool clear = state.clear && now >= steering.until;
-    const double preferred = std::max(double(WORLD_ONE),
-        std::min(6.0*WORLD_ONE, 0.55*definition->ranged_attack.range));
+    if (now >= state.choice_until) {
+        const unsigned seed=sprintathon_position_seed(unsigned(index+1)*2654435761u ^
+            unsigned(monster->object_index+1)*2246822519u ^ unsigned(now));
+        const bool civilian=(definition->_class & _class_human_civilian)!=0;
+        state.rush=!civilian && (seed%4)==0;
+        const double contact=radius+get_monster_definition(get_monster_data(monster->target_index)->type)->radius+WORLD_ONE/8.0;
+        const double variation=((seed>>8)&255)/255.0;
+        const double chosen=civilian ? WORLD_ONE*(3.0+2.0*variation) :
+            state.rush ? contact : WORLD_ONE*(1.25+2.0*variation);
+        state.preferred=std::max(contact,std::min(chosen,definition->ranged_attack.range*0.7));
+        state.choice_until=now+(5+int(seed%4))*TICKS_PER_SECOND;
+        state.position_until=now;state.position_check=now;
+    }
+    const double preferred=state.preferred;
     const bool engaged = sprintathon_melee_contact(monster->target_index, index);
-    const double approach = distance > preferred*1.25 ? 1.0 :
-        (distance < preferred*0.65 && !engaged) ? -0.65 : 0.0;
-    double fx = ux*approach, fy = uy*approach;
-    if (approach > 0 && clear) {
-        // Bend only the approach component; firing-lane and separation forces
-        // below retain priority. Stop curving before the desired firing range.
-        const double turn = sprintathon_approach_curve(index,
-            std::max(0.0, distance-preferred*1.25), arctangent(int(tx), int(ty)));
-        const double tangent = std::tan(turn);
-        fx += -uy*tangent;
-        fy += ux*tangent;
+    // Close decisively; only retreat if substantially inside a non-rusher's range.
+    const double approach=distance>preferred+WORLD_ONE/4 ? 1.0 :
+        (distance<preferred*((definition->_class & _class_human_civilian) ? 0.85 : 0.5) && !engaged && !state.rush) ? -0.6 : 0;
+    double fx=ux*approach,fy=uy*approach;
+    const bool positioned=!engaged && sprintathon_seek_firing_position(index,state,preferred,fx,fy);
+    if (!positioned && !clear) {
+        fx += -uy*steering.side*0.35;
+        fy += ux*steering.side*0.35;
     }
-    if (!clear) {
-        fx += -uy*steering.side*0.75;
-        fy += ux*steering.side*0.75;
-    }
-    if (!engaged) sprintathon_seek_raised_position(index, state, preferred, fx, fy);
-    else state.high_until = now;
+    // Opportunistic high ground must not override a committed approach.
+    if (!positioned && !engaged && !state.rush && approach==0)
+        sprintathon_seek_raised_position(index,state,preferred,fx,fy);
+    else state.high_until=now;
+    const double intent_x=fx,intent_y=fy;
     double crowd_pressure = 0, nearest_gap = 1.0e30, nearest_nx = 1, nearest_ny = 0;
     // Soft personal space; body radius supplies relative weight. A common
     // handedness makes head-on pairs pass rather than both choosing one gap.
@@ -3095,11 +3183,52 @@ static bool sprintathon_flock_move(short index, bool* moved)
         fx += -ny*steering.side*pressure*weight*0.9;
         fy += nx*steering.side*pressure*weight*0.9;
     }
+    if (crowd_pressure>0.6) {
+        const double yield=std::min(1.0,(crowd_pressure-0.6)/0.6);
+        fx-=intent_x*yield;fy-=intent_y*yield;
+    }
     // Opposing neighbours can cancel their forces in the middle of a crowd.
     // Treat that as congestion, not a useful stationary firing position.
     if (crowd_pressure > 0.2 && fx*fx+fy*fy < 0.04) {
         fx = nearest_nx*0.35-nearest_ny*steering.side*0.8;
         fy = nearest_ny*0.35+nearest_nx*steering.side*0.8;
+    }
+    if (state.progress_tick<0 || now-state.progress_tick>=TICKS_PER_SECOND) {
+        const double px=double(object->location.x)-state.progress_position.x;
+        const double py=double(object->location.y)-state.progress_position.y;
+        if (state.progress_tick>=0 && crowd_pressure>0.2 &&
+            px*px+py*py < double(WORLD_ONE/8)*(WORLD_ONE/8))
+            state.stuck=std::max(state.stuck,6);
+        state.progress_tick=now;state.progress_position=object->location;
+    }
+    // Keep a successful escape heading briefly instead of resuming the
+    // same blocked goal immediately. All probes use normal collision checks.
+    if (now<state.escape_until) { fx=state.escape_x;fy=state.escape_y; }
+    if (crowd_pressure>0.2 && state.stuck>=6 && now>=state.escape_check) {
+        state.escape_check=now+8+index%7;
+        state.position_until=now;state.high_until=now;
+        const double base=std::atan2(nearest_ny,nearest_nx);
+        const int side=(index&1)?1:-1;
+        const world_distance step=static_cast<world_distance>(std::max(2.0,std::min(double(WORLD_ONE)/32,
+            double(definition->speed)*sprintathon_monster_speed_percent(monster)/100.0)));
+        for (int attempt=0;attempt<8;++attempt) {
+            const int offset=attempt==0 ? 0 : ((attempt+1)/2)*(attempt&1 ? side : -side);
+            const double angle=base+offset*0.7853981633974483;
+            const double dx=std::cos(angle),dy=std::sin(angle);
+            const double x=object->location.x+step*dx,y=object->location.y+step*dy;
+            if (x < -32768 || x > 32767 || y < -32768 || y > 32767) continue;
+            world_point3d candidate={static_cast<world_distance>(x),static_cast<world_distance>(y),object->location.z};
+            const world_point3d before=object->location;
+            if (!sprintathon_ground_step(index,step,true,&candidate,true)) continue;
+            const double mx=double(object->location.x)-before.x,my=double(object->location.y)-before.y;
+            const double length=std::sqrt(mx*mx+my*my);
+            if (length<2) continue;
+            state.escape_x=mx/length;state.escape_y=my/length;
+            state.escape_until=now+15+index%11;
+            state.vx=mx;state.vy=my;state.stuck=0;
+            if (moved) *moved=true;
+            return true;
+        }
     }
     const double force = std::sqrt(fx*fx+fy*fy);
     const double speed = std::min<int>(definition->speed, WORLD_ONE/32) *
@@ -3113,8 +3242,8 @@ static bool sprintathon_flock_move(short index, bool* moved)
     const double travel = std::sqrt(state.vx*state.vx+state.vy*state.vy);
     if (travel < 2) {
         // Fractional steering must not become an endless "successful hold".
-        if (force < 0.05 && clear) { state.stuck = 0; return true; }
-        if (++state.stuck >= TICKS_PER_SECOND/2) {
+        if (force < 0.05 && clear && crowd_pressure<=0.2) { state.stuck = 0; return true; }
+        if (++state.stuck >= (crowd_pressure>0.2 ? 2*TICKS_PER_SECOND : TICKS_PER_SECOND/2)) {
             steering.side = -steering.side;
             state.stuck = 0; state.recover_until = now+TICKS_PER_SECOND;
             monster_needs_path(index, false);
@@ -3135,7 +3264,7 @@ static bool sprintathon_flock_move(short index, bool* moved)
         return true;
     }
     state.vx *= 0.5; state.vy *= 0.5;
-    if (++state.stuck >= TICKS_PER_SECOND/2) {
+    if (++state.stuck >= (crowd_pressure>0.2 ? 2*TICKS_PER_SECOND : TICKS_PER_SECOND/2)) {
         steering.side = -steering.side;
         state.stuck = 0; state.recover_until = now+TICKS_PER_SECOND;
         monster_needs_path(index, false);
@@ -4613,14 +4742,28 @@ static bool translate_monster(
         if (it != sprintathon_float_motion.end()) {
             auto& motion = it->second;
             motion.request_tick = dynamic_world->tick_count;
-            // Tiny broad sway, and shortest-arc heading response across north.
+            // Heading inertia must not keep thrusting tangentially past a goal.
             const bool climbing = dynamic_world->tick_count < motion.climb_until;
-            const double target = approach_facing + (climbing ? 0.0 : 0.025*FULL_CIRCLE*
-                sprintathon_flight_wave(monster_index, 7*TICKS_PER_SECOND, 113));
-            double turn = std::fmod(target-motion.heading+1.5*FULL_CIRCLE, double(FULL_CIRCLE))-HALF_CIRCLE;
-            motion.heading = std::fmod(motion.heading+turn*(climbing ? 0.20 : 0.10)+FULL_CIRCLE, double(FULL_CIRCLE));
-            motion.speed += (distance-motion.speed)*0.12;
-            distance = world_distance(std::max(1.0, motion.speed));
+            double remaining=std::max(0,int(monster->path_segment_length));
+            if (monster->path==NONE && MONSTER_HAS_VALID_TARGET(monster)) {
+                auto* target_object=get_object_data(get_monster_data(monster->target_index)->object_index);
+                if (target_object->polygon==object->polygon) {
+                    route_facing=arctangent(int(target_object->location.x)-object->location.x,
+                        int(target_object->location.y)-object->location.y);
+                    remaining=distance2d(&target_object->location,&object->location);
+                }
+            }
+            const double fade=std::max(0.0,std::min(1.0,(remaining-WORLD_ONE/2.0)/WORLD_ONE));
+            const double target=route_facing+(climbing ? 0.0 : 0.012*FULL_CIRCLE*fade*
+                sprintathon_flight_wave(monster_index,7*TICKS_PER_SECOND,113));
+            const double turn=std::remainder(target-motion.heading,double(FULL_CIRCLE));
+            const double response=remaining<std::max(double(WORLD_ONE)/2,4*motion.speed) ? 1.0 : 0.25;
+            motion.heading=std::fmod(motion.heading+turn*response+FULL_CIRCLE,double(FULL_CIRCLE));
+            const double error=std::remainder(target-motion.heading,double(FULL_CIRCLE));
+            const double alignment=std::max(0.0,std::cos(error*6.283185307179586/FULL_CIRCLE));
+            motion.speed+=(distance-motion.speed)*0.12;
+            distance=world_distance(std::max(0.0,std::min(motion.speed*alignment,remaining)));
+
             travel_facing = NORMALIZE_ANGLE(int(motion.heading));
         }
     }
@@ -5064,6 +5207,7 @@ static double sprintathon_approach_curve(short index, double remaining, angle he
     }
     const int elapsed = arc.tick < 0 ? 1 : std::max(0,std::min(4,now-arc.tick));
     arc.tick = now;
+    if (sprintathon_soft_float(monster, definition)) { arc.turn = 0; return 0; }
     const bool airborne = definition->flags & (_monster_flys | _monster_floats);
     double fade = std::max(0.0,std::min(1.0,(remaining-WORLD_ONE/2)/(2.0*WORLD_ONE)));
     if (MONSTER_HAS_VALID_TARGET(monster) && definition->melee_attack.type != NONE) {

@@ -351,6 +351,8 @@ struct input_preferences_data
 	bool sprintathon_pistol_scope;
 	bool sprintathon_pistol_scope_blur;
 	bool sprintathon_level_timer;
+	bool sprintathon_visor_effects;
+	int16 sprintathon_visor_strength;
 	int16 sprintathon_footstep_volume_percent;
 	
 	bool controller_analog;

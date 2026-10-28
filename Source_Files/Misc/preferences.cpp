@@ -424,6 +424,8 @@ private:
     mutable std::pair<int,int> last_{-1,-1};
 };
 
+#include "SprintathonHUDPreview.h"
+
 // Graphics choices share the tab theme: a white frame and a filled selection.
 class w_graphics_choice_button : public w_button
 {
@@ -950,14 +952,32 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 		embedded_hud_plugin_labels.push_back("Classic (Built-in)");
 	}
 	for (auto plugin : embedded_hud_plugins)
-		embedded_hud_plugin_labels.push_back(plugin->name);
+		embedded_hud_plugin_labels.push_back(plugin->name == "Sprintathon HUD" ?
+            plugin->name + " (Default)" : plugin->name);
 	w_select_popup *graphics_hud_plugin_w = new w_select_popup;
 	graphics_hud_plugin_w->set_labels(embedded_hud_plugin_labels);
 	graphics_hud_plugin_w->set_selection(
 		embedded_hud_plugin_index >= 0 ? embedded_hud_plugin_index : 0);
 	graphics_hud->dual_add(
-		graphics_hud_plugin_w->label("HUD Plugin"), d);
+		graphics_hud_plugin_w->label("HUD Style"), d);
 	graphics_hud->dual_add(graphics_hud_plugin_w, d);
+    auto* hud_preview=new w_hud_preview;
+    auto refresh_hud_preview=[=](){
+        int index=graphics_hud_plugin_w->get_selection();
+        if(!shapes_file_is_m1())--index;
+        hud_preview->show(index>=0 && index<int(embedded_hud_plugins.size()) ? embedded_hud_plugins[index] : nullptr);
+    };
+    graphics_hud_plugin_w->set_popup_callback([=](void*){refresh_hud_preview();},nullptr);
+    auto* hud_browse=new horizontal_placer;
+    auto step_hud=[=](int direction){
+        int count=int(embedded_hud_plugin_labels.size());if(count<1)return;
+        int selection=(graphics_hud_plugin_w->get_selection()+direction+count)%count;
+        graphics_hud_plugin_w->set_selection(selection);refresh_hud_preview();
+    };
+    hud_browse->dual_add(new w_button("PREVIOUS HUD",[=](void*){step_hud(-1);},nullptr),d);
+    hud_browse->dual_add(new w_button("NEXT HUD",[=](void*){step_hud(1);},nullptr),d);
+    refresh_hud_preview();
+
 	static const char *embedded_hud_scale_labels[] = {
 		"Normal", "Double", "Largest", nullptr
 	};
@@ -991,6 +1011,9 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 		graphics_pickup_flash_w->label("Item Pickup Flashes"), d);
 	graphics_hud->dual_add(graphics_pickup_flash_w, d);
 	graphics_hud_page->add(graphics_hud, true);
+    graphics_hud_page->add(hud_browse,true);
+    graphics_hud_page->dual_add(hud_preview,d);
+    graphics_hud_page->dual_add(new w_static_text("Sample preview. HUD changes apply when settings are saved."),d);
 	pages->add(graphics_hud_page, true);
 
 	/* Embedded Sound page. */
@@ -1322,6 +1345,12 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	add_sprintathon_page(sprintathon_combat);
 
 	table_placer *sprintathon_effects = make_sprintathon_table();
+    ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, visor_effects_w, sprintathon_visor_effects, "Visor Effects");
+    preferences_help(sprintathon_effects,"Water runoff, scratches, dust and smudges that catch strong light. Requires OpenGL.",d);
+    auto* visor_strength_w = new w_percentage_slider(301, input_preferences->sprintathon_visor_strength);
+    sprintathon_effects->dual_add(visor_strength_w->label("Visor Strength"), d);
+    sprintathon_effects->dual_add(visor_strength_w, d);
+    preferences_help(sprintathon_effects,"Scales water distortion and illuminated wear. 100% is normal; 0% hides the effects.",d);
 	w_toggle *projectile_motion_blur_w = new w_toggle(graphics_preferences->projectile_motion_blur);
 	preferences_checkbox(sprintathon_effects,"Projectile Motion Blur",projectile_motion_blur_w,d);
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_effects, bullet_time_blur_w, sprintathon_bullet_time_blur, "Bullet Time Blur");
@@ -2063,6 +2092,8 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
             world_texture_arrays_w->set_selection(true);
             procedural_space_sky_w->set_selection(high_or_better);
             landscape_cubemaps_w->set_selection(high_or_better);
+            visor_effects_w->set_selection(high_or_better);
+            if(high_or_better)visor_strength_w->set_selection(25);
             flashlight_w->set_selection(medium_or_better);
             flashlight_contacts_w->set_selection(high_or_better);
             flashlight_bounce_w->set_selection(high_or_better);
@@ -2244,6 +2275,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 
 	// Any manual edit outside the Presets page makes the active setup Custom.
 	w_select *graphics_select_widgets[] = {
+        visor_effects_w,
         graphics_renderer_w, graphics_render_scale_w, graphics_upscale_w,
         visible_sun_w, visible_sun_size_w, visible_sun_color_w,
 		graphics_windowed_w, graphics_gamma_w, graphics_fps_w,
@@ -2272,6 +2304,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 			texture_far_w[i]->set_selection_changed_callback(custom_select_changed);
 	}
 	w_slider *graphics_slider_widgets[] = {
+        visor_strength_w,
         liquid_depth_fog_density_w,
         visible_sun_brightness_w,
         fog_corona_strength_w, baked_landscape_ambient_w, baked_landscape_sector_w, liquid_fluorescence_w, liquid_caustic_strength_w, liquid_specular_strength_w, liquid_reflection_strength_w,
@@ -2943,6 +2976,8 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_pistol_scope, pistol_scope_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_pistol_scope_blur, pistol_scope_blur_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_level_timer, level_timer_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_visor_effects, visor_effects_w);
+	input_preferences->sprintathon_visor_strength = visor_strength_w->get_selection();
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_dodge_bullet_time, dodge_bullet_time_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_no_vacuum_drain, no_vacuum_drain_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_stamina_sprint, stamina_sprint_w);
@@ -6911,8 +6946,8 @@ void read_preferences ()
 		alert_user(expand_app_variables("There were preferences-file parsing errors (see $appLogFile$ for details)").c_str(), infoError);
 	}
 
-	// On a fresh Sprintathon profile, prefer the scenario's Enhanced HUD when
-	// it is installed. Existing user plugin choices remain untouched.
+	// On a fresh profile, prefer the original Sprintathon HUD.
+	// Keep the scenario Enhanced HUD as fallback; preserve saved user choices.
 	if (defaults)
 	{
 		// Scenario Default Preferences.xml files are parsed after the C++
@@ -6931,15 +6966,14 @@ void read_preferences ()
 		input_preferences->modifiers |= _inputmod_dont_auto_recenter;
 
 		Plugin* enhanced_hud = nullptr;
+        Plugin* original_hud = nullptr;
 		for (auto& plugin : *Plugins::instance())
 		{
-			if (plugin.name == "Enhanced HUD" && !plugin.hud_lua.empty() &&
-				plugin.compatible() && plugin.allowed())
-			{
-				enhanced_hud = &plugin;
-				break;
-			}
-		}
+            if (plugin.hud_lua.empty() || !plugin.compatible() || !plugin.allowed())continue;
+            if (plugin.name == "Sprintathon HUD")original_hud=&plugin;
+            else if (plugin.name == "Enhanced HUD")enhanced_hud=&plugin;
+        }
+        if(original_hud)enhanced_hud=original_hud;
 
 		if (enhanced_hud)
 		{
@@ -7445,6 +7479,8 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_pistol_scope", input_preferences->sprintathon_pistol_scope);
 	root.put_attr("sprintathon_pistol_scope_blur", input_preferences->sprintathon_pistol_scope_blur);
 	root.put_attr("sprintathon_level_timer", input_preferences->sprintathon_level_timer);
+	root.put_attr("sprintathon_visor_effects", input_preferences->sprintathon_visor_effects);
+	root.put_attr("sprintathon_visor_strength", input_preferences->sprintathon_visor_strength);
 	root.put_attr("sprintathon_dodge_bullet_time", input_preferences->sprintathon_dodge_bullet_time);
 	root.put_attr("sprintathon_footstep_volume_percent",
 		input_preferences->sprintathon_footstep_volume_percent);
@@ -7922,6 +7958,8 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_pistol_scope = true;
 	preferences->sprintathon_pistol_scope_blur = true;
 	preferences->sprintathon_level_timer = false;
+	preferences->sprintathon_visor_effects = false;
+	preferences->sprintathon_visor_strength = 100;
 	preferences->sprintathon_dodge_bullet_time = false;
 	preferences->sprintathon_footstep_volume_percent = 50;
 
@@ -8693,6 +8731,10 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_pistol_scope", input_preferences->sprintathon_pistol_scope);
 	root.read_attr("sprintathon_pistol_scope_blur", input_preferences->sprintathon_pistol_scope_blur);
 	root.read_attr("sprintathon_level_timer", input_preferences->sprintathon_level_timer);
+	root.read_attr("sprintathon_visor_effects", input_preferences->sprintathon_visor_effects);
+    root.read_attr("sprintathon_visor_strength", input_preferences->sprintathon_visor_strength);
+    input_preferences->sprintathon_visor_strength = std::max(0, std::min(300,
+        int(input_preferences->sprintathon_visor_strength)));
 	root.read_attr("sprintathon_dodge_bullet_time", input_preferences->sprintathon_dodge_bullet_time);
 	root.read_attr_bounded<int16>("sprintathon_footstep_volume_percent",
 		input_preferences->sprintathon_footstep_volume_percent, 0, 100);

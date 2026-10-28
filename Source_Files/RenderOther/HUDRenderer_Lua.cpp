@@ -1,3 +1,4 @@
+#include "SprintathonHUDCurve.h"
 /*
 HUD_RENDERER_LUA.CPP
 
@@ -115,7 +116,7 @@ void HUD_Lua_Class::start_draw(void)
 		glDisable(GL_ALPHA_TEST);
 		glDisable(GL_STENCIL_TEST);
 		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		SprintathonHUDCurve::alphaBlend();
 		glDisable(GL_FOG);
         
         glMatrixMode(GL_MODELVIEW);

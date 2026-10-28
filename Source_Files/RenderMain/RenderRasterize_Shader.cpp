@@ -62,6 +62,7 @@
 #include "SprintathonFlashlightShadow.h"
 #include "SprintathonFlashlightDust.h"
 #include "SprintathonShockwaves.h"
+#include "SprintathonVisor.h"
 #include "SprintathonWorldSplit.h"
 #include "SprintathonObjectOps.h"
 #include <cstring>
@@ -621,7 +622,8 @@ static void sprintathon_set_visible_sun(Shader* shader,const view_data* view)
     if(view) shader->setVector4(Shader::U_VisibleSunEye,view->origin.x,view->origin.y,view->origin.z,0);
     shader->setVector4(Shader::U_ScriptSunEffects,
         float(SprintathonLuaSun::get(SprintathonLuaSun::Glare)),
-        float(SprintathonLuaSun::get(SprintathonLuaSun::Bloom)),0,0);
+        float(SprintathonLuaSun::get(SprintathonLuaSun::Bloom)),
+        config.AnamorphicLensFlares ? config.AnamorphicLensFlareStrength/100.0f : 0.0f,0);
 }
 
 // One clock shared by liquid surfaces and their projected caustics.
@@ -4825,6 +4827,62 @@ void RenderRasterize_Shader::render_tree() {
     const bool bounce_active=passTest.other() && !view->under_media_boundary && SprintathonFlashlightBounce::enabled();
     const bool shockwaves_active=SprintathonShockwaves::update(passTest.other());
     const bool flashlight_dust_enabled=passTest.overlays() && !view->under_media_boundary && SprintathonFlashlightDust::enabled();
+    bool visor_water=false;
+    if(view->under_media_boundary && view->origin_polygon_index!=NONE){
+        const auto* polygon=get_polygon_data(view->origin_polygon_index);
+        if(polygon->media_index!=NONE){
+            const auto* media=get_media_data(polygon->media_index);
+            visor_water=media && (media->type==_media_water || media->type==_media_sewage);
+        }
+    }
+    const bool visor_allowed=SprintathonVisor::enabled() && passTest.other() &&
+        !ChaseCam_IsActive() && !screenshot_mode_active() && current_player && current_player->suit_energy>0;
+    SprintathonVisor::state().update(dynamic_world->tick_count,dynamic_world->current_level_number,
+        SprintathonSkyBake::mapGeneration,current_player ? current_player->object_index : NONE,
+        view->under_media_boundary,visor_water,current_player ? current_player->suit_energy : 0,visor_allowed);
+    const double visor_azimuth=(SprintathonLuaSun::get(SprintathonLuaSun::Azimuth)-90.0)*0.017453292519943295;
+    const double visor_elevation=SprintathonLuaSun::get(SprintathonLuaSun::Elevation)*0.017453292519943295;
+    const float visor_direction[3]={float(std::cos(visor_azimuth)*std::cos(visor_elevation)),
+        float(std::sin(visor_azimuth)*std::cos(visor_elevation)),float(std::sin(visor_elevation))};
+    const float visor_sun=(graphics_preferences->visible_sun || SprintathonTimeOfDay::state().active) &&
+        SprintathonLuaSun::get(SprintathonLuaSun::Enabled) && !IsInfravisionActive() ?
+        float(SprintathonLuaSun::get(SprintathonLuaSun::Brightness)) : 0.0f;
+    SprintathonVisor::projectSun(scene_projection,volume_modelview,visor_direction,visor_sun,
+        float(SprintathonLuaSun::get(SprintathonLuaSun::Size))*0.5f*0.017453292519943295f);
+    const bool visor_active=SprintathonVisor::state().active();
+    SprintathonVisor::state().lightCount=0;
+    if(visor_active && graphics_preferences->projectile_lights_per_pixel && !IsInfravisionActive()){
+        auto visorLight=[&](float x,float y,float z,float r,float g,float b,float radius){
+            const float delta[3]={x-view->origin.x,y-view->origin.y,z-view->origin.z};
+            SprintathonVisor::addLight(scene_projection,volume_modelview,delta,r,g,b,radius);
+        };
+        for(const auto& source:sprintathon_texture_lights){
+            if(!(source.scenery ? graphics_preferences->bright_scenery_lights :
+                                 graphics_preferences->bright_texture_lights))continue;
+            float gain=sprintathon_emitter_gain(source.scenery)*source.shade_gain;
+            if(source.liquid && source.liquid_type!=_media_lava)
+                gain*=graphics_preferences->liquid_fluorescence/100.0f;
+            if(gain<=0)continue;
+            float plane[4];sprintathon_emitter_plane(&source,plane);
+            if((plane[0]!=0 || plane[1]!=0 || plane[2]!=0) &&
+               view->origin.x*plane[0]+view->origin.y*plane[1]+view->origin.z*plane[2]+plane[3]<0)continue;
+            visorLight(source.x+plane[0]*2,source.y+plane[1]*2,source.z+plane[2]*2,
+                source.r*gain,source.g*gain,source.b*gain,sprintathon_emitter_radius(source.scenery));
+        }
+        const float gain=graphics_preferences->colored_light_intensity/100.0f;
+        for(const auto& projectile:ProjectileList){
+            if(!SLOT_IS_USED(&projectile))continue;
+            float rgb[3];if(!sprintathon_projectile_visual_color(projectile,rgb))continue;
+            const auto* object=get_object_data(projectile.object_index);if(!object)continue;
+            visorLight(object->location.x,object->location.y,object->location.z,
+                rgb[0]*gain*.65f,rgb[1]*gain*.65f,rgb[2]*gain*.65f,4.5f*WORLD_ONE);
+        }
+        for(const auto& flare:sprintathon_dropped_flares){
+            const float strength=sprintathon_flare_strength(flare)*gain;
+            visorLight(flare.x,flare.y,flare.z,strength,strength*.12f,strength*.04f,5.5f*WORLD_ONE);
+        }
+    }
+
 	const bool fog_post_effects_enabled = passTest.other() &&
         (fog_haze_enabled || rising_fog_clouds_enabled || volume_fog_enabled);
 	const bool shaft_source_ready = passTest.shafts() && ogl_config.LandscapeLightShafts &&
@@ -4845,7 +4903,7 @@ void RenderRasterize_Shader::render_tree() {
     gpu_profile.pass(3); startup_frame.pass(4);
 	if ((passTest.other() && ogl_config.AmbientOcclusion) || (passTest.shafts() && ogl_config.LandscapeLightShafts) ||
 		(passTest.other() && ogl_config.AnamorphicLensFlares) ||
-		fog_post_effects_enabled || flashlight_dust_enabled || shockwaves_active || bounce_active)
+		fog_post_effects_enabled || flashlight_dust_enabled || shockwaves_active || bounce_active || visor_active)
 		scene_depth = sprintathon_capture_scene_depth(
 			framebuffer_width, framebuffer_height);
     if(bounce_active && scene_depth){
@@ -4977,6 +5035,11 @@ void RenderRasterize_Shader::render_tree() {
 			}
 		}
 	}
+
+    if(visor_active && scene_depth){
+        const GLuint visor_scene=sprintathon_capture_scene_color(framebuffer_width,framebuffer_height);
+        SprintathonVisor::draw(visor_scene,scene_depth,framebuffer_width,framebuffer_height);
+    }
 
 	glAlphaFunc(GL_GREATER, 0.5);
     gpu_profile.pass(12); startup_frame.pass(13);

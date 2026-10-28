@@ -1,3 +1,4 @@
+#include "SprintathonHUDCurve.h"
 /*
 
 	Copyright (C) 2006 and beyond by Bungie Studios, Inc.
@@ -250,7 +251,7 @@ void OGL_Blitter::Draw(const Image_Rect& dst, const Image_Rect& raw_src)
 	glDisable(GL_DEPTH_TEST);
 //	glDisable(GL_ALPHA_TEST);
 	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	SprintathonHUDCurve::alphaBlend();
 	glDisable(GL_FOG);
 //	glDisable(GL_SCISSOR_TEST);
 //	glDisable(GL_STENCIL_TEST);

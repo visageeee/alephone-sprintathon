@@ -1,3 +1,4 @@
+#include "SprintathonHUDCurve.h"
 /*
 
 	Copyright (C) 1991-2001 and beyond by Bungie Studios, Inc.
@@ -351,7 +352,7 @@ void FontSpecifier::OGL_Render(const char *Text)
 	glEnable(GL_TEXTURE_2D);
 	glEnable(GL_BLEND);
 	glDisable(GL_ALPHA_TEST);
-	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+	SprintathonHUDCurve::alphaBlend();
 
 	glBindTexture(GL_TEXTURE_2D,TxtrID);
 	

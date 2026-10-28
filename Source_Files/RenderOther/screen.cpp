@@ -39,6 +39,7 @@
 #include "OGL_Headers.h"
 #include "../RenderMain/SprintathonPresentTrace.h"
 #include "OGL_Blitter.h"
+#include "SprintathonHUDCurve.h"
 #include "OGL_Faders.h"
 #include "OGL_Textures.h"
 #endif
@@ -1748,8 +1749,12 @@ void render_screen(short ticks_elapsed)
         SprintathonPresentTrace::mark(3);
         // Skip only HUD rendering, without resizing the view or changing prefs.
         if (Screen::instance()->hud() && !SprintathonPresentTrace::suppressHUD()) {
-			if (Screen::instance()->lua_hud())
-				Lua_DrawHUD(ticks_elapsed);
+			if (Screen::instance()->lua_hud()) {
+                const bool curved = !world_view->terminal_mode_active && !world_view->overhead_map_active &&
+                    SprintathonHUDCurve::begin(MainScreenPixelWidth(), MainScreenPixelHeight());
+                Lua_DrawHUD(ticks_elapsed);
+                if(curved)SprintathonHUDCurve::end();
+            }
 			else {
 				Rect dr = MakeRect(HUD_DestRect);
 				OGL_DrawHUD(dr, ticks_elapsed);

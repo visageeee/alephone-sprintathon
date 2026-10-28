@@ -26,7 +26,15 @@ vec3 sprintathonSunDisc(vec3 ray) {
     float radius=max(1.0-visibleSun.w,0.000001);
     float feather=max(fwidth(alignment),radius*0.15);
     float disc=smoothstep(visibleSun.w-feather,visibleSun.w+feather,alignment);
-    float halo=0.035*exp2(-max(0.0,1.0-alignment)/(radius*4.0));
+    vec3 axis=abs(visibleSun.z)<0.95 ? vec3(0.0,0.0,1.0) : vec3(0.0,1.0,0.0);
+    vec3 right=normalize(cross(axis,visibleSun.xyz));
+    vec3 up=cross(visibleSun.xyz,right);
+    vec2 radial=vec2(dot(ray,right),dot(ray,up));
+    float angle=atan(radial.y,radial.x+0.0000001);
+    float bands=0.5+0.22*sin(angle*7.0+0.4)+0.16*sin(angle*13.0+1.7)+0.12*sin(angle*23.0+0.9);
+    float streak=pow(clamp(bands,0.0,1.0),2.0);
+    float halo=0.065*(0.25+1.4*streak)*
+        exp2(-max(0.0,1.0-alignment)/(radius*(2.0+7.0*streak)));
     return visibleSunColor.rgb*visibleSunColor.w*(disc+halo);
 }
 
