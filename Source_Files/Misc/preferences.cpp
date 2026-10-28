@@ -425,6 +425,7 @@ private:
 };
 
 #include "SprintathonHUDPreview.h"
+#include "../RenderOther/SprintathonSuitDiagnostics.h"
 
 // Graphics choices share the tab theme: a white frame and a filled selection.
 class w_graphics_choice_button : public w_button
@@ -1014,7 +1015,30 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
     graphics_hud_page->add(hud_browse,true);
     graphics_hud_page->dual_add(hud_preview,d);
     graphics_hud_page->dual_add(new w_static_text("Sample preview. HUD changes apply when settings are saved."),d);
-	pages->add(graphics_hud_page, true);
+    auto* hud_page=new vertical_placer(get_theme_space(ITEM_WIDGET));
+    auto* hud_tabs=new tab_placer(true);
+    const vector<string> hud_tab_labels={"Appearance","Suit Terminal"};
+    const size_t hud_header_first=d.widget_count();
+    hud_page->dual_add(new w_tab(hud_tab_labels,hud_tabs),d);
+    d.pin_widgets_since(hud_header_first);
+    hud_tabs->add(graphics_hud_page,true);
+    auto* suit_page=new vertical_placer(get_theme_space(ITEM_WIDGET));
+    auto* suit_table=new table_placer(2,get_theme_space(ITEM_WIDGET),false);
+    auto* suit_diagnostics_w=new w_toggle(input_preferences->sprintathon_suit_diagnostics);
+    preferences_checkbox(suit_table,"Contextual Suit Diagnostics",suit_diagnostics_w,d);
+    preferences_help(suit_table,"Typed suit messages. Requires OpenGL and Show HUD. Ammo pickups are silent.",d);
+    static const char* suit_labels[]={"Startup messages","Idle messages","Atmosphere analysis","Media analysis",
+        "Impact warnings","Oxygen warnings","Movement diagnostics","Teleportation","New weapons",
+        "Item pickups","Power-ups","Pattern-buffer saves","Death message","Low-health flicker"};
+    static_assert(sizeof(suit_labels)/sizeof(suit_labels[0])==SprintathonSuitDiagnostics::CategoryCount,"Suit category labels");
+    std::vector<w_toggle*> suit_message_widgets;
+    for(int i=0;i<SprintathonSuitDiagnostics::CategoryCount;++i){
+        auto* toggle=new w_toggle((input_preferences->sprintathon_suit_message_types&(1<<i))!=0);
+        preferences_checkbox(suit_table,suit_labels[i],toggle,d);
+        suit_message_widgets.push_back(toggle);
+    }
+    suit_page->add(suit_table,true);hud_tabs->add(suit_page,true);
+    hud_page->add(hud_tabs,true);pages->add(hud_page,true);
 
 	/* Embedded Sound page. */
 	vertical_placer *sound_page =
@@ -2093,6 +2117,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
             procedural_space_sky_w->set_selection(high_or_better);
             landscape_cubemaps_w->set_selection(high_or_better);
             visor_effects_w->set_selection(high_or_better);
+            suit_diagnostics_w->set_selection(high_or_better);
             if(high_or_better)visor_strength_w->set_selection(25);
             flashlight_w->set_selection(medium_or_better);
             flashlight_contacts_w->set_selection(high_or_better);
@@ -2276,6 +2301,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	// Any manual edit outside the Presets page makes the active setup Custom.
 	w_select *graphics_select_widgets[] = {
         visor_effects_w,
+        suit_diagnostics_w,
         graphics_renderer_w, graphics_render_scale_w, graphics_upscale_w,
         visible_sun_w, visible_sun_size_w, visible_sun_color_w,
 		graphics_windowed_w, graphics_gamma_w, graphics_fps_w,
@@ -2977,6 +3003,10 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_pistol_scope_blur, pistol_scope_blur_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_level_timer, level_timer_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_visor_effects, visor_effects_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_suit_diagnostics, suit_diagnostics_w);
+    input_preferences->sprintathon_suit_message_types=0;
+    for(int i=0;i<SprintathonSuitDiagnostics::CategoryCount;++i)
+        if(suit_message_widgets[i]->get_selection())input_preferences->sprintathon_suit_message_types|=1<<i;
 	input_preferences->sprintathon_visor_strength = visor_strength_w->get_selection();
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_dodge_bullet_time, dodge_bullet_time_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_no_vacuum_drain, no_vacuum_drain_w);
@@ -7480,6 +7510,8 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_pistol_scope_blur", input_preferences->sprintathon_pistol_scope_blur);
 	root.put_attr("sprintathon_level_timer", input_preferences->sprintathon_level_timer);
 	root.put_attr("sprintathon_visor_effects", input_preferences->sprintathon_visor_effects);
+	root.put_attr("sprintathon_suit_diagnostics", input_preferences->sprintathon_suit_diagnostics);
+	root.put_attr("sprintathon_suit_message_types", input_preferences->sprintathon_suit_message_types);
 	root.put_attr("sprintathon_visor_strength", input_preferences->sprintathon_visor_strength);
 	root.put_attr("sprintathon_dodge_bullet_time", input_preferences->sprintathon_dodge_bullet_time);
 	root.put_attr("sprintathon_footstep_volume_percent",
@@ -7959,6 +7991,8 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_pistol_scope_blur = true;
 	preferences->sprintathon_level_timer = false;
 	preferences->sprintathon_visor_effects = false;
+	preferences->sprintathon_suit_diagnostics = false;
+	preferences->sprintathon_suit_message_types = SprintathonSuitDiagnostics::AllCategories;
 	preferences->sprintathon_visor_strength = 100;
 	preferences->sprintathon_dodge_bullet_time = false;
 	preferences->sprintathon_footstep_volume_percent = 50;
@@ -8732,6 +8766,8 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_pistol_scope_blur", input_preferences->sprintathon_pistol_scope_blur);
 	root.read_attr("sprintathon_level_timer", input_preferences->sprintathon_level_timer);
 	root.read_attr("sprintathon_visor_effects", input_preferences->sprintathon_visor_effects);
+	root.read_attr("sprintathon_suit_diagnostics", input_preferences->sprintathon_suit_diagnostics);
+	root.read_attr("sprintathon_suit_message_types", input_preferences->sprintathon_suit_message_types);
     root.read_attr("sprintathon_visor_strength", input_preferences->sprintathon_visor_strength);
     input_preferences->sprintathon_visor_strength = std::max(0, std::min(300,
         int(input_preferences->sprintathon_visor_strength)));

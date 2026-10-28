@@ -73,6 +73,10 @@ Feb 3, 2003 (Woody Zenfell):
 //MH: Lua scripting
 #include "lua_script.h"
 #include "InfoTree.h"
+#ifdef HAVE_OPENGL
+#include "preferences.h"
+#include "../RenderOther/SprintathonSuitDiagnostics.h"
+#endif
 
 #include <string.h>
 #include <limits.h>
@@ -765,7 +769,14 @@ somebody_save_full_auto(player_data* inWhoSaved, bool inOverwrite)
 
         if(inWhoSaved == local_player)
         {
-                save_game_full_auto(inOverwrite);
+                const bool saved=save_game_full_auto(inOverwrite);
+#ifdef HAVE_OPENGL
+                if(saved && inWhoSaved==current_player && input_preferences->sprintathon_suit_diagnostics)
+                    SprintathonSuitDiagnostics::state().notify(dynamic_world->tick_count,
+                        "PATTERN BUFFER", "STATE RECORDED // CONTINUITY PRESERVED",6,SprintathonSuitDiagnostics::Saves);
+#else
+                (void)saved;
+#endif
         }
         else
         {
@@ -894,6 +905,11 @@ static void	change_panel_state(
                                                 {
                                                         player->ticks_at_last_successful_save= 0;
                                                 }
+#ifdef HAVE_OPENGL
+                                                else if(player==current_player && input_preferences->sprintathon_suit_diagnostics)
+                                                    SprintathonSuitDiagnostics::state().notify(dynamic_world->tick_count,
+                                                        "PATTERN BUFFER", "STATE RECORDED // CONTINUITY PRESERVED",6,SprintathonSuitDiagnostics::Saves);
+#endif
                 //				fade_in_background_music(30);
                                         }
                                 }

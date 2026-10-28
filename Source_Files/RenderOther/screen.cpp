@@ -40,12 +40,14 @@
 #include "../RenderMain/SprintathonPresentTrace.h"
 #include "OGL_Blitter.h"
 #include "SprintathonHUDCurve.h"
+#include "SprintathonSuitDiagnostics.h"
 #include "OGL_Faders.h"
 #include "OGL_Textures.h"
 #endif
 
 #include "world.h"
 #include "map.h"
+#include "media.h"
 #include "render.h"
 #include "shell.h"
 #include "interface.h"
@@ -1761,6 +1763,102 @@ void render_screen(short ticks_elapsed)
 			}
 		}
 		
+        // Independent of the selected HUD plugin and the visor post effect.
+        {
+            SprintathonSuitDiagnostics::Input status;
+            status.categories=unsigned(input_preferences->sprintathon_suit_message_types);
+            status.allowed=input_preferences->sprintathon_suit_diagnostics && current_player &&
+                !ChaseCam_IsActive() && !screenshot_mode_active();
+            if(status.allowed){
+                status.tick=dynamic_world->tick_count;status.level=dynamic_world->current_level_number;
+                status.actor=current_player->object_index;status.energy=current_player->suit_energy;
+                status.teleporting=PLAYER_IS_TELEPORTING(current_player) || PLAYER_IS_INTERLEVEL_TELEPORTING(current_player);
+                status.oxygen=int(current_player->suit_oxygen)*100/PLAYER_MAXIMUM_SUIT_OXYGEN;
+                status.vacuum=(static_world->environment_flags&_environment_vacuum)!=0;
+                status.under=world_view->under_media_boundary;status.sprint=current_player->sprinting;
+                status.x=current_player->location.x;status.y=current_player->location.y;status.facing=current_player->facing;
+                if(status.under && world_view->origin_polygon_index!=NONE){
+                    const auto* polygon=get_polygon_data(world_view->origin_polygon_index);
+                    if(polygon->media_index!=NONE){const auto* medium=get_media_data(polygon->media_index);
+                        if(medium)status.medium=medium->type==_media_water?1:medium->type==_media_sewage?2:medium->type==_media_lava?3:4;
+                    }
+                }
+                status.zeroG=SprintathonZeroGControl::effective(input_preferences->sprintathon_enabled && input_preferences->sprintathon_zero_g);
+            }
+            auto& diagnostics=SprintathonSuitDiagnostics::state();diagnostics.update(status);
+            if(!world_view->terminal_mode_active && !world_view->overhead_map_active &&
+               Screen::instance()->hud() && !SprintathonPresentTrace::suppressHUD() && diagnostics.opacity()>0){
+                // Rasterize at output resolution, independent of world render scale
+                // and the legacy 640x480 HUD projection.
+                const int width=MainScreenPixelWidth(),height=MainScreenPixelHeight();
+                const int size=std::max(16,std::min(64,height/54));
+                static FontSpecifier terminalFont={};static int fontSize=0;
+                static OGL_Blitter terminalText;static std::string cached;
+                static int cachedWidth=0;
+                if(fontSize!=size){
+                    terminalFont.File="Courier Prime";terminalFont.Size=size;
+                    terminalFont.Style=0;terminalFont.AdjustLineHeight=0;
+                    if(fontSize==0)terminalFont.Init();else terminalFont.Update();
+                    fontSize=size;cached.clear();
+                }
+                auto& font=terminalFont;
+                const int margin=std::max(10,width/100),panelWidth=std::min(width-2*margin,52*size*3/5);
+                std::string rows[3]={diagnostics.heading(),diagnostics.typed(),""};
+                const int available=std::max(1,panelWidth-20);
+                if(font.TextWidth(rows[1].c_str())>available){
+                    size_t cut=rows[1].size();while(cut>0 && font.TextWidth(rows[1].substr(0,cut).c_str())>available)--cut;
+                    size_t space=rows[1].rfind(' ',cut);if(space!=std::string::npos && space>0)cut=space;
+                    rows[2]=rows[1].substr(cut);rows[1].resize(cut);
+                }
+                for(auto& row:rows)while(!row.empty() && font.TextWidth(row.c_str())>available)row.pop_back();
+                const std::string key=rows[0]+"\n"+rows[1]+"\n"+rows[2]+(diagnostics.detailOpacity()<1?"~":"");
+                const int bow=std::max(9,size*3/2);
+                const int line=std::max(size+2,int(font.LineSpacing)),panelHeight=line*3+bow+8;
+                if(cached!=key || cachedWidth!=panelWidth || !terminalText.Loaded()){
+                    SDL_Surface* flat=SDL_CreateRGBSurface(0,panelWidth,panelHeight,32,0x00ff0000,0x0000ff00,0x000000ff,0xff000000);
+                    SDL_Surface* curved=SDL_CreateRGBSurface(0,panelWidth,panelHeight,32,0x00ff0000,0x0000ff00,0x000000ff,0xff000000);
+                    if(flat && curved){
+                        SDL_FillRect(flat,nullptr,0);SDL_FillRect(curved,nullptr,0);
+                        for(int i=0;i<3;++i)draw_text(flat,rows[i].c_str(),(panelWidth-font.TextWidth(rows[i].c_str()))/2,font.Ascent+2+i*line,
+                            SDL_MapRGBA(flat->format,255,255,255,i==0?255:Uint8(255*diagnostics.detailOpacity())),font.Info,font.Style);
+                        // Cache the convex visor projection and actual alternating
+                        // raster lines with the typed text, not a per-frame blur.
+                        for(int y=0;y<panelHeight;++y)for(int x=0;x<panelWidth;++x){
+                            const float u=2.0f*x/std::max(1,panelWidth-1)-1.0f;
+                            const int sourceX=x;
+                            const int sourceY=y-int(bow*u*u);
+                            if(sourceX>=panelWidth || sourceY<0 || sourceY>=panelHeight)continue;
+                            Uint32 pixel=reinterpret_cast<Uint32*>(static_cast<Uint8*>(flat->pixels)+sourceY*flat->pitch)[sourceX];
+                            Uint8 r,g,b,alpha;SDL_GetRGBA(pixel,flat->format,&r,&g,&b,&alpha);
+                            if(y&1)alpha=Uint8(alpha*.85f);
+                            reinterpret_cast<Uint32*>(static_cast<Uint8*>(curved->pixels)+y*curved->pitch)[x]=SDL_MapRGBA(curved->format,r,g,b,alpha);
+                        }
+                        terminalText.Load(*curved);cached=key;cachedWidth=panelWidth;
+                    }
+                    if(flat)SDL_FreeSurface(flat);if(curved)SDL_FreeSurface(curved);
+                }
+                const bool warning=diagnostics.priority>=2;
+                terminalText.tint_color_r=warning?1.0f:.51f;
+                terminalText.tint_color_g=warning?.68f:.86f;
+                terminalText.tint_color_b=warning?.25f:.71f;
+                terminalText.tint_color_a=diagnostics.opacity();
+                // Hold at top centre, then move the entire readout above the screen.
+                // Opacity stays constant during its exit; warnings retain their initial blink.
+                const float top=float(margin)-diagnostics.scrollProgress()*float(margin+panelHeight+2);
+                if(terminalText.Loaded()){
+                    GLint oldMatrixMode=0;glGetIntegerv(GL_MATRIX_MODE,&oldMatrixMode);
+                    glPushAttrib(GL_VIEWPORT_BIT|GL_ENABLE_BIT|GL_SCISSOR_BIT);
+                    glViewport(0,0,width,height);glDisable(GL_SCISSOR_TEST);glDisable(GL_DEPTH_TEST);
+                    glMatrixMode(GL_PROJECTION);glPushMatrix();glLoadIdentity();
+                    glOrtho(0,width,height,0,-1,1);
+                    glMatrixMode(GL_MODELVIEW);glPushMatrix();glLoadIdentity();
+                    terminalText.Draw(Image_Rect(float((width-panelWidth)/2),float(int(top)),float(panelWidth),float(panelHeight)));
+                    glMatrixMode(GL_MODELVIEW);glPopMatrix();
+                    glMatrixMode(GL_PROJECTION);glPopMatrix();glMatrixMode(oldMatrixMode);glPopAttrib();
+                }
+
+            }
+        }
         SprintathonPresentTrace::mark(4);
 
 		if (world_view->terminal_mode_active) {

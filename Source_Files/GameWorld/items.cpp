@@ -78,6 +78,9 @@ Feb 11, 2001 (Loren Petrich):
 #include "network_games.h"
 #include "InfoTree.h"
 #include "preferences.h"
+#ifdef HAVE_OPENGL
+#include "../RenderOther/SprintathonSuitDiagnostics.h"
+#endif
 
 // LP addition: for the XML stuff
 #include <string.h>
@@ -751,7 +754,33 @@ static bool get_item(
 
 	assert(GET_OBJECT_OWNER(object)==_object_is_item);
 	
+#ifdef HAVE_OPENGL
+ const short pickup_type=object->permutation;
+ const bool new_weapon=get_item_kind(pickup_type)==_weapon &&
+  get_player_data(player_index)->items[pickup_type]<=0;
+#endif
 	success= try_and_add_player_item(player_index, object->permutation);
+#ifdef HAVE_OPENGL
+ if(success && player_index==current_player_index && input_preferences->sprintathon_suit_diagnostics){
+  char pickup_name[256];get_item_name(pickup_name,pickup_type,false);
+  auto& diagnostics=SprintathonSuitDiagnostics::state();
+  const char* powerup_message=nullptr;
+  switch(pickup_type){
+   case _i_invisibility_powerup:powerup_message="OPTICAL SIGNATURE SUPPRESSED";break;
+   case _i_invincibility_powerup:powerup_message="EXTERNAL FIELD DETECTED // SOURCE UNRESOLVED";break;
+   case _i_infravision_powerup:powerup_message="SPECTRAL RESPONSE EXTENDED";break;
+   case _i_extravision_powerup:powerup_message="PERIPHERAL ARRAY EXPANDED";break;
+   case _i_oxygen_powerup:powerup_message="O2 RESERVE REPLENISHED";break;
+   case _i_energy_powerup:powerup_message="SHIELD CAPACITY RESTORED";break;
+   case _i_double_energy_powerup:powerup_message="SHIELD CAPACITY // DOUBLE CHARGE";break;
+   case _i_triple_energy_powerup:powerup_message="SHIELD CAPACITY // TRIPLE CHARGE";break;
+   default:break;
+  }
+  if(powerup_message)diagnostics.notify(dynamic_world->tick_count,"SYSTEM AUGMENTATION",powerup_message);
+  else if(get_item_kind(pickup_type)!=_ammunition)diagnostics.pickup(pickup_type,pickup_name,new_weapon,
+   dynamic_world->tick_count,dynamic_world->current_level_number,current_player->object_index);
+ }
+#endif
 	if (success)
 	{
 		/* remove it */
