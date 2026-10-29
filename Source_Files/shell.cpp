@@ -113,6 +113,7 @@ bool sprintathon_drop_flare();
 #include "Logging.h"
 #include "network.h"
 #include "Console.h"
+#include "RenderOther/SprintathonSuitConsole.h"
 #include "Movie.h"
 #include "HTTP.h"
 #include "WadImageCache.h"
@@ -1191,6 +1192,14 @@ static void handle_game_key(const SDL_Event &event)
 	bool changed_resolution = false;
 
 	if (Console::instance()->input_active()) {
+        if(Console::instance()->suit_terminal_input()){
+            if(input_preferences->shell_key_bindings[_key_activate_console].count(sc)){
+                Console::instance()->deactivate_input();return;
+            }
+            if(key==SDLK_PAGEUP || key==SDLK_PAGEDOWN){
+                SprintathonSuitConsole::state().page(key==SDLK_PAGEUP?8:-8);return;
+            }
+        }
 		switch(key) {
 			case SDLK_RETURN:
 			case SDLK_KP_ENTER:

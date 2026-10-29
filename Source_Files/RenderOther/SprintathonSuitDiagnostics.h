@@ -4,6 +4,7 @@
 #include <string>
 #include <cstdio>
 #include <deque>
+#include "SprintathonSuitConsole.h"
 namespace SprintathonSuitDiagnostics {
 enum Category {Startup,Idle,Atmosphere,Media,Impact,Oxygen,Movement,Teleport,Weapons,Items,Powerups,Saves,Death,Flicker,CategoryCount};
 static const unsigned AllCategories=(1u<<CategoryCount)-1;
@@ -43,6 +44,7 @@ struct State {
  void show(int rank,int now,const char* heading,const char* text,int mode=0,Category category=Startup){
   if(!enabled(category))return;
   activeCategory=category;label=heading;detail=text;started=now;priority=rank;analysis=mode;++serial;
+  SprintathonSuitConsole::state().append(label+" // "+reading());
  }
  void post(int kind,int rank,int now,const char* heading,const char* text,Category category){
   if(!enabled(category))return;

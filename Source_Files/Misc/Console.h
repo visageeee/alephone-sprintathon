@@ -71,6 +71,7 @@ public:
 	void deactivate_input(); // like abort, but no callback
 
 	bool input_active() { return m_active; }
+	bool suit_terminal_input();
 	int cursor_position();
 
 	void register_macro(std::string macro, std::string replacement);

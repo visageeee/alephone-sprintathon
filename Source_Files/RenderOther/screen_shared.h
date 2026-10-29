@@ -53,6 +53,7 @@ extern SDL_Surface *world_pixels;
 #define DEFAULT_WORLD_HEIGHT 320
 
 #include "Console.h"
+#include "SprintathonSuitConsole.h"
 #include "screen_drawing.h"
 
 #include "network_games.h"
@@ -379,6 +380,7 @@ void SetScriptCaption(int player, const char* text, double x, double y, double s
 
 void reset_messages()
 {
+    SprintathonSuitConsole::state()=SprintathonSuitConsole::State{};
     for(auto& c:script_captions)c.text.clear();
 	// ZZZ: reset screen_printf's
 	for(int i = 0; i < NumScreenMessages; i++)
@@ -755,8 +757,21 @@ static void DisplayPosition(SDL_Surface *s)
 	
 }
 
+static bool SuitTerminalAvailable()
+{
+#ifdef HAVE_OPENGL
+  return OGL_IsActive() && input_preferences->sprintathon_suit_diagnostics && current_player &&
+    !ChaseCam_IsActive() && !screenshot_mode_active() &&
+    !world_view->terminal_mode_active && !world_view->overhead_map_active &&
+    alephone::Screen::instance()->hud() && !SprintathonPresentTrace::suppressHUD();
+#else
+  return false;
+#endif
+}
+
 static void DisplayInputLine(SDL_Surface *s)
 {
+  if(SuitTerminalAvailable())return;
   if (Console::instance()->input_active() && 
       !Console::instance()->displayBuffer().empty()) {
     FontSpecifier& Font = GetOnScreenFont();
@@ -971,6 +986,8 @@ static void DisplayMessages(SDL_Surface *s)
 		}
 	}
 	/* /SB */
+	// The suit terminal renders the same message buffer at native resolution.
+	if(SuitTerminalAvailable())return;
 	//	for (int k=0; k<NumScreenMessages; k++)
 	for (int k = NumScreenMessages - 1; k >= 0; k--)
 	{
@@ -1282,4 +1299,5 @@ void screen_printf(const char *format, ...)
 	// using [v]snprintf instead
 	vsnprintf(Message.Text,sizeof(Message.Text),format,list);
 	va_end(list);
+    if(input_preferences->sprintathon_suit_diagnostics)SprintathonSuitConsole::state().append(Message.Text);
 }

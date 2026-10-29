@@ -1786,8 +1786,25 @@ void render_screen(short ticks_elapsed)
                 status.zeroG=SprintathonZeroGControl::effective(input_preferences->sprintathon_enabled && input_preferences->sprintathon_zero_g);
             }
             auto& diagnostics=SprintathonSuitDiagnostics::state();diagnostics.update(status);
-            if(!world_view->terminal_mode_active && !world_view->overhead_map_active &&
-               Screen::instance()->hud() && !SprintathonPresentTrace::suppressHUD() && diagnostics.opacity()>0){
+            const bool suitInput=Console::instance()->input_active();
+            auto& suitHistory=SprintathonSuitConsole::state();
+            suitHistory.missionTicks=status.tick;
+            const uint64_t suitNow=machine_tick_count();
+            std::vector<std::string> suitOutput;
+            uint64_t suitOutputExpiry=0;
+            for(int k=NumScreenMessages-1;k>=0;--k){
+                const auto& message=Messages[(MostRecentMessage+NumScreenMessages-k)%NumScreenMessages];
+                if(!message.Text[0] || message.ExpirationTime<=suitNow)continue;
+                std::string text=message.Text;
+                if(text=="Flashlight on")text="ILLUMINATION // ON";
+                else if(text=="Flashlight off")text="ILLUMINATION // OFF";
+                suitOutput.push_back(text);suitOutputExpiry=std::max(suitOutputExpiry,message.ExpirationTime);
+            }
+            const bool dropTarget=SuitTerminalAvailable() && Console::instance()->suit_terminal_input();
+            suitHistory.animate(dropTarget,suitNow,MACHINE_TICKS_PER_SECOND);
+            const bool dropdown=dropTarget || suitHistory.openness>0;
+            const bool suitConsole=dropdown || suitInput || !suitOutput.empty();
+            if(SuitTerminalAvailable() && (diagnostics.opacity()>0 || suitConsole)){
                 // Rasterize at output resolution, independent of world render scale
                 // and the legacy 640x480 HUD projection.
                 const int width=MainScreenPixelWidth(),height=MainScreenPixelHeight();
@@ -1802,25 +1819,78 @@ void render_screen(short ticks_elapsed)
                     fontSize=size;cached.clear();
                 }
                 auto& font=terminalFont;
-                const int margin=std::max(10,width/100),panelWidth=std::min(width-2*margin,52*size*3/5);
-                std::string rows[3]={diagnostics.heading(),diagnostics.typed(),""};
+                const int margin=std::max(10,width/100);
+                const int panelWidth=dropdown?std::min(width-2*margin,100*size*3/5):std::min(width-2*margin,52*size*3/5);
                 const int available=std::max(1,panelWidth-20);
-                if(font.TextWidth(rows[1].c_str())>available){
-                    size_t cut=rows[1].size();while(cut>0 && font.TextWidth(rows[1].substr(0,cut).c_str())>available)--cut;
-                    size_t space=rows[1].rfind(' ',cut);if(space!=std::string::npos && space>0)cut=space;
-                    rows[2]=rows[1].substr(cut);rows[1].resize(cut);
+                std::vector<std::string> rows;
+                auto wrap=[&](std::string text,std::vector<std::string>& target){
+                    while(!text.empty()){
+                        const size_t newline=text.find('\n');
+                        size_t cut=newline==std::string::npos?text.size():newline;
+                        while(cut>0 && font.TextWidth(text.substr(0,cut).c_str())>available)--cut;
+                        if(cut==0){text.erase(0,1);continue;}
+                        target.push_back(text.substr(0,cut));text.erase(0,cut);
+                        if(!text.empty() && text[0]=='\n')text.erase(0,1);
+                    }
+                };
+                if(dropdown){
+                    rows.push_back(suitHistory.scroll?"SUIT TERMINAL // HISTORY":"SUIT TERMINAL // LOCAL INTERFACE");
+                    std::vector<std::string> outputRows;
+                    const size_t end=suitHistory.lines.size()-std::min(size_t(suitHistory.scroll),suitHistory.lines.size());
+                    const size_t begin=end>24?end-24:0;
+                    for(size_t i=begin;i<end;++i)wrap(suitHistory.lines[i],outputRows);
+                    const size_t capacity=std::max(3,std::min(14,height/(2*std::max(size+2,int(font.LineSpacing)))-3));
+                    const size_t first=outputRows.size()>capacity?outputRows.size()-capacity:0;
+                    for(size_t blank=outputRows.size()-first;blank<capacity;++blank)rows.push_back("");
+                    rows.insert(rows.end(),outputRows.begin()+first,outputRows.end());
+                    const std::string input=dropTarget?Console::instance()->displayBuffer():"> ";
+                    const size_t cursor=dropTarget?std::min(input.size(),size_t(std::max(0,Console::instance()->cursor_position()))):input.size();
+                    size_t start=0;
+                    while(start<cursor && font.TextWidth((input.substr(start,cursor-start)+"|").c_str())>available)++start;
+                    std::string visible=input.substr(start,cursor-start);
+                    visible+=(suitNow/(MACHINE_TICKS_PER_SECOND/2))%2?" ":"|";
+                    visible+=input.substr(cursor);
+                    while(!visible.empty() && font.TextWidth(visible.c_str())>available)visible.pop_back();
+                    rows.push_back(visible);
+                }else if(suitConsole){
+                    if(diagnostics.priority>=2 && diagnostics.opacity()>0){
+                        rows.push_back(diagnostics.heading());wrap(diagnostics.typed(),rows);
+                        if(rows.size()>3)rows.resize(3);
+                    }else rows.push_back(suitInput?"COMMAND INTERFACE":"SUIT TERMINAL");
+                    std::vector<std::string> outputRows;
+                    for(const auto& text:suitOutput)wrap(text,outputRows);
+                    const size_t first=outputRows.size()>4?outputRows.size()-4:0;
+                    rows.insert(rows.end(),outputRows.begin()+first,outputRows.end());
+                    if(suitInput){
+                        // Leave editing, history and execution with the existing console.
+                        // Scroll the visible input around the actual insertion point.
+                        const std::string input=Console::instance()->displayBuffer();
+                        const size_t cursor=std::min(input.size(),size_t(std::max(0,Console::instance()->cursor_position())));
+                        size_t start=0;
+                        while(start<cursor && font.TextWidth((input.substr(start,cursor-start)+"|").c_str())>available)++start;
+                        std::string visible=input.substr(start,cursor-start);
+                        visible+=(suitNow/(MACHINE_TICKS_PER_SECOND/2))%2?" ":"|";
+                        visible+=input.substr(cursor);
+                        while(!visible.empty() && font.TextWidth(visible.c_str())>available)visible.pop_back();
+                        rows.push_back(visible);
+                    }
+                }else{
+                    rows.push_back(diagnostics.heading());wrap(diagnostics.typed(),rows);
+                    if(rows.size()>3)rows.resize(3);
                 }
                 for(auto& row:rows)while(!row.empty() && font.TextWidth(row.c_str())>available)row.pop_back();
-                const std::string key=rows[0]+"\n"+rows[1]+"\n"+rows[2]+(diagnostics.detailOpacity()<1?"~":"");
+                std::string key=dropdown?"dropdown\n":suitConsole?"console\n":"diagnostics\n";
+                for(const auto& row:rows)key+=row+"\n";
+                if(!suitConsole && diagnostics.detailOpacity()<1)key+="~";
                 const int bow=std::max(9,size*3/2);
-                const int line=std::max(size+2,int(font.LineSpacing)),panelHeight=line*3+bow+8;
+                const int line=std::max(size+2,int(font.LineSpacing)),panelHeight=line*int(rows.size())+bow+8;
                 if(cached!=key || cachedWidth!=panelWidth || !terminalText.Loaded()){
                     SDL_Surface* flat=SDL_CreateRGBSurface(0,panelWidth,panelHeight,32,0x00ff0000,0x0000ff00,0x000000ff,0xff000000);
                     SDL_Surface* curved=SDL_CreateRGBSurface(0,panelWidth,panelHeight,32,0x00ff0000,0x0000ff00,0x000000ff,0xff000000);
                     if(flat && curved){
                         SDL_FillRect(flat,nullptr,0);SDL_FillRect(curved,nullptr,0);
-                        for(int i=0;i<3;++i)draw_text(flat,rows[i].c_str(),(panelWidth-font.TextWidth(rows[i].c_str()))/2,font.Ascent+2+i*line,
-                            SDL_MapRGBA(flat->format,255,255,255,i==0?255:Uint8(255*diagnostics.detailOpacity())),font.Info,font.Style);
+                        for(size_t i=0;i<rows.size();++i)draw_text(flat,rows[i].c_str(),dropdown?10:(panelWidth-font.TextWidth(rows[i].c_str()))/2,font.Ascent+2+i*line,
+                            SDL_MapRGBA(flat->format,255,255,255,i==0 || suitConsole?255:Uint8(255*diagnostics.detailOpacity())),font.Info,font.Style);
                         // Cache the convex visor projection and actual alternating
                         // raster lines with the typed text, not a per-frame blur.
                         for(int y=0;y<panelHeight;++y)for(int x=0;x<panelWidth;++x){
@@ -1837,21 +1907,83 @@ void render_screen(short ticks_elapsed)
                     }
                     if(flat)SDL_FreeSurface(flat);if(curved)SDL_FreeSurface(curved);
                 }
-                const bool warning=diagnostics.priority>=2;
+                const bool warning=!dropdown && diagnostics.priority>=2 && diagnostics.opacity()>0;
                 terminalText.tint_color_r=warning?1.0f:.51f;
                 terminalText.tint_color_g=warning?.68f:.86f;
                 terminalText.tint_color_b=warning?.25f:.71f;
-                terminalText.tint_color_a=diagnostics.opacity();
+                terminalText.tint_color_a=suitConsole?1.0f:diagnostics.opacity();
                 // Hold at top centre, then move the entire readout above the screen.
                 // Opacity stays constant during its exit; warnings retain their initial blink.
-                const float top=float(margin)-diagnostics.scrollProgress()*float(margin+panelHeight+2);
+                float exitProgress=diagnostics.scrollProgress();
+                if(suitConsole){
+                    exitProgress=0;
+                    if(!suitInput && suitOutputExpiry>suitNow){
+                        const float remaining=float(suitOutputExpiry-suitNow)/MACHINE_TICKS_PER_SECOND;
+                        const float t=std::max(0.0f,1.0f-remaining);exitProgress=t*t*(3-2*t);
+                    }
+                }
+                const float open=suitHistory.openness*suitHistory.openness*(3-2*suitHistory.openness);
+                const float top=dropdown?float(margin)-(1-open)*float(margin+panelHeight+2):
+                    float(margin)-exitProgress*float(margin+panelHeight+2);
                 if(terminalText.Loaded()){
                     GLint oldMatrixMode=0;glGetIntegerv(GL_MATRIX_MODE,&oldMatrixMode);
-                    glPushAttrib(GL_VIEWPORT_BIT|GL_ENABLE_BIT|GL_SCISSOR_BIT);
+                    glPushAttrib(GL_VIEWPORT_BIT|GL_ENABLE_BIT|GL_SCISSOR_BIT|GL_COLOR_BUFFER_BIT|GL_CURRENT_BIT);
                     glViewport(0,0,width,height);glDisable(GL_SCISSOR_TEST);glDisable(GL_DEPTH_TEST);
                     glMatrixMode(GL_PROJECTION);glPushMatrix();glLoadIdentity();
                     glOrtho(0,width,height,0,-1,1);
                     glMatrixMode(GL_MODELVIEW);glPushMatrix();glLoadIdentity();
+                    if(dropdown){
+                        // The strip has different winding from the old quad. Do not
+                        // inherit world/HUD culling, alpha tests or shader state.
+                        glPushAttrib(GL_ALL_ATTRIB_BITS);
+                        const bool shaders=glGetHandleARB && glUseProgramObjectARB;
+                        const GLhandleARB oldProgram=shaders?glGetHandleARB(GL_PROGRAM_OBJECT_ARB):0;
+                        if(shaders)glUseProgramObjectARB(0);
+                        GLint oldTextureUnit=GL_TEXTURE0_ARB,textureUnits=1;
+                        if(glActiveTextureARB){
+                            glGetIntegerv(GL_ACTIVE_TEXTURE_ARB,&oldTextureUnit);
+                            glGetIntegerv(GL_MAX_TEXTURE_UNITS_ARB,&textureUnits);
+                        }
+                        for(int unit=0;unit<textureUnits;++unit){
+                            if(glActiveTextureARB)glActiveTextureARB(GL_TEXTURE0_ARB+unit);
+                            glDisable(GL_TEXTURE_1D);glDisable(GL_TEXTURE_2D);
+                            glDisable(GL_TEXTURE_3D);glDisable(GL_TEXTURE_CUBE_MAP);
+                        }
+                        glDisable(GL_CULL_FACE);glDisable(GL_ALPHA_TEST);
+                        glDisable(GL_STENCIL_TEST);glDisable(GL_FOG);glDisable(GL_LIGHTING);
+                        glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
+                        glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
+                        // Keep the backing attached to the physical screen top.
+                        // Match the text's y += bow*u*u projection at the lower edge.
+                        glDisable(GL_TEXTURE_2D);glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+                        glColor4f(.015f,.035f,.025f,.82f*open);
+                        const float left=float((width-panelWidth)/2);
+                        const float base=float(int(top))+panelHeight-bow;
+                        const int segments=64;
+                        glBegin(GL_QUAD_STRIP);
+                        for(int i=0;i<=segments;++i){
+                            const float t=float(i)/segments,u=2*t-1;
+                            const float x=left+t*panelWidth;
+                            const float bottom=std::max(0.0f,base+bow*u*u);
+                            glVertex2f(x,0);glVertex2f(x,bottom);
+                        }
+                        glEnd();
+                        // A narrow alpha fringe smooths the curved silhouette.
+                        glBegin(GL_QUAD_STRIP);
+                        for(int i=0;i<=segments;++i){
+                            const float t=float(i)/segments,u=2*t-1;
+                            const float x=left+t*panelWidth;
+                            const float bottom=base+bow*u*u;
+                            glColor4f(.015f,.035f,.025f,.82f*open);
+                            glVertex2f(x,bottom);
+                            glColor4f(.015f,.035f,.025f,0);
+                            glVertex2f(x,bottom+1.5f);
+                        }
+                        glEnd();
+                        if(shaders)glUseProgramObjectARB(oldProgram);
+                        glPopAttrib();
+                        if(glActiveTextureARB)glActiveTextureARB(oldTextureUnit);
+                    }
                     terminalText.Draw(Image_Rect(float((width-panelWidth)/2),float(int(top)),float(panelWidth),float(panelHeight)));
                     glMatrixMode(GL_MODELVIEW);glPopMatrix();
                     glMatrixMode(GL_PROJECTION);glPopMatrix();glMatrixMode(oldMatrixMode);glPopAttrib();

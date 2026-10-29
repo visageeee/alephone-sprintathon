@@ -24,6 +24,9 @@
 #include "Console.h"
 #include "Logging.h"
 #include "InfoTree.h"
+#include "../RenderOther/SprintathonSuitConsole.h"
+#include "screen.h"
+#include "OGL_Render.h"
 
 #include <functional>
 #include <string>
@@ -119,7 +122,28 @@ void CommandParser::parse_and_execute(const std::string& command_string)
 }
 
 
+bool Console::suit_terminal_input() {
+#ifdef HAVE_OPENGL
+ return m_active && m_prompt==">" && input_preferences->sprintathon_suit_diagnostics &&
+  OGL_IsActive() && alephone::Screen::instance()->hud();
+#else
+ return false;
+#endif
+}
+
 void Console::enter() {
+ const bool suit=suit_terminal_input();
+ if(suit){
+  auto& terminal=SprintathonSuitConsole::state();terminal.scroll=0;
+  if(!m_buffer.empty())terminal.append("> "+m_buffer);
+  if(m_buffer.empty() || terminal.execute(m_buffer)){
+   m_prev_commands.push_back(m_buffer);m_command_iter=m_prev_commands.end();
+   m_buffer.clear();m_displayBuffer=m_prompt+" ";m_cursor_position=0;
+   return;
+  }
+ }
+ const auto suitCallback=m_callback;
+ const std::string suitPrompt=m_prompt;
 	// store entered command if not duplicate of previous command
 	if (m_prev_commands.size() == 0 ||
 	    m_buffer != *(m_prev_commands.end()-1)) {
@@ -128,7 +152,7 @@ void Console::enter() {
 	m_command_iter = m_prev_commands.end();
 	
 	// macros are processed first
-	if (m_buffer[0] == '.')
+	if (!m_buffer.empty() && m_buffer[0] == '.')
 	{
 		pair<string, string> mr = split(m_buffer.substr(1));
 
@@ -148,7 +172,7 @@ void Console::enter() {
 	}
 
 	// commands are processed before callbacks
-	if (m_buffer[0] == '.')
+	if (!m_buffer.empty() && m_buffer[0] == '.')
 	{
 		parse_and_execute(m_buffer.substr(1));
 	} else if (!m_callback) {
@@ -162,6 +186,8 @@ void Console::enter() {
 	m_displayBuffer.clear();
 	m_active = false;
 	SDL_StopTextInput();
+ if(suit && input_preferences->sprintathon_suit_diagnostics && !m_active)
+  activate_input(suitCallback,suitPrompt);
 }
 
 void Console::abort() {
