@@ -257,7 +257,35 @@ void advance_monster_path(short monster_index);
 static short get_monster_attitude(short monster_index, short target_index);
 void change_monster_target(short monster_index, short target_index);
 static bool switch_target_check(short monster_index, short attacker_index, short delta_vitality);
-static bool clear_line_of_sight(short viewer_index, short target_index, bool full_circle);
+// Keep the stricter perception and firing rules out of legacy/net/film play.
+static bool sprintathon_vertical_ai()
+{
+    return input_preferences->sprintathon_enabled && input_preferences->sprintathon_enhanced_enemy_ai &&
+        !game_is_networked && !game_is_being_replayed();
+}
+static bool sprintathon_vertical_sight(world_point3d from, short polygon,
+    world_point3d to, short target_polygon, bool projectile = false);
+static bool sprintathon_preflight_shot(world_point3d* origin, short polygon, world_point3d* destination,
+    angle error, short type, short owner, short owner_type, short* obstruction)
+{
+    if (!sprintathon_vertical_ai())
+        return preflight_projectile(origin, polygon, destination, error, type, owner, owner_type, obstruction);
+    *obstruction = NONE;
+    world_point3d from = *origin, end = *destination;
+    // Retain legacy muzzle/media validation without its 45-degree aim cap.
+    // The actual 3D trajectory is checked separately below.
+    end.z = origin->z;
+    if (!preflight_projectile(&from, polygon, &end, error, type, owner, owner_type, obstruction)) return false;
+    if (!sprintathon_vertical_sight(*origin, polygon, *destination, NONE, true)) return false;
+    // Legacy preflight discards geometry-hit flags. Preserve them in this AI-only probe.
+    from = *origin; end = *destination;
+    short hit = NONE;
+    const uint16 flags = translate_projectile(type, &from, polygon, &end, NULL, owner, &hit, NULL, true, NONE);
+    *obstruction = (flags & _projectile_hit_monster) ? get_object_data(hit)->permutation : NONE;
+    return !(flags & _projectile_hit) || (flags & _projectile_hit_monster);
+}
+
+static bool clear_line_of_sight(short viewer_index, short target_index, bool full_circle, bool vertical = true);
 
 static void handle_moving_or_stationary_monster(short monster_index);
 static bool sprintathon_flock_move(short index, bool* moved);
@@ -2126,7 +2154,13 @@ static bool sprintathon_ground_ai(const monster_data* monster, const monster_def
     return input_preferences->sprintathon_enabled && input_preferences->sprintathon_enhanced_enemy_ai &&
         !game_is_networked && !game_is_being_replayed() && !MONSTER_IS_PLAYER(monster) &&
         !MONSTER_IS_DYING(monster) && definition->speed > 0 &&
-        !(definition->flags & (_monster_flys | _monster_floats | _monster_uses_sniper_ledges));
+        !(definition->flags & (_monster_flys | _monster_floats)) &&
+        // Ledge snipers may reposition on their upper walkway. Without this,
+        // both tactical planning and ground_step reject them before searching.
+        (!(definition->flags & _monster_uses_sniper_ledges) ||
+            (MONSTER_HAS_VALID_TARGET(monster) &&
+             get_object_data(monster->object_index)->location.z >
+                int(get_object_data(get_monster_data(monster->target_index)->object_index)->location.z)+WORLD_ONE/2));
 }
 static SprintathonGroundSteering& sprintathon_ground_state(short index)
 {
@@ -2818,7 +2852,7 @@ static bool sprintathon_hold_melee(short index)
     const short polygon = position_monster_projectile(index, monster->target_index,
         &definition->melee_attack, &origin, &destination, &vector, aim);
     short obstruction = NONE;
-    if (polygon == NONE || !preflight_projectile(&origin, polygon, &destination,
+    if (polygon == NONE || !sprintathon_preflight_shot(&origin, polygon, &destination,
         definition->melee_attack.error, definition->melee_attack.type, index, monster->type, &obstruction) ||
         (obstruction != NONE && obstruction != monster->target_index)) {
         state.holding = false;
@@ -2852,8 +2886,28 @@ static bool sprintathon_visible_ranged_target(short index)
     return distance2d(&object->location, &target_object->location) < definition->ranged_attack.range &&
         clear_line_of_sight(index, monster->target_index, true);
 }
+// Walking directly to a target below a ledge may be impossible even when a
+// firing position on our own level is reachable. Keep those decisions separate.
+static bool sprintathon_elevated_ranged_target(short index)
+{
+    const auto* monster=get_monster_data(index);
+    const auto* definition=get_monster_definition(monster->type);
+    if(!sprintathon_ground_ai(monster,definition) || !MONSTER_HAS_VALID_TARGET(monster) ||
+        (monster->mode!=_monster_locked && monster->mode!=_monster_losing_lock) ||
+        definition->ranged_attack.type==NONE || MONSTER_IS_BERSERK(monster))return false;
+    const auto* target=get_monster_data(monster->target_index);
+    if(!SLOT_IS_USED(target) || MONSTER_IS_DYING(target))return false;
+    const auto* object=get_object_data(monster->object_index);
+    const auto* other=get_object_data(target->object_index);
+    const double dx=double(other->location.x)-object->location.x;
+    const double dy=double(other->location.y)-object->location.y;
+    return object->location.z>int(other->location.z)+WORLD_ONE/2 &&
+        dx*dx+dy*dy<double(definition->ranged_attack.range)*definition->ranged_attack.range;
+}
 static bool sprintathon_wait_for_route(short index)
 {
+    // This cooldown belongs to stock pursuit, not the upper-ledge search.
+    if(sprintathon_elevated_ranged_target(index))return false;
     const auto found = sprintathon_failed_routes.find(index);
     if (found == sprintathon_failed_routes.end()) return false;
     const auto* monster = get_monster_data(index);
@@ -2907,19 +2961,65 @@ static bool sprintathon_raised_route(object_data* object, world_point3d& goal,
     goal = probe.location; polygon = probe.polygon;
     return true;
 }
+// A centre ray grazing a pillar is not a reliable firing lane. Check a
+// narrow horizontal corridor as well, using geometry only (no extra actor scans).
+static bool sprintathon_firing_lane(world_point3d origin, short polygon, world_point3d end)
+{
+    if(polygon==NONE)return false;
+    const double dx=double(end.x)-origin.x,dy=double(end.y)-origin.y;
+    const double length=std::hypot(dx,dy);
+    if(length<1)return false;
+    // Reject the centre first. Most blocked lanes need only this one trace.
+    if(!sprintathon_vertical_sight(origin,polygon,end,NONE,true))return false;
+    const double margin=WORLD_ONE/32.0;
+    for(int side=-1;side<=1;side+=2){
+        const int ox=int(std::round(-dy/length*margin*side));
+        const int oy=int(std::round(dx/length*margin*side));
+        // Reject unrepresentable probes rather than wrapping world coordinates.
+        if(int(origin.x)+ox < -32768 || int(origin.x)+ox > 32767 ||
+           int(origin.y)+oy < -32768 || int(origin.y)+oy > 32767 ||
+           int(end.x)+ox < -32768 || int(end.x)+ox > 32767 ||
+           int(end.y)+oy < -32768 || int(end.y)+oy > 32767)return false;
+        world_point3d from=origin,to=end;
+        from.x+=ox;from.y+=oy;to.x+=ox;to.y+=oy;
+        // Validate the short sideways displacement too; never start a probe
+        // on the far side of a thin wall or in an unrelated overlapping room.
+        const short shifted=find_new_object_polygon(&origin,&from,polygon);
+        if(shifted==NONE || !sprintathon_vertical_sight(origin,polygon,from,shifted,true) ||
+            !sprintathon_vertical_sight(from,shifted,to,NONE,true))return false;
+    }
+    return true;
+}
 static bool sprintathon_raised_shot(short index, world_point3d goal, short polygon)
 {
     const auto* monster = get_monster_data(index);
     const auto* definition = get_monster_definition(monster->type);
     const auto* target_monster = get_monster_data(monster->target_index);
-    world_point3d aim = get_object_data(target_monster->object_index)->location;
-    aim.z += get_monster_definition(target_monster->type)->height/2;
-    goal.z += definition->height/2;
+    const auto* target = get_object_data(target_monster->object_index);
+    world_point3d aim = target->location;
+    world_distance radius, height;get_monster_dimensions(monster->target_index,&radius,&height);
+    aim.z += height*3/4;
     const double dx = double(aim.x)-goal.x, dy = double(aim.y)-goal.y;
     if (dx*dx+dy*dy >= double(definition->ranged_attack.range)*definition->ranged_attack.range) return false;
-    short obstruction = NONE;
-    return preflight_projectile(&goal, polygon, &aim, 0, definition->ranged_attack.type,
-        index, monster->type, &obstruction) && (obstruction == NONE || obstruction == monster->target_index);
+    const angle facing = arctangent(int(dx),int(dy));
+    for (int muzzle=0;muzzle<((definition->flags&_monster_fires_symmetrically)?2:1);++muzzle) {
+        world_point3d origin=goal;
+        origin.z+=definition->ranged_attack.dz;
+        translate_point2d(&origin,muzzle ? -definition->ranged_attack.dy : definition->ranged_attack.dy,
+            NORMALIZE_ANGLE(facing+QUARTER_CIRCLE));
+        translate_point2d(&origin,definition->ranged_attack.dx,facing);
+        const short muzzle_polygon=find_new_object_polygon(&goal,&origin,polygon);
+        bool clear=false;
+        for(int sample=0;sample<2;++sample){
+            world_point3d end=aim;if(sample)end.z=target->location.z+height*7/8;
+            short obstruction=NONE;
+            if(sprintathon_firing_lane(origin,muzzle_polygon,end) &&
+                sprintathon_preflight_shot(&origin,muzzle_polygon,&end,0,definition->ranged_attack.type,
+                index,monster->type,&obstruction) && (obstruction==NONE || obstruction==monster->target_index)) {clear=true;break;}
+        }
+        if(!clear)return false;
+    }
+    return true;
 }
 // Stable tactical choices do not consume Marathon's simulation RNG.
 static unsigned sprintathon_position_seed(unsigned seed)
@@ -3057,8 +3157,184 @@ static void sprintathon_seek_raised_position(short index, SprintathonFlockState&
         fy = fy*0.35+0.65*dy/distance;
     }
 }
+// Search navigable polygon connections for a firing position. The route may
+// initially lead away from the target; intermediate waypoints need no shot.
+struct SprintathonFiringRoute {
+    struct Waypoint { world_point3d point; short polygon; };
+    std::vector<Waypoint> steps;
+    short object=NONE,target=NONE,target_object=NONE;
+    size_t next=0;bool clear=false;
+    int tick=-1,retry=0,check=0,progress_tick=0;
+    world_point3d progress={0,0,0};
+};
+static std::map<short,SprintathonFiringRoute> sprintathon_firing_routes;
+static int sprintathon_firing_search_tick=-1;
+static bool sprintathon_route_segment(object_data probe, world_point3d& to,
+    short expected, const monster_definition* definition)
+{
+    if(!sprintathon_ground_corridor(&probe,&to,definition))return false;
+    return find_new_object_polygon(&probe.location,&to,probe.polygon)==expected;
+}
+static bool sprintathon_build_firing_route(short index,SprintathonFiringRoute& route)
+{
+    const auto* monster=get_monster_data(index);
+    const auto* object=get_object_data(monster->object_index);
+    const auto* definition=get_monster_definition(monster->type);
+    struct Node {short polygon;world_point3d point,gate;int parent;double cost;bool closed;};
+    std::vector<Node> nodes;
+    nodes.reserve(128);
+    nodes.push_back({object->polygon,object->location,object->location,-1,0,false});
+    int best_node=-1;double best_score=1e30;world_point3d best_goal=object->location;
+    // Bounded Dijkstra search. One such search globally per game tick.
+    for(int visited=0;visited<96;++visited){
+        int current=-1;
+        for(size_t i=0;i<nodes.size();++i)
+            if(!nodes[i].closed && (current<0 || nodes[i].cost<nodes[current].cost))current=int(i);
+        if(current<0 || nodes[current].cost>24.0*WORLD_ONE || nodes[current].cost>=best_score)break;
+        nodes[current].closed=true;const Node node=nodes[current];
+        const auto* room=get_polygon_data(node.polygon);
+        object_data probe=*object;probe.location=node.point;probe.polygon=node.polygon;
+        // Sample the centre and points just inside each boundary, not only centres.
+        for(int sample=-1;sample<int(room->vertex_count);++sample){
+            double x=room->center.x,y=room->center.y;
+            if(sample>=0){
+                const auto* boundary=get_line_data(room->line_indexes[sample]);
+                const auto& a=get_endpoint_data(boundary->endpoint_indexes[0])->vertex;
+                const auto& b=get_endpoint_data(boundary->endpoint_indexes[1])->vertex;
+                x=(double(a.x)+b.x)*.5;y=(double(a.y)+b.y)*.5;
+                const double dx=room->center.x-x,dy=room->center.y-y;
+                const double length=std::hypot(dx,dy);
+                const double inset=std::min(1.0,(definition->radius+8.0)/std::max(1.0,length));
+                x+=dx*inset;y+=dy*inset;
+            }
+            world_point3d goal={static_cast<world_distance>(x),static_cast<world_distance>(y),node.point.z};
+            const double score=node.cost+std::hypot(double(goal.x)-node.point.x,double(goal.y)-node.point.y);
+            // Travel cost alone can rule this out before geometry/actor probes.
+            if(score>=best_score || !sprintathon_route_segment(probe,goal,node.polygon,definition) ||
+                !sprintathon_raised_shot(index,goal,node.polygon))continue;
+            best_score=score;best_node=current;best_goal=goal;
+        }
+        for(int edge=0;edge<int(room->vertex_count);++edge){
+            const short line_index=room->line_indexes[edge];
+            const auto* line=get_line_data(line_index);
+            const short next=find_adjacent_polygon(node.polygon,line_index);
+            if(next==NONE || next==node.polygon || LINE_IS_SOLID(line))continue;
+            int found=-1;
+            for(size_t i=0;i<nodes.size();++i)if(nodes[i].polygon==next){found=int(i);break;}
+            // Nonnegative edge costs cannot improve an already settled node.
+            if(found>=0 && nodes[found].closed)continue;
+            if(found<0 && nodes.size()>=128)continue;
+            const auto* adjacent=get_polygon_data(next);
+            // Stay on the upper connected walkways; never descend off the ledge.
+            if(adjacent->floor_height<int(object->location.z)-WORLD_ONE/4)continue;
+            const auto& a=get_endpoint_data(line->endpoint_indexes[0])->vertex;
+            const auto& b=get_endpoint_data(line->endpoint_indexes[1])->vertex;
+            if(std::hypot(double(a.x)-b.x,double(a.y)-b.y)<2.0*definition->radius+16)continue;
+            const double mx=(double(a.x)+b.x)*.5,my=(double(a.y)+b.y)*.5;
+            const double dx=adjacent->center.x-mx,dy=adjacent->center.y-my;
+            const double fraction=std::min(1.0,(WORLD_ONE/32.0)/std::max(1.0,std::hypot(dx,dy)));
+            world_point3d gate={static_cast<world_distance>(mx+dx*fraction),
+                static_cast<world_distance>(my+dy*fraction),node.point.z};
+            if(!sprintathon_route_segment(probe,gate,next,definition))continue;
+            object_data beyond=probe;beyond.location=gate;beyond.polygon=next;
+            world_point3d centre={adjacent->center.x,adjacent->center.y,gate.z};
+            if(!sprintathon_route_segment(beyond,centre,next,definition))continue;
+            const double cost=node.cost+std::hypot(double(gate.x)-node.point.x,double(gate.y)-node.point.y)+
+                std::hypot(double(centre.x)-gate.x,double(centre.y)-gate.y);
+            if(found>=0){if(cost<nodes[found].cost)nodes[found]={next,centre,gate,current,cost,false};}
+            else nodes.push_back({next,centre,gate,current,cost,false});
+        }
+    }
+    route.steps.clear();route.next=0;
+    if(best_node<0)return false;
+    std::vector<int> chain;
+    for(int n=best_node;nodes[n].parent>=0;n=nodes[n].parent)chain.push_back(n);
+    std::reverse(chain.begin(),chain.end());
+    route.steps.reserve(chain.size()*2+1);
+    for(int n:chain){route.steps.push_back({nodes[n].gate,nodes[n].polygon});route.steps.push_back({nodes[n].point,nodes[n].polygon});}
+    route.steps.push_back({best_goal,nodes[best_node].polygon});
+    return true;
+}
+static bool sprintathon_follow_firing_route(short index,bool* moved)
+{
+    auto* monster=get_monster_data(index);auto* object=get_object_data(monster->object_index);
+    const auto* definition=get_monster_definition(monster->type);
+    const auto* target_monster=get_monster_data(monster->target_index);
+    const int now=dynamic_world->tick_count;
+    auto& route=sprintathon_firing_routes[index];
+    if(route.object!=monster->object_index || route.target!=monster->target_index ||
+        route.target_object!=target_monster->object_index || now<route.tick || now-route.tick>TICKS_PER_SECOND){
+        route=SprintathonFiringRoute{};route.object=monster->object_index;
+        route.target=monster->target_index;route.target_object=target_monster->object_index;
+        route.progress=object->location;route.progress_tick=now;
+    }
+    route.tick=now;
+    if(now>=route.check){
+        route.check=now+6+index%5;
+        route.clear=sprintathon_raised_shot(index,object->location,object->polygon);
+        if(route.clear){
+            // A confirmed firing lane reacquires the remembered target. The
+            // normal attack loop cannot fire while losing/lost lock, even if
+            // tactical movement has already stopped at a clear firing spot.
+            if(monster->mode==_monster_losing_lock || monster->mode==_monster_lost_lock)
+                set_monster_mode(index,_monster_locked,monster->target_index);
+            if(!MONSTER_IS_ATTACKING(monster)){
+                const auto* target=get_object_data(target_monster->object_index);
+                object->facing=arctangent(int(target->location.x)-object->location.x,
+                    int(target->location.y)-object->location.y);
+            }
+            route.steps.clear();route.next=0;return true;
+        }
+        if(!route.steps.empty()){
+            const auto& final=route.steps.back();
+            if(!sprintathon_raised_shot(index,final.point,final.polygon)){
+                route.steps.clear();route.next=0;route.retry=now+10;
+            }
+        }
+    }
+    // Keep holding a clear firing spot between checks, without drifting back.
+    if(route.clear)return true;
+    if(route.steps.empty()){
+        // No tactical route exists yet. Let ordinary movement run while waiting
+        // for a search slot or retry, rather than claiming a stationary hold.
+        if(now<route.retry || sprintathon_firing_search_tick==now)return false;
+        sprintathon_firing_search_tick=now;route.retry=now+2*TICKS_PER_SECOND+index%17;
+        if(!sprintathon_build_firing_route(index,route))return false; // stock pursuit fallback
+        route.progress=object->location;route.progress_tick=now;
+    }
+    while(route.next<route.steps.size()){
+        const auto& waypoint=route.steps[route.next];
+        if(object->polygon!=waypoint.polygon || std::hypot(double(waypoint.point.x)-object->location.x,
+            double(waypoint.point.y)-object->location.y)>WORLD_ONE/32)break;
+        ++route.next;
+        // Reaching a waypoint is progress even on a route that bends back
+        // near its starting point. Measure stalls along the current segment.
+        route.progress=object->location;route.progress_tick=now;
+    }
+    if(route.next==route.steps.size()){route.steps.clear();route.next=0;route.check=now;return true;}
+    world_point3d goal=route.steps[route.next].point;
+    if(!sprintathon_route_segment(*object,goal,route.steps[route.next].polygon,definition)){
+        route.steps.clear();route.next=0;route.retry=now+TICKS_PER_SECOND;return false;
+    }
+    const double distance=std::hypot(double(goal.x)-object->location.x,double(goal.y)-object->location.y);
+    const double speed=std::min<int>(definition->speed,WORLD_ONE/32)*sprintathon_monster_speed_percent(monster)/100.0;
+    const world_distance step=static_cast<world_distance>(std::min(distance,std::max(2.0,speed)));
+    world_point3d next=object->location;
+    next.x=static_cast<world_distance>(object->location.x+(goal.x-object->location.x)*step/std::max(1.0,distance));
+    next.y=static_cast<world_distance>(object->location.y+(goal.y-object->location.y)*step/std::max(1.0,distance));
+    const bool advanced=sprintathon_ground_step(index,step,true,&next,true);
+    if(moved)*moved=advanced;
+    if(now-route.progress_tick>=2*TICKS_PER_SECOND){
+        const double progress=std::hypot(double(object->location.x)-route.progress.x,double(object->location.y)-route.progress.y);
+        route.progress=object->location;route.progress_tick=now;
+        if(progress<WORLD_ONE/16){route.steps.clear();route.next=0;route.retry=now+TICKS_PER_SECOND;return false;}
+    }
+    return true;
+}
+
 static void sprintathon_reset_flock()
 {
+    sprintathon_firing_routes.clear();sprintathon_firing_search_tick=-1;
     sprintathon_flock.clear();
     sprintathon_melee_holds.clear();
     sprintathon_failed_routes.clear();
@@ -3086,8 +3362,18 @@ static bool sprintathon_flock_move(short index, bool* moved)
         state.object = monster->object_index; state.target = monster->target_index;
     }
     state.tick = now;
+    // Elevated ranged combat uses graph routes instead of local edge probes.
+    // Keep a committed route even when intervening geometry hides the target.
+    const auto* route_target=get_object_data(get_monster_data(monster->target_index)->object_index);
+    if(object->location.z > int(route_target->location.z)+WORLD_ONE/2){
+        state.vx=state.vy=0;state.position_until=now;state.high_until=now;
+        return sprintathon_follow_firing_route(index,moved);
+    }
+    sprintathon_firing_routes.erase(index);
     // Stock paths handle unseen targets, doors/lifts and failed local routes.
-    if (now < state.recover_until || !clear_line_of_sight(index, monster->target_index, true)) {
+    const auto* known_target = get_object_data(get_monster_data(monster->target_index)->object_index);
+    const bool above_target = object->location.z > int(known_target->location.z)+WORLD_ONE/2;
+    if (now < state.recover_until || !clear_line_of_sight(index, monster->target_index, true, !above_target)) {
         state.vx = state.vy = 0;
         state.high_until = now;
         return false;
@@ -3111,7 +3397,7 @@ static bool sprintathon_flock_move(short index, bool* moved)
             &definition->ranged_attack, &origin, &destination, &vector, arctangent(int(tx), int(ty)));
         short obstruction = NONE;
         state.clear = polygon != NONE && distance < definition->ranged_attack.range &&
-            preflight_projectile(&origin, polygon, &destination, definition->ranged_attack.error,
+            sprintathon_preflight_shot(&origin, polygon, &destination, definition->ranged_attack.error,
                 definition->ranged_attack.type, index, monster->type, &obstruction) &&
             (obstruction == NONE || obstruction == monster->target_index);
         state.lane_check = now+5+index%3;
@@ -3820,7 +4106,10 @@ static void generate_new_path_for_monster(
 	if (monster->path==NONE)
 	{
 		if (monster->action!=_monster_is_being_hit || MONSTER_IS_DYING(monster)) set_monster_action(monster_index, _monster_is_stationary);
-        if (sprintathon_visible_ranged_target(monster_index)) {
+        // Do not erase the target before the firing-route controller gets a turn.
+        // Normal losing-lock rules still expire remembered targets.
+        if (sprintathon_visible_ranged_target(monster_index) ||
+            sprintathon_elevated_ranged_target(monster_index)) {
             auto& state = sprintathon_failed_routes[monster_index];
             state.object = monster->object_index; state.target = monster->target_index;
             state.target_object = get_monster_data(monster->target_index)->object_index;
@@ -4222,10 +4511,36 @@ short find_closest_appropriate_target(
 /* if ‘full_circle’ is true, the monster can see in all directions.  if ‘full_circle’ is false
 	the monster respects his visual_arc and current facing.  clear_line_of_sight() is implemented
 	wholly in 2D and only attempts to connect the centers of the two monsters by a line. */
+static bool sprintathon_vertical_sight(world_point3d from, short polygon,
+    world_point3d to, short target_polygon, bool projectile)
+{
+    if (polygon == NONE) return false;
+    const auto* start = get_polygon_data(polygon);
+    if (from.z <= start->floor_height || from.z >= start->ceiling_height) return false;
+    for (int crossing = 0; crossing <= dynamic_world->polygon_count; ++crossing) {
+        const short line_index = find_line_crossed_leaving_polygon(polygon, &from, &to);
+        const auto* room = get_polygon_data(polygon);
+        if (line_index == NONE)
+            return (target_polygon == NONE || polygon == target_polygon) && to.z > room->floor_height && to.z < room->ceiling_height;
+        auto* line = get_line_data(line_index);
+        if (projectile ? (LINE_IS_SOLID(line) && !LINE_HAS_TRANSPARENT_SIDE(line)) : !LINE_IS_TRANSPARENT(line)) return false;
+        const short next = find_adjacent_polygon(polygon, line_index);
+        if (next == NONE) return false;
+        world_point3d intersection;
+        find_line_intersection(&get_endpoint_data(line->endpoint_indexes[0])->vertex,
+            &get_endpoint_data(line->endpoint_indexes[1])->vertex, &from, &to, &intersection);
+        const auto* adjoining = get_polygon_data(next);
+        if (intersection.z <= std::max(room->floor_height, adjoining->floor_height) ||
+            intersection.z >= std::min(room->ceiling_height, adjoining->ceiling_height)) return false;
+        polygon = next;
+    }
+    return false;
+}
+
 static bool clear_line_of_sight(
 	short viewer_index,
 	short target_index,
-	bool full_circle)
+	bool full_circle, bool vertical)
 {
 	struct monster_data *viewer= get_monster_data(viewer_index);
 	struct object_data *viewer_object= get_object_data(viewer->object_index);
@@ -4308,7 +4623,20 @@ static bool clear_line_of_sight(
 		}
 	}
 	
-	return target_visible;
+	if (target_visible && vertical && sprintathon_vertical_ai() && !MONSTER_IS_PLAYER(viewer)) {
+        world_distance radius, viewer_height, target_height;
+        get_monster_dimensions(viewer_index, &radius, &viewer_height);
+        get_monster_dimensions(target_index, &radius, &target_height);
+        world_point3d eye = viewer_object->location, aim = target_object->location;
+        eye.z += viewer_height*3/4;
+        aim.z += target_height*3/4;
+        target_visible = sprintathon_vertical_sight(eye, viewer_object->polygon, aim, target_object->polygon);
+        if (!target_visible) {
+            aim = target_object->location; aim.z += target_height*7/8;
+            target_visible = sprintathon_vertical_sight(eye, viewer_object->polygon, aim, target_object->polygon);
+        }
+    }
+    return target_visible;
 }
 
 /* lock the given monster onto the given target, playing a locking sound if the monster
@@ -5407,7 +5735,7 @@ static bool try_monster_attack(
 				/* make sure this is a valid projectile, that we don’t hit any walls and that whatever
 					we did hit is _hostile. */
 				polygon_index= position_monster_projectile(monster_index, monster->target_index, &definition->melee_attack, &origin, &destination, &_vector, theta);
-				if (preflight_projectile(&origin, polygon_index, &destination, definition->melee_attack.error,
+				if (sprintathon_preflight_shot(&origin, polygon_index, &destination, definition->melee_attack.error,
 					definition->melee_attack.type, monster_index, monster->type, &obstruction_index))
 				{
 					if ((obstruction_index!=NONE && get_monster_attitude(monster_index, obstruction_index)==_hostile) ||
@@ -5427,7 +5755,7 @@ static bool try_monster_attack(
 					polygon_index= position_monster_projectile(monster_index, monster->target_index, &definition->ranged_attack, &origin, &destination, &_vector, theta);
                     if (sprintathon_hold_friendly_shot(monster_index, polygon_index, origin, _vector, definition->ranged_attack.type))
                         return false;
-					if (preflight_projectile(&origin, polygon_index, &destination, definition->ranged_attack.error,
+					if (sprintathon_preflight_shot(&origin, polygon_index, &destination, definition->ranged_attack.error,
 						definition->ranged_attack.type, monster_index, monster->type, &obstruction_index))
 					{
 						if ((obstruction_index!=NONE && get_monster_attitude(monster_index, obstruction_index)==_hostile) ||
@@ -5505,6 +5833,27 @@ static bool sprintathon_hold_friendly_shot(short index, short polygon,
     auto coordinate = [](double value) { return static_cast<world_distance>(std::max(-32768.0, std::min(32767.0, value))); };
     world_point3d from = origin;
     world_point3d to = {coordinate(origin.x+vector.x*scale), coordinate(origin.y+vector.y*scale), coordinate(origin.z+vector.z*scale)};
+    short geometry_obstruction = NONE;
+    world_point3d shot_end = to;
+    const auto* object=get_object_data(monster->object_index);
+    const bool elevated=sprintathon_elevated_ranged_target(index);
+    // The attack animation retains its old facing/elevation. A clear old ray
+    // does not mean the target has stayed exposed while the weapon winds up.
+    if ((elevated && (!sprintathon_raised_shot(index,object->location,object->polygon) ||
+                     !sprintathon_firing_lane(origin,polygon,shot_end))) ||
+        !sprintathon_preflight_shot(&from, polygon, &shot_end, 0, projectile_type,
+        index, monster->type, &geometry_obstruction)) {
+        auto route=sprintathon_firing_routes.find(index);
+        if(route!=sprintathon_firing_routes.end()){
+            route->second.clear=false;
+            route->second.check=dynamic_world->tick_count;
+            route->second.retry=dynamic_world->tick_count;
+        }
+        get_monster_data(index)->attack_repetitions = 0;
+        if (sprintathon_ground_ai(monster, definition)) sprintathon_request_ground_shot(index);
+        else sprintathon_request_clear_shot(index);
+        return true;
+    }
     // Projectile collision rules can ignore same-species monsters. Check the
     // firing corridor ourselves before relying on projectile preflight.
     const double range = std::sqrt(dx*dx+dy*dy);
@@ -5541,7 +5890,7 @@ static bool sprintathon_hold_friendly_shot(short index, short polygon,
         ray_end.x = coordinate(to.x-probe*margin*vector.y/length);
         ray_end.y = coordinate(to.y+probe*margin*vector.x/length);
         short obstruction = NONE;
-        preflight_projectile(&from, polygon, &ray_end, 0, projectile_type, index, monster->type, &obstruction);
+        sprintathon_preflight_shot(&from, polygon, &ray_end, 0, projectile_type, index, monster->type, &obstruction);
         if (obstruction == NONE || obstruction == monster->target_index) continue;
         const auto* blocker = get_monster_data(obstruction);
         const auto* blocker_definition = get_monster_definition(blocker->type);
@@ -5889,6 +6238,18 @@ static short position_monster_projectile(
 		*destination= target_object->location;
 		destination->z+= (height>>1) + (height>>2); /* shoot 3/4ths up the target */
 		
+        if (sprintathon_vertical_ai() && attack == &get_monster_definition(aggressor->type)->ranged_attack) {
+            const short polygon = find_new_object_polygon(&aggressor_object->location, origin, aggressor_object->polygon);
+            world_point3d end = *destination; short obstruction = NONE;
+            if (!sprintathon_preflight_shot(origin, polygon, &end, 0, attack->type,
+                aggressor_index, aggressor->type, &obstruction)) {
+                end = target_object->location; end.z += height*7/8;
+                if (sprintathon_preflight_shot(origin, polygon, &end, 0, attack->type,
+                    aggressor_index, aggressor->type, &obstruction) &&
+                    (obstruction == NONE || obstruction == target_index)) *destination = end;
+            }
+        }
+
 		/* calculate outbound vector */
 		_vector->x= destination->x-origin->x;
 		_vector->y= destination->y-origin->y;
