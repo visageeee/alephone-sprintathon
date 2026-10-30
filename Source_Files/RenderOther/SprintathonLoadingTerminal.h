@@ -3,6 +3,13 @@
 #include "FontHandler.h"
 #include "screen.h"
 #include "map.h"
+#include "preferences.h"
+#include "interface.h"
+#include "shell.h"
+#include "collection_definition.h"
+#include "OGL_Blitter.h"
+#include <cstdlib>
+extern collection_definition* get_collection_definition(short);
 #include <vector>
 #include <algorithm>
 #include <cstdio>
@@ -13,6 +20,11 @@ struct Line{std::string text;Uint32 time;bool stage;};
 struct MapEdge{float x0,y0,x1,y1;};
 struct State{
  std::vector<MapEdge> geometry;
+ OGL_Blitter character[8];
+ struct ScanPoint{float x=0,y=0;bool valid=false;};
+ ScanPoint scanPoints[8][3];
+ int characterWidth=0,characterHeight=0;
+ bool characterReady=false,characterAttempted=false,charactersAllowed=false;
  float mapLeft=0,mapTop=0,mapRight=0,mapBottom=0;
  std::deque<Line> lines;std::string stage;
  Uint32 started=0,lastLine=0,lastScroll=0;
@@ -50,6 +62,9 @@ inline void captureGeometry(){
 }
 inline void start(){
  auto& s=state();s.lines.clear();s.stage.clear();s.percent=0;s.complete=false;s.completedAt=0;
+ for(auto& frame:s.character)frame.Unload();
+ for(auto& view:s.scanPoints)for(auto& point:view)point=State::ScanPoint{};
+ s.characterWidth=s.characterHeight=0;s.characterReady=s.characterAttempted=s.charactersAllowed=false;
  s.started=s.lastLine=s.lastScroll=SDL_GetTicks();
  // Separate cosmetic seed: never advance gameplay randomness.
  Uint32 seed=s.started^0x93A5F12Du;seed^=seed<<13;seed^=seed>>17;seed^=seed<<5;
@@ -64,6 +79,7 @@ inline void status(const std::string& message){
  auto& s=state();
  std::string next=message.compare(0,9,"Loading: ")==0?message.substr(9):message;
  if(s.complete || next==s.stage)return;
+ if(next=="preparing sprites")s.charactersAllowed=true;
  s.stage=next;
  append("> "+next,true,SDL_GetTicks());
 }
@@ -108,6 +124,67 @@ inline std::string signalText(Uint32 now){
 inline void rectangle(float x,float y,float w,float h,float r,float g,float b){
  glDisable(GL_TEXTURE_2D);glColor3f(r,g,b);
  glBegin(GL_QUADS);glVertex2f(x,y);glVertex2f(x+w,y);glVertex2f(x+w,y+h);glVertex2f(x,y+h);glEnd();
+}
+// Pick one directional sequence from each already-loaded object collection.
+// No calls to the simulation RNG and no additional collection loads.
+inline void prepareCharacter(){
+ auto& s=state();if(s.characterAttempted || !s.charactersAllowed)return;
+ s.characterAttempted=true;
+ struct Candidate{short collection;short frames[8];};
+ std::vector<Candidate> candidates;
+ for(short c=0;c<NUMBER_OF_COLLECTIONS;++c){
+  if(!is_collection_present(c))continue;
+  const auto* collection=get_collection_definition(c);
+  if(!collection || collection->type!=_object_collection)continue;
+  for(int seq=0;seq<collection->high_level_shape_count && seq<256;++seq){
+   const auto* animation=get_shape_animation_data(BUILD_DESCRIPTOR(c,seq));
+   if(!animation || animation->frames_per_view<=0)continue;
+   if(animation->number_of_views!=_animated8 && animation->number_of_views!=_animated5to8 && animation->number_of_views!=_animated2to8)continue;
+   Candidate candidate;candidate.collection=c;bool valid=true;
+   for(int view=0;view<8;++view){
+    candidate.frames[view]=animation->low_level_shape_indexes[view*animation->frames_per_view];
+    if(candidate.frames[view]<0 || candidate.frames[view]>=collection->low_level_shape_count)valid=false;
+   }
+   if(valid){candidates.push_back(candidate);break;}
+  }
+ }
+ if(candidates.empty())return;
+ Uint32 seed=s.started^0xB5297A4Du;seed^=seed<<13;seed^=seed>>17;seed^=seed<<5;
+ const auto& chosen=candidates[seed%candidates.size()];
+ bool valid=true;
+ for(int view=0;view<8;++view){
+  byte* storage=nullptr;
+  SDL_Surface* source=get_shape_surface(chosen.frames[view],BUILD_COLLECTION(chosen.collection,0),&storage);
+  SDL_Surface* rgba=source?SDL_ConvertSurfaceFormat(source,SDL_PIXELFORMAT_RGBA32,0):nullptr;
+  if(source)SDL_FreeSurface(source);
+  std::free(storage);
+  if(!rgba){valid=false;break;}
+  if(SDL_LockSurface(rgba)!=0){SDL_FreeSurface(rgba);valid=false;break;}
+  // Find real opaque pixels near three scan targets in each view, once at load.
+  // These are visual sample points, not anatomical or gameplay markers.
+  float best[3]={1e30f,1e30f,1e30f};
+  const float targetX[3]={.42f,.63f,.38f},targetY[3]={.22f,.48f,.76f};
+  for(int y=0;y<rgba->h;++y){
+   auto* pixels=reinterpret_cast<Uint32*>(static_cast<Uint8*>(rgba->pixels)+y*rgba->pitch);
+   for(int x=0;x<rgba->w;++x){
+    Uint8 red,green,blue,alpha;SDL_GetRGBA(pixels[x],rgba->format,&red,&green,&blue,&alpha);
+    if(alpha>=128)for(int i=0;i<3;++i){
+     const float px=(x+.5f)/rgba->w,py=(y+.5f)/rgba->h;
+     const float dx=px-targetX[i],dy=py-targetY[i],distance=dx*dx+dy*dy;
+     if(distance<best[i]){best[i]=distance;auto& point=s.scanPoints[view][i];point.x=px;point.y=py;point.valid=true;}
+    }
+    const Uint8 grey=Uint8((int(red)*54+int(green)*183+int(blue)*19)/256);
+    pixels[x]=SDL_MapRGBA(rgba->format,grey,grey,grey,alpha);
+   }
+  }
+  SDL_UnlockSurface(rgba);
+  s.character[view].Load(*rgba);
+  s.characterWidth=std::max(s.characterWidth,rgba->w);s.characterHeight=std::max(s.characterHeight,rgba->h);
+  SDL_FreeSurface(rgba);
+  if(!s.character[view].Loaded()){valid=false;break;}
+ }
+ if(!valid){for(auto& frame:s.character)frame.Unload();return;}
+ s.characterReady=true;
 }
 inline void draw(){
  auto& s=state();const int width=MainScreenPixelWidth(),height=MainScreenPixelHeight();
@@ -167,8 +244,9 @@ inline void draw(){
  rectangle(margin,top-8,width-margin*2,1,0.48f,0.24f,0.035f);
  // Scroll history only; headings and progress remain fixed.
  const int rows=std::max(1,(bottom-top-line)/line);
- const bool showMap=width>=800 && !s.geometry.empty();
- const int logRight=showMap?width*55/100:width-margin;
+ const bool showCharacter=width>=800 && graphics_preferences->sprintathon_loading_characters;
+ const bool showMap=width>=800 && !showCharacter && !s.geometry.empty();
+ const int logRight=(showMap || showCharacter)?width*55/100:width-margin;
  const int first=std::max(0,int(s.lines.size())-rows);
  const float phase=std::min(1.0f,float(Uint32(SDL_GetTicks()-s.lastScroll))/160.0f);
  const int shift=int((1-phase)*(1-phase)*line);
@@ -202,6 +280,45 @@ inline void draw(){
    glVertex2f(x+w*0.5f+(e.x1-cx)*scale,y+h*0.5f+(e.y1-cy)*scale);
   }
   glEnd();
+ }
+ if(showCharacter){
+  prepareCharacter();
+  const int x=width*59/100,w=width-margin-x;
+  const int y=top+line*2,h=std::max(1,bottom-y-line*2);
+  text(x,top+line,"VISUAL RECORD / ROTATIONAL SCAN",0.55f,0.30f,0.06f);
+  if(s.characterReady){
+   const Uint32 elapsed=Uint32(SDL_GetTicks()-s.started);
+   const int view=(elapsed/240)%8;
+   auto& frame=s.character[view];
+   const float scale=std::min(.65f*float(w)/std::max(1,s.characterWidth), .85f*float(h)/std::max(1,s.characterHeight));
+   const float fw=frame.UnscaledWidth()*scale,fh=frame.UnscaledHeight()*scale;
+   frame.tint_color_r=1;frame.tint_color_g=.58f;frame.tint_color_b=.12f;frame.tint_color_a=.85f;
+   const float left=x+(w-fw)*.5f,upper=y+(h-fh)*.5f;
+   frame.Draw(Image_Rect(left,upper,fw,fh));
+   // Sparse instrument callouts. Values change slowly without simulation RNG.
+   for(int i=0;i<3;++i){
+    const auto& point=s.scanPoints[view][i];if(!point.valid)continue;
+    Uint32 code=s.started^Uint32(i+1)*0x9E3779B9u^Uint32(elapsed/(1100+i*370));
+    code^=code<<13;code^=code>>17;code^=code<<5;
+    char label[16];std::snprintf(label,sizeof(label),"0x%04X",unsigned(code&0xffffu));
+    const bool right=i==1;
+    const int labelWidth=s.font.TextWidth(label);
+    const int tx=right?x+w-labelWidth:x;
+    const float ty=y+h*(i==0?.16f:(i==1?.48f:.82f));
+    const float px=left+point.x*fw,py=upper+point.y*fh;
+    const float start=right?tx-5:tx+labelWidth+5;
+    const float elbow=right?std::max(px+8,start-line*.5f):std::min(px-8,start+line*.5f);
+    glDisable(GL_TEXTURE_2D);glDisable(GL_BLEND);glDisable(GL_LINE_SMOOTH);glLineWidth(1);
+    glColor3f(.50f,.28f,.065f);
+    glBegin(GL_LINES);
+    glVertex2f(start,ty-size*.3f);glVertex2f(elbow,ty-size*.3f);
+    glVertex2f(elbow,ty-size*.3f);glVertex2f(px,py);
+    glVertex2f(px-3,py);glVertex2f(px+3,py);
+    glVertex2f(px,py-3);glVertex2f(px,py+3);
+    glEnd();
+    text(tx,int(ty),label,.82f,.46f,.10f);
+   }
+  }else text(x,y+line,"awaiting visual record...",.55f,.30f,.06f);
  }
  rectangle(margin,bottom+line/2,width-margin*2,1,0.48f,0.24f,0.035f);
  const int footer=height-margin-line*2;

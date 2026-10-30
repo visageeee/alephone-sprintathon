@@ -107,6 +107,7 @@ struct graphics_preferences_data
 	int16 ephemera_quality;
 	bool pickup_flash;
 	bool skip_intro;
+	bool sprintathon_loading_characters;
 	bool projectile_lights_per_pixel;
 	int16 graphics_preset; // 0 Custom, 1 Low, 2 Medium, 3 High, 4 Total
 	bool projectile_motion_blur;

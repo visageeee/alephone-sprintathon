@@ -831,6 +831,11 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 		graphics_preferences->skip_intro);
 	preferences_checkbox(graphics_display,"Skip Intros and Fades",graphics_skip_intro_w,d);
     preferences_help(graphics_display,"Skips introduction sequences and transition fades.",d);
+    static const char* loading_preview_labels[]={"Map Geometry","Character Sprites",nullptr};
+    auto* loading_preview_w=new w_select(graphics_preferences->sprintathon_loading_characters,loading_preview_labels);
+    graphics_display->dual_add(loading_preview_w->label("Loading Screen Preview"),d);
+    graphics_display->dual_add(loading_preview_w,d);
+    preferences_help(graphics_display,"Show map geometry or a random rotating character in monochrome amber.",d);
 	w_toggle *player_light_circle_w = new w_toggle(graphics_preferences->player_light_circle);
 
 
@@ -2593,6 +2598,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	graphics_preferences->fps_target = embedded_fps;
 	graphics_preferences->skip_intro =
 		graphics_skip_intro_w->get_selection();
+    graphics_preferences->sprintathon_loading_characters=loading_preview_w->get_selection()!=0;
 	const bool embedded_fix_h_not_v =
 		!graphics_limit_vertical_w->get_selection();
 	embedded_graphics_changed |= embedded_fix_h_not_v !=
@@ -7145,6 +7151,7 @@ InfoTree graphics_preferences_tree()
     root.put_attr("fog_corona_strength", graphics_preferences->fog_corona_strength);
     root.put_attr("ceiling_fog_cone_strength", graphics_preferences->ceiling_fog_cone_strength);
 	root.put_attr("skip_intro", graphics_preferences->skip_intro);
+	root.put_attr("sprintathon_loading_characters", graphics_preferences->sprintathon_loading_characters);
 	root.put_attr("anisotropy_level", graphics_preferences->OGL_Configure.AnisotropyLevel);
 	root.put_attr("multisamples", graphics_preferences->OGL_Configure.Multisamples);
 	root.put_attr("wait_for_vsync", graphics_preferences->OGL_Configure.WaitForVSync);
@@ -7784,6 +7791,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->fps_target = 60;
 	preferences->pickup_flash = true;
 	preferences->skip_intro = true;
+	preferences->sprintathon_loading_characters = false;
 	preferences->projectile_lights_per_pixel = true;
 	preferences->graphics_preset = 4;
 	preferences->projectile_motion_blur = true;
@@ -8478,6 +8486,7 @@ void parse_graphics_preferences(InfoTree root, std::string version)
     root.read_attr_bounded<int16>("fog_corona_strength", graphics_preferences->fog_corona_strength, 0, 100);
     root.read_attr_bounded<int16>("ceiling_fog_cone_strength", graphics_preferences->ceiling_fog_cone_strength, 0, 100);
 	root.read_attr("skip_intro", graphics_preferences->skip_intro);
+	root.read_attr("sprintathon_loading_characters", graphics_preferences->sprintathon_loading_characters);
 	root.read_attr("anisotropy_level", graphics_preferences->OGL_Configure.AnisotropyLevel);
 	root.read_attr("multisamples", graphics_preferences->OGL_Configure.Multisamples);
 	root.read_attr("wait_for_vsync", graphics_preferences->OGL_Configure.WaitForVSync);
