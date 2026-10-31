@@ -3,15 +3,17 @@
 #include "map.h"
 #include "effects.h"
 #include "projectiles.h"
+#include "preferences.h"
 #include <vector>
 #include <algorithm>
 #include <cstdlib>
 namespace SprintathonExplosionEvents {
-inline bool enabled(){static bool value=[](){const char* p=std::getenv("SPRINTATHON_ENHANCED_EXPLOSIONS");return p && p[0]=='1';}();return value;}
+inline bool enabled(){return graphics_preferences && graphics_preferences->enhanced_explosions;}
 struct Blast {world_point3d position;short polygon,effect,object;uint64_t start;bool rocket;};
 struct State {std::vector<Blast> blasts,trails;long tick=-1;int level=-1;};
 inline State& state(){static State s;return s;}
 inline void sync(){auto& s=state();const auto now=sprintathon_projectile_render_tick();
+ if(!enabled()){s.blasts.clear();s.trails.clear();}
  if(s.level!=dynamic_world->current_level_number || dynamic_world->tick_count<s.tick){s.blasts.clear();s.trails.clear();}
  s.level=dynamic_world->current_level_number;s.tick=dynamic_world->tick_count;
  s.blasts.erase(std::remove_if(s.blasts.begin(),s.blasts.end(),[&](const Blast& b){return now<b.start || now-b.start>=75;}),s.blasts.end());
