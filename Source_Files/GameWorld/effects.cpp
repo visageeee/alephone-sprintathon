@@ -1,3 +1,4 @@
+#include "SprintathonExplosionEvents.h"
 #include "shell_options.h"
 /*
 EFFECTS.C
@@ -140,6 +141,7 @@ short new_effect(
 						SET_OBJECT_OWNER(object, _object_is_effect);
 						object->permutation = effect_index;
 						object->sound_pitch= definition->sound_pitch;
+                        if(!effect->delay)SprintathonExplosionEvents::emit(type,effect_index,object_index,polygon_index,*origin);
 						if (effect->delay) SET_OBJECT_INVISIBILITY(object, true);
 						if (definition->flags&_media_effect) SET_OBJECT_IS_MEDIA_EFFECT(object);
 					}
@@ -214,6 +216,7 @@ void remove_effect(
 	
 	effect= get_effect_data(effect_index);
     sprintathon_forget_contrail_motion(effect_index);
+    SprintathonExplosionEvents::detach(effect_index);
 	remove_map_object(effect->object_index);
 	L_Invalidate_Effect(effect_index);
 	MARK_SLOT_AS_FREE(effect);

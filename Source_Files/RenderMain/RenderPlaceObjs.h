@@ -54,6 +54,7 @@ struct render_object_data
 	bool casts_character_shadow; // only monster-owned objects, including players
 	bool is_scenery; // limits bright sprite light sources to scenery
 	int16 scenery_object_index; // stable identity for individual scenery emitters
+	int16 explosion_effect_index; // optional replacement visual
 	int16 projectile_index; // used to match rendered colors to projectile lights
 	float projectile_trail_motion[3]; // motion of a contrail at its creation
 	int16 ymedia;

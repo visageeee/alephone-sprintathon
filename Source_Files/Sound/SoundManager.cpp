@@ -402,6 +402,9 @@ std::shared_ptr<SoundPlayer> SoundManager::PlaySound(short sound_index,
 	parameters.is_2d = !source;
 	parameters.in_world = _sound_listener_proc() != nullptr;
 	parameters.source_identifier = identifier;
+	// Keep legacy quiet 2D playback below; spatial gain must survive
+	// listener movement and positional-volume updates.
+	if (source || gain > 1.f) parameters.source_gain = MAX(0.f, gain);
 	if (!source && gain < 1.f)
 	{
 		parameters.stereo_parameters.is_panning = true;

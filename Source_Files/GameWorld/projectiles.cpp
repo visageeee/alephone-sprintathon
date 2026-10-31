@@ -88,6 +88,7 @@ Oct 13, 2000 (Loren Petrich)
 #include "map.h"
 #include "interface.h"
 #include "effects.h"
+#include "SprintathonExplosionEvents.h"
 #include "monsters.h"
 #include "projectiles.h"
 #include "SprintathonShockwaveEvents.h"
@@ -776,7 +777,8 @@ void move_projectiles(
 								projectile->ticks_since_last_contrail= 0;
 								if (definition->contrail_effect!=NONE)
 								{
-									auto effect_index = new_effect(&old_location, old_polygon_index, definition->contrail_effect, object->facing);
+									SprintathonExplosionEvents::ScopedTrailSource trail_source(projectile->type);
+                                    auto effect_index = new_effect(&old_location, old_polygon_index, definition->contrail_effect, object->facing);
                                     sprintathon_record_contrail_motion(effect_index, old_location, new_location);
 									if (effect_index != NONE && definition->ticks_between_contrails <= 1)
 									{

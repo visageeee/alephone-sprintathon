@@ -68,7 +68,7 @@ void SoundPlayer::Init(const SoundParameters& parameters) {
 //If the volume is 0 then we just don't play the sound and drop it
 float SoundPlayer::Simulate(const SoundParameters& soundParameters) {
 	if (soundParameters.is_2d && !soundParameters.stereo_parameters.is_panning) return 1.f; //ofc we play all 2d sounds without stereo panning
-	if (soundParameters.stereo_parameters.is_panning) return soundParameters.stereo_parameters.gain_global;
+	if (soundParameters.stereo_parameters.is_panning) return std::min(1.f, soundParameters.stereo_parameters.gain_global * soundParameters.source_gain);
 
 	const auto& listener = OpenALManager::Get()->GetListener(); //if we don't have a listener on a 3d sound, there is a problem
 	float distance = std::sqrt(
@@ -213,6 +213,7 @@ SetupALResult SoundPlayer::SetUpALSourceIdle() {
 			alSource3i(audio_source->source_id, AL_POSITION, 0, 0, 0);
 		}
 
+		volume *= soundParameters.source_gain;
 		float finalVolume = ComputeVolumeForTransition(volume);
 		result.second = finalVolume == volume && !softStartBegin;
 
@@ -225,7 +226,7 @@ SetupALResult SoundPlayer::SetUpALSourceIdle() {
 		}
 
 		alSourcef(audio_source->source_id, AL_GAIN, finalVolume);
-		alSourcef(audio_source->source_id, AL_MAX_GAIN, finalVolume);
+		alSourcef(audio_source->source_id, AL_MAX_GAIN, std::min(1.f, finalVolume));
 	}
 	else { //3d sounds
 		const auto positionX = (float)(soundParameters.source_location3d.point.x) / WORLD_ONE;

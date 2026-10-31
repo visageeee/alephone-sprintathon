@@ -1,6 +1,7 @@
 #ifndef SPRINTATHON_ZERO_G_H
 #define SPRINTATHON_ZERO_G_H
 #include "SprintathonZeroGMath.h"
+#include "SprintathonSurfaceContact.h"
 #include "SprintathonZeroGControl.h"
 #include "map.h"
 #include "player.h"
@@ -15,7 +16,7 @@ namespace SprintathonZeroG {
 using namespace SprintathonZeroGMath;
 inline void reset();
 inline int mode(){
- const int value=SprintathonZeroGControl::effective(input_preferences && input_preferences->sprintathon_enabled && input_preferences->sprintathon_zero_g)?1:0;
+ const int value=SprintathonZeroGControl::effectiveMode(input_preferences && input_preferences->sprintathon_enabled && input_preferences->sprintathon_zero_g);
  static int previous=-1;
  if(value!=previous){reset();previous=value;}
  return value;
@@ -116,7 +117,29 @@ template<class Constants> inline void update(player_data* p,uint32 flags,const C
      p->flying_kick_recovery_pending=false;p->wall_kick_rearm_pending=false;
      p->wall_kick_cooldown_ticks=0;p->slide_recovery_ticks=0;
      speed=advanceVelocity(speed,s.q,{},dt,false);
- }else speed=advanceVelocity(speed,s.q,{forward,rolling?0:side,double(up)-double(down)},dt,up&&down);
+ }else{
+     s.animationPhase+=dt;
+     const int animationTicks=int(s.animationPhase);s.animationPhase-=animationTicks;
+     p->flying_kick_exit_ticks=static_cast<uint8>(std::max(0,int(p->flying_kick_exit_ticks)-animationTicks));
+     if(!down)s.kickSpent=false;
+     // A fresh crouch press facing a reachable wall is a kick. Reserve
+     // crouch+jump for the existing brake, unless this press already kicked.
+     if(down && !up && !s.crouchHeld && query){
+         const V forwardAxis=s.q.rotate({1,0,0});
+         const V normal=query(p,forwardAxis);
+         if(normal.length()>.5 && normal.dot(forwardAxis)<-.65){
+             speed=collide(speed,normal)-forwardAxis*.16;
+             s.kickSpent=true;s.kickedThisTick=true;
+             p->flying_kick_active=false;p->flying_kick_ticks=0;p->flying_kick_exit_ticks=8;
+         }
+     }
+     // Keep the kick's momentum while crouch remains held, even after
+     // leaving contact range. A release and new press restores down thrust.
+     const bool thrustDown=down && !s.kickSpent;
+     speed=advanceVelocity(speed,s.q,{forward,rolling?0:side,double(up)-double(thrustDown)},dt,up&&thrustDown);
+     s.crouchHeld=down;
+     p->flying_kick_requested=false;
+ }
  s.jumpHeld=up;
  velocity(p,speed);v.last_position=v.position;v.last_direction=v.direction;
  // Leave enough integer range for world-coordinate conversion; collisions
@@ -139,6 +162,12 @@ inline void impact(player_data* p,V normal){
  const V incoming=velocity(p);auto& s=state();
  if(s.ready)s.angularRate=impactSpin(s.angularRate,s.q,incoming,normal);
  velocity(p,bounce(incoming,normal));
+}
+inline void contactImpact(player_data* p,const SprintathonSurfaceContact::Contact& contact){
+ if(!contact.valid())return;
+ // Ignore separating contacts, including stale positional corrections.
+ if(velocity(p).dot(contact.normal)>=0)return;
+ impact(p,contact.normal);
 }
 inline void correct(player_data* p,double dx,double dy){impact(p,{dx,dy,0});}
 inline void applyView(view_data* view,float fraction){

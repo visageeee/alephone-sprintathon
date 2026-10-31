@@ -115,6 +115,7 @@ running backwards shouldn’t mean doom in a fistfight
 
 /* needed for set_player_position -SB */
 #include "SprintathonZeroG.h"
+#include "SprintathonCombatMass.h"
 
 /*static*/ struct physics_constants *get_physics_constants_for_model(short physics_model, uint32 action_flags);
 // Preserve tangential movement at character contact instead of cancelling XY.
@@ -358,12 +359,17 @@ static SprintathonZeroGMath::V sprintathon_zero_g_contact(player_data* player,Sp
     auto& variables=player->variables;
     auto* object=get_object_data(get_monster_data(player->monster_index)->object_index);
     const double reach=WORLD_ONE/8.0;
+    using namespace SprintathonSurfaceContact;
+    Contact nearest;
     double closest=reach+1;V normal{};
-    auto consider=[&](double gap,V n){
-        if(n.dot(toward)<-.65 && gap>=-2 && gap<=reach && gap<closest){closest=gap;normal=n;}
+    auto consider=[&](double gap,V n,Kind kind){
+        const Contact candidate=make(n,gap,kind,object->polygon);
+        if(nearerFacing(candidate,nearest,toward,reach)){
+            nearest=candidate;closest=gap;normal=candidate.normal;
+        }
     };
-    consider(object->location.z-FIXED_TO_WORLD(variables.floor_height),{0,0,1});
-    consider(FIXED_TO_WORLD(variables.ceiling_height-variables.actual_height)-object->location.z,{0,0,-1});
+    consider(object->location.z-FIXED_TO_WORLD(variables.floor_height),{0,0,1},Kind::Floor);
+    consider(FIXED_TO_WORLD(variables.ceiling_height-variables.actual_height)-object->location.z,{0,0,-1},Kind::Ceiling);
     for(int i=0;i<8;++i){
         const double angle=i*SprintathonZeroGMath::pi/4;
         const double dx=std::cos(angle)*reach,dy=std::sin(angle)*reach;
@@ -381,7 +387,7 @@ static SprintathonZeroGMath::V sprintathon_zero_g_contact(player_data* player,Sp
         if(length>1){
             V n=correction*(1/length);
             const double approach=-(dx*n.x+dy*n.y);
-            if(approach>1)consider(std::max(0.0,approach-length),n);
+            if(approach>1)consider(std::max(0.0,approach-length),n,Kind::Wall);
         }
     }
     if(SprintathonZeroG::debug())std::fprintf(stderr,
@@ -757,11 +763,13 @@ static void sprintathon_push_character(short player_index, short obstruction,
     state.ticks = std::min(state.ticks+1, 6*TICKS_PER_SECOND);
     world_distance radius, height;
     get_monster_dimensions(object->permutation, &radius, &height);
-    const double mass = std::max(0.75, std::min(3.0,
-        (double(radius)/(WORLD_ONE/3.0))*(double(height)/WORLD_ONE)));
-    const double ramp = std::min(1.0, state.ticks/(2.5*TICKS_PER_SECOND*std::sqrt(mass)));
+    const double mass = SprintathonCombatMass::mass(target->type,radius,height,WORLD_ONE);
+    // Heavy bodies cannot be walked aside. Light fighters yield immediately
+    // when sprinting, using the existing collision-checked displacement path.
+    if(mass>=5.0)return;
+    const double ramp = (player->sprinting && mass<.5) ? 1.0 : std::min(1.0, state.ticks/(2.5*TICKS_PER_SECOND*mass));
     const double ease = ramp*ramp*(3.0-2.0*ramp);
-    const double step = std::min(distance, (WORLD_ONE/1024.0 + WORLD_ONE/32.0*ease)/std::sqrt(mass));
+    const double step = std::min(distance, (WORLD_ONE/1024.0 + WORLD_ONE/32.0*ease)/mass);
     // Gradually yield to one side, allowing the player to pass without phasing.
     const double sideways = state.side*1.5*ease;
     const double scale = step/(distance*std::sqrt(1+sideways*sideways));
@@ -802,6 +810,7 @@ static void sprintathon_push_character(short player_index, short obstruction,
 	world_distance blocked_ledge_height= INT16_MAX;
 	bool clipped;
 	world_point3d attempted_location;
+    SprintathonSurfaceContact::Contact wall_contact, object_contact;
 	_fixed step_height;
 	angle facing, elevation;
 	_fixed fixed_facing;
@@ -821,6 +830,10 @@ static void sprintathon_push_character(short player_index, short obstruction,
 	clipped= keep_line_segment_out_of_walls(legs->polygon, &legs->location, &new_location,
 		WORLD_ONE/3, FIXED_TO_WORLD(variables->actual_height), &adjusted_floor_height, &adjusted_ceiling_height,
 		&player->supporting_polygon_index, &blocked_ledge_height);
+    if(SprintathonZeroG::active(player))
+        wall_contact=SprintathonSurfaceContact::make(
+            {double(new_location.x)-attempted_location.x,double(new_location.y)-attempted_location.y,0},
+            0,SprintathonSurfaceContact::Kind::Wall);
 	variables->ledge_height= blocked_ledge_height;
 	if (PLAYER_IS_DEAD(player)) new_location.z-= FIXED_TO_WORLD(DROP_DEAD_HEIGHT);
 
@@ -858,6 +871,16 @@ static void sprintathon_push_character(short player_index, short obstruction,
 					if(take_action)
 						bump_monster(player->monster_index, object->permutation);
 				case _object_is_scenery:
+                    if(SprintathonZeroG::active(player)){
+                        // Use the obstacle's radial normal, not the cancelled move.
+                        object_contact=SprintathonSurfaceContact::make(
+                            {double(legs->location.x)-object->location.x,
+                             double(legs->location.y)-object->location.y,0},
+                            0,SprintathonSurfaceContact::Kind::Object,obstruction_index);
+                        if(!object_contact.valid())object_contact=SprintathonSurfaceContact::make(
+                            {double(legs->location.x)-new_location.x,double(legs->location.y)-new_location.y,0},
+                            0,SprintathonSurfaceContact::Kind::Object,obstruction_index);
+                    }
 					new_location.x= legs->location.x, new_location.y= legs->location.y;
 					clipped= true;
 					break;
@@ -922,11 +945,13 @@ static void sprintathon_push_character(short player_index, short obstruction,
             variables->external_velocity.i=variables->external_velocity.j=variables->external_velocity.k=0;
         }else{
             if(new_location.z<floor){new_location.z=static_cast<world_distance>(floor);clipped=true;
-                SprintathonZeroG::impact(player,{0,0,1});}
+                SprintathonZeroG::contactImpact(player,SprintathonSurfaceContact::make(
+                    {0,0,1},0,SprintathonSurfaceContact::Kind::Floor,player->supporting_polygon_index));}
             if(new_location.z>roof){new_location.z=static_cast<world_distance>(roof);clipped=true;
-                SprintathonZeroG::impact(player,{0,0,-1});}
-            SprintathonZeroG::correct(player,double(new_location.x)-attempted_location.x,
-                double(new_location.y)-attempted_location.y);
+                SprintathonZeroG::contactImpact(player,SprintathonSurfaceContact::make(
+                    {0,0,-1},0,SprintathonSurfaceContact::Kind::Ceiling));}
+            SprintathonZeroG::contactImpact(player,wall_contact);
+            SprintathonZeroG::contactImpact(player,object_contact);
         }
     }
 

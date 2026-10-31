@@ -9,6 +9,7 @@
 #include "collection_definition.h"
 #include "OGL_Blitter.h"
 #include <cstdlib>
+#include <ctime>
 extern collection_definition* get_collection_definition(short);
 #include <vector>
 #include <algorithm>
@@ -149,8 +150,20 @@ inline void prepareCharacter(){
   }
  }
  if(candidates.empty())return;
- Uint32 seed=s.started^0xB5297A4Du;seed^=seed<<13;seed^=seed>>17;seed^=seed<<5;
- const auto& chosen=candidates[seed%candidates.size()];
+ // Cosmetic history survives level changes. Prefer the least recently
+ // displayed collection, with randomized ties when the candidate pool changes.
+ static Uint32 lastShown[NUMBER_OF_COLLECTIONS]={};
+ static Uint32 selectionNumber=0;
+ static Uint32 seed=Uint32(std::time(nullptr))^Uint32(SDL_GetPerformanceCounter())^0xB5297A4Du;
+ if(!seed)seed=0xB5297A4Du;
+ Uint32 oldest=lastShown[candidates.front().collection];
+ for(const auto& candidate:candidates)oldest=std::min(oldest,lastShown[candidate.collection]);
+ size_t chosenIndex=0,ties=0;
+ for(size_t i=0;i<candidates.size();++i)if(lastShown[candidates[i].collection]==oldest){
+  seed^=seed<<13;seed^=seed>>17;seed^=seed<<5;
+  if(seed%++ties==0)chosenIndex=i;
+ }
+ const auto& chosen=candidates[chosenIndex];
  bool valid=true;
  for(int view=0;view<8;++view){
   byte* storage=nullptr;
@@ -184,6 +197,10 @@ inline void prepareCharacter(){
   if(!s.character[view].Loaded()){valid=false;break;}
  }
  if(!valid){for(auto& frame:s.character)frame.Unload();return;}
+ if(++selectionNumber==0){
+  std::fill(lastShown,lastShown+NUMBER_OF_COLLECTIONS,0);selectionNumber=1;
+ }
+ lastShown[chosen.collection]=selectionNumber;
  s.characterReady=true;
 }
 inline void draw(){

@@ -1953,27 +1953,29 @@ void render_screen(short ticks_elapsed)
                         glDisable(GL_STENCIL_TEST);glDisable(GL_FOG);glDisable(GL_LIGHTING);
                         glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
                         glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
-                        // Keep the backing attached to the physical screen top.
-                        // Match the text's y += bow*u*u projection at the lower edge.
+                        // Full-width backing; the text keeps its centered layout.
                         glDisable(GL_TEXTURE_2D);glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
                         glColor4f(.015f,.035f,.025f,.82f*open);
-                        const float left=float((width-panelWidth)/2);
-                        const float base=float(int(top))+panelHeight-bow;
+                        // Include the text's full warped height before curving the
+                        // lower edge, so the last row remains backed at either side.
+                        const float base=float(int(top))+panelHeight;
+                        // Deepen the lower edge toward the sides without moving the center.
+                        const float edgeBow=3.0f*bow;
                         const int segments=64;
                         glBegin(GL_QUAD_STRIP);
                         for(int i=0;i<=segments;++i){
                             const float t=float(i)/segments,u=2*t-1;
-                            const float x=left+t*panelWidth;
-                            const float bottom=std::max(0.0f,base+bow*u*u);
+                            const float x=t*width;
+                            const float bottom=std::max(0.0f,base+edgeBow*u*u);
                             glVertex2f(x,0);glVertex2f(x,bottom);
                         }
                         glEnd();
-                        // A narrow alpha fringe smooths the curved silhouette.
+                        // Feather only the lower edge. The sides meet the screen.
                         glBegin(GL_QUAD_STRIP);
                         for(int i=0;i<=segments;++i){
                             const float t=float(i)/segments,u=2*t-1;
-                            const float x=left+t*panelWidth;
-                            const float bottom=base+bow*u*u;
+                            const float x=t*width;
+                            const float bottom=std::max(0.0f,base+edgeBow*u*u);
                             glColor4f(.015f,.035f,.025f,.82f*open);
                             glVertex2f(x,bottom);
                             glColor4f(.015f,.035f,.025f,0);

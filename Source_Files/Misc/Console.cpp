@@ -27,9 +27,13 @@
 #include "../RenderOther/SprintathonSuitConsole.h"
 #include "screen.h"
 #include "OGL_Render.h"
+#include "../GameWorld/SprintathonZeroGControl.h"
+#include "preferences.h"
+#include "vbl.h"
 
 #include <functional>
 #include <string>
+#include <sstream>
 
 #include "network.h"
 
@@ -53,6 +57,35 @@ Console::Console() : m_active(false), m_carnage_messages_exist(false), m_use_lua
 	m_command_iter = m_prev_commands.end();
 	m_carnage_messages.resize(NUMBER_OF_PROJECTILE_TYPES);
 	register_save_commands();
+    register_command("zerog", [](const std::string& args) {
+        auto report=[](const std::string& message) {
+            if(Console::instance()->suit_terminal_input())
+                SprintathonSuitConsole::state().append(message);
+            else screen_printf("%s",message.c_str());
+        };
+        std::istringstream parser(args);
+        std::string action, extra;parser>>action;
+        for(char& c:action)if(c>='A' && c<='Z')c=char(c-'A'+'a');
+        if(parser>>extra){report("Usage: .zerog [toggle|on|off|kicks|default|status]");return;}
+        if(action.empty())action="toggle";
+        const bool preference=input_preferences && input_preferences->sprintathon_enabled &&
+            input_preferences->sprintathon_zero_g;
+        using namespace SprintathonZeroGControl;
+        if(action!="status"){
+            if(action!="toggle" && action!="on" && action!="off" && action!="kicks" && action!="default"){
+                report("Usage: .zerog [toggle|on|off|kicks|default|status]");return;
+            }
+            if(game_is_networked || game_is_being_replayed()){
+                report("Zero-G commands are available in single-player, outside film playback.");return;
+            }
+            if(action=="default")SprintathonZeroGControl::clear();
+            else if(action=="toggle")setMode(effectiveMode(preference)?0:1);
+            else setMode(action=="off"?0:action=="kicks"?2:1);
+        }
+        const int selected=effectiveMode(preference);
+        report(std::string("Zero G: ")+(selected==2?"no thrust (surface kicks and recoil)":selected==1?"thrust enabled":"off")+
+            (overrideValue()<0?" [preference]":" [level override]"));
+    });
 }
 
 Console *Console::instance() {

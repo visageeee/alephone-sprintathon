@@ -2509,7 +2509,14 @@ void play_object_sound(
 	bool local_sound)
 {
 	struct object_data *object= get_object_data(object_index);
-	SoundManager::instance()->PlaySound(sound_code, local_sound ? 0 : get_object_sound_location(object_index), local_sound ? NONE : object_index, object->sound_pitch);
+	float gain = 1.f;
+	if (GET_OBJECT_OWNER(object) == _object_is_effect)
+	{
+		const short type = get_effect_data(object->permutation)->type;
+		if (type == _effect_rocket_explosion || type == _effect_grenade_explosion)
+			gain = 1.5f;
+	}
+	SoundManager::instance()->PlaySound(sound_code, local_sound ? 0 : get_object_sound_location(object_index), local_sound ? NONE : object_index, object->sound_pitch, false, gain);
 }
 
 void play_polygon_sound(

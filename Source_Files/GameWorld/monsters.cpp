@@ -108,10 +108,17 @@ Jan 12, 2003 (Loren Petrich)
 #include "flood_map.h"
 #include "effects.h"
 #include "monsters.h"
+#include "SprintathonCombatMass.h"
 #include "projectiles.h"
 #include "player.h"
 #include "preferences.h"
 #include "vbl.h"
+static bool sprintathon_mass_enabled() {
+    return input_preferences && input_preferences->sprintathon_enabled &&
+        input_preferences->sprintathon_enhanced_enemy_ai &&
+        !game_is_networked && !game_is_being_replayed();
+}
+
 #include "platforms.h"
 #include "scenery.h"
 #include "SoundManager.h"
@@ -1941,6 +1948,11 @@ void damage_monster(
 	
 		if (MONSTER_IS_DYING(monster) && external_velocity<MINIMUM_DYING_EXTERNAL_VELOCITY) external_velocity= MINIMUM_DYING_EXTERNAL_VELOCITY;
 		external_velocity= (external_velocity*definition->external_velocity_scale)>>FIXED_FRACTIONAL_BITS;
+        if(sprintathon_mass_enabled() && !MONSTER_IS_PLAYER(monster)){
+            const double mass=SprintathonCombatMass::mass(monster->type,definition->radius,definition->height,WORLD_ONE);
+            external_velocity=static_cast<world_distance>(std::lround(std::max(0.0,std::min(double(WORLD_ONE/3),
+                external_velocity*SprintathonCombatMass::damageScale(mass,damage->type==_damage_explosion)))));
+        }
 		if (external_velocity && epicenter)
 		{
 			struct object_data *object= get_object_data(monster->object_index);
@@ -2043,6 +2055,21 @@ void accelerate_monster(
 	{
 		struct object_data *object= get_object_data(monster->object_index);
 		
+        if(sprintathon_mass_enabled()){
+            const angle old_direction=NORMALIZE_ANGLE(object->facing+HALF_CIRCLE);
+            const auto motion=SprintathonCombatMass::combine(
+                monster->external_velocity*double(cosine_table[old_direction])/TRIG_MAGNITUDE,
+                monster->external_velocity*double(sine_table[old_direction])/TRIG_MAGNITUDE,
+                monster->vertical_velocity,
+                velocity*double(cosine_table[direction])/TRIG_MAGNITUDE,
+                velocity*double(sine_table[direction])/TRIG_MAGNITUDE,vertical_velocity,
+                WORLD_ONE/3.0,TERMINAL_VERTICAL_MONSTER_VELOCITY);
+            const int x=int(std::lround(motion.x)),y=int(std::lround(motion.y));
+            monster->external_velocity=static_cast<world_distance>(std::lround(std::hypot(motion.x,motion.y)));
+            if(x || y)object->facing=NORMALIZE_ANGLE(arctangent(x,y)+HALF_CIRCLE);
+            monster->vertical_velocity=static_cast<world_distance>(std::lround(motion.z));
+            return;
+        }
 		object->facing= NORMALIZE_ANGLE(direction+HALF_CIRCLE);
 		monster->external_velocity+= velocity;
 		monster->vertical_velocity+= PIN(monster->vertical_velocity+vertical_velocity, -TERMINAL_VERTICAL_MONSTER_VELOCITY, TERMINAL_VERTICAL_MONSTER_VELOCITY);
@@ -4418,11 +4445,16 @@ bool sprintathon_slide_attack(
 		{
 			const angle push_direction = arctangent(dx, dy);
 
-			accelerate_monster(
-				target_index,
-				slide_hit ? 115 : 85,
-				push_direction,
-				30);
+            world_distance horizontal=30,vertical=slide_hit?115:85;
+            if(sprintathon_mass_enabled() && !MONSTER_IS_PLAYER(target)){
+                const auto* def=get_monster_definition(target->type);
+                const double mass=SprintathonCombatMass::mass(target->type,def->radius,def->height,WORLD_ONE);
+                // Honour scenario-defined knockback resistance, including immunity.
+                const double scale=std::max(0.0,def->external_velocity_scale/double(FIXED_ONE));
+                horizontal=static_cast<world_distance>(std::lround(std::min(WORLD_ONE/3.0,(slide_hit?65.0:80.0)*scale/mass)));
+                vertical=static_cast<world_distance>(std::lround(std::min(WORLD_ONE/6.0,(slide_hit?30.0:55.0)*scale/std::max(1.0,mass))));
+            }
+            accelerate_monster(target_index,vertical,push_direction,horizontal);
 		}
 	}
 

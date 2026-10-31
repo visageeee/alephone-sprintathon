@@ -62,6 +62,7 @@
 #include "SprintathonFlashlightShadow.h"
 #include "SprintathonFlashlightDust.h"
 #include "SprintathonShockwaves.h"
+#include "SprintathonExplosions.h"
 #include "SprintathonVisor.h"
 #include "SprintathonWorldSplit.h"
 #include "SprintathonObjectOps.h"
@@ -4826,6 +4827,7 @@ void RenderRasterize_Shader::render_tree() {
         fog_effect_available && TEST_FLAG(ogl_config.Flags,OGL_Flag_Fog) && !view->under_media_boundary;
     const bool bounce_active=passTest.other() && !view->under_media_boundary && SprintathonFlashlightBounce::enabled();
     const bool shockwaves_active=SprintathonShockwaves::update(passTest.other());
+    const bool explosions_active=SprintathonExplosions::update(passTest.other());
     const bool flashlight_dust_enabled=passTest.overlays() && !view->under_media_boundary && SprintathonFlashlightDust::enabled();
     bool visor_water=false;
     if(view->under_media_boundary && view->origin_polygon_index!=NONE){
@@ -4903,7 +4905,7 @@ void RenderRasterize_Shader::render_tree() {
     gpu_profile.pass(3); startup_frame.pass(4);
 	if ((passTest.other() && ogl_config.AmbientOcclusion) || (passTest.shafts() && ogl_config.LandscapeLightShafts) ||
 		(passTest.other() && ogl_config.AnamorphicLensFlares) ||
-		fog_post_effects_enabled || flashlight_dust_enabled || shockwaves_active || bounce_active || visor_active)
+		fog_post_effects_enabled || flashlight_dust_enabled || shockwaves_active || explosions_active || bounce_active || visor_active)
 		scene_depth = sprintathon_capture_scene_depth(
 			framebuffer_width, framebuffer_height);
     if(bounce_active && scene_depth){
@@ -4924,6 +4926,13 @@ void RenderRasterize_Shader::render_tree() {
 			fogmode);
 	}
     gpu_profile.pass(5); startup_frame.pass(6);
+    // Include visible blast fire in the existing flare detector before fog.
+    if(explosions_active){
+        const GLuint explosion_scene=sprintathon_capture_scene_color(framebuffer_width,framebuffer_height);
+        SprintathonExplosions::draw(view,explosion_scene,scene_depth,framebuffer_width,framebuffer_height,scene_projection,volume_modelview);
+        SprintathonRocketSmoke::draw(view,scene_depth,framebuffer_width,framebuffer_height,scene_projection,volume_modelview);
+    }
+
 	if ((passTest.other() && ogl_config.AnamorphicLensFlares) && ogl_config.AnamorphicLensFlareStrength > 0)
 	{
 		// Detect emitters before deep-haze and drifting-cloud post effects. Fog
@@ -4991,6 +5000,11 @@ void RenderRasterize_Shader::render_tree() {
         replay_surface_commands(kGlow);
 		RenderRasterizerClass::render_tree(kGlow);
                 render_viewer_sprite_layer(kGlow);
+        // Feed only blast emission into the existing low-resolution bloom
+        // buffer. Scene depth still clips the fire; smoke itself never glows.
+        if(explosions_active)
+            SprintathonExplosions::draw(view,scene_depth,scene_depth,
+                framebuffer_width,framebuffer_height,scene_projection,volume_modelview,true);
 		blur->end();
 		RasPtr->swapper->deactivate();
 		gpu_profile.pass(10); startup_frame.pass(11);
@@ -8066,6 +8080,10 @@ static bool sprintathon_skip_world_object_helper(bool mainWorld)
 }
 
 void RenderRasterize_Shader::_render_node_object_helper(render_object_data *object, RenderStep renderStep) {
+    if(SprintathonExplosionEvents::replacesTrail(object->explosion_effect_index) &&
+       SprintathonRocketSmoke::program())return;
+    if(SprintathonExplosions::replacementReady() &&
+        SprintathonExplosionEvents::replaces(object->explosion_effect_index))return;
     SprintathonObjectOps::Root objectOps(renderStep==kDiffuse && !sprintathon_shaft_source.active);
     if(sprintathon_skip_world_object_helper(
         renderStep==kDiffuse && !sprintathon_shaft_source.active))return;
