@@ -669,6 +669,7 @@ void move_projectiles(
 							else
 							{
 								short detonation_effect= definition->detonation_effect;
+                                bool replace_bullet_splash = false;
 								
 								if (monster_obstruction_index!=NONE)
 								{
@@ -693,6 +694,28 @@ void move_projectiles(
 								if (flags&_projectile_hit_media)
 								{
 									get_media_detonation_effect(get_polygon_data(obstruction_index)->media_index, definition->media_detonation_effect, &detonation_effect);
+                                    const bool bullet = !(definition->flags & _melee_projectile) &&
+                                        (projectile->type == _projectile_pistol_bullet ||
+                                         projectile->type == _projectile_rifle_bullet ||
+                                         projectile->type == _projectile_shotgun_bullet ||
+                                         projectile->type == _projectile_trooper_bullet ||
+                                         projectile->type == _projectile_smg_bullet);
+                                    if (definition->area_of_effect > 0 || bullet) {
+                                        const auto* liquid = get_media_data(get_polygon_data(obstruction_index)->media_index);
+                                        if (liquid && liquid->type != _media_lava) {
+                                            world_point3d surface = new_location;
+                                            surface.z = liquid->height;
+                                            const bool rocket = projectile->type == _projectile_rocket || projectile->type == _projectile_juggernaut_rocket;
+                                            const bool small_splash = bullet && definition->area_of_effect <= 0;
+                                            const bool emitted = SprintathonExplosionEvents::emitSplash(surface, obstruction_index, rocket, small_splash,
+                                                float(intended_location.x)-old_location.x,
+                                                float(intended_location.y)-old_location.y,
+                                                float(intended_location.z)-old_location.z);
+                                            // Every admitted enhanced splash replaces its original effect sprite.
+                                            // Scenario bullets may have area damage and use the large splash.
+                                            replace_bullet_splash = emitted;
+                                        }
+                                    }
 									// LP addition: check if projectile will hit media and continue (PMB flag)
 									// set will_go_through for later processing
 									if (film_profile.a1_smg)
@@ -721,7 +744,10 @@ void move_projectiles(
 									if (flags&_projectile_hit_landscape) detonation_effect = NONE;
 								}
 								
-								if (detonation_effect!=NONE) new_effect(&new_location, new_polygon_index, detonation_effect, object->facing);
+								if (detonation_effect!=NONE) {
+                                    const short effect = new_effect(&new_location, new_polygon_index, detonation_effect, object->facing);
+                                    if (replace_bullet_splash) SprintathonExplosionEvents::replaceSplashSprite(effect);
+                                }
 								if(std::getenv("SPRINTATHON_SHOCKWAVE_TRACE"))std::fprintf(stderr,
                                     "Shockwave impact tick=%ld type=%d effect=%d radius=%d position=(%d,%d,%d)\n",
                                     long(dynamic_world->tick_count),int(projectile->type),int(detonation_effect),int(definition->area_of_effect),int(new_location.x),int(new_location.y),int(new_location.z));

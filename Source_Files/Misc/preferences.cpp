@@ -1558,6 +1558,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
     auto* flashlight_bounce_intensity_w = new w_liquid_percent_slider(401,graphics_preferences->flashlight_bounce_intensity);
     auto* flashlight_bounce_saturation_w = new w_liquid_percent_slider(101,graphics_preferences->flashlight_bounce_saturation);
     auto* flashlight_dust_no_vacuum_w = new w_toggle(graphics_preferences->flashlight_dust_no_vacuum);
+    auto* enhanced_splashes_w = new w_toggle(graphics_preferences->enhanced_splashes);
     auto* enhanced_explosions_w = new w_toggle(graphics_preferences->enhanced_explosions);
     auto* shockwaves_w = new w_toggle(graphics_preferences->explosion_shockwaves);
     auto* shockwave_strength_w = new w_liquid_percent_slider(201,graphics_preferences->explosion_shockwave_strength);
@@ -1710,6 +1711,8 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
     flashlight_page->add(flashlight_table,true);
     preferences_checkbox(light_fx,"Enhanced Explosions",enhanced_explosions_w,d);
     preferences_help(light_fx,"Replaces rocket and grenade effects with expanding fire, sparks, smoke trails and a brief flash. Adds GPU work.",d);
+    preferences_checkbox(light_fx,"Enhanced Liquid Splashes",enhanced_splashes_w,d);
+    preferences_help(light_fx,"Water plumes and droplets from explosions and bullets in non-lava liquids. Independent of enhanced explosions; adds GPU work.",d);
     preferences_effect(light_fx,"Explosion Shockwaves",shockwaves_w,shockwave_strength_w,d);
     preferences_help(light_fx,"Expanding air-distortion rings from rocket and grenade explosions. Strength controls distortion; 0% disables it.",d);
     preferences_effect(light_fx,"Visible Sun",visible_sun_w,visible_sun_brightness_w,d);
@@ -2141,6 +2144,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
             flashlight_bounce_saturation_w->set_selection(50);
             flashlight_dust_density_w->set_selection(100);
             enhanced_explosions_w->set_selection(high_or_better);
+            enhanced_splashes_w->set_selection(high_or_better);
             shockwaves_w->set_selection(high_or_better);
             shockwave_strength_w->set_selection(100);
 			// Screenshot lighting defaults for High and Total Sprintathon.
@@ -2326,7 +2330,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 		ogl_effects_w, ogl_aniso_w, sprite_upscaling_w, wall_upscaling_w,
 		model_quality_w, liquid_transparency_w, underwater_distortion_w, liquid_depth_fog_w,
 		liquid_ripples_w, baked_landscape_lighting_w, baked_texture_lights_w, baked_scenery_lights_w, liquid_caustics_w, liquid_specular_w, liquid_sprite_reflections_w,
-		enhanced_explosions_w, shockwaves_w, flashlight_w, flashlight_bounce_w, flashlight_contacts_w, flashlight_dust_w, flashlight_dust_no_vacuum_w, flashlight_flicker_w, flashlight_distance_softness_w, fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
+		enhanced_explosions_w, enhanced_splashes_w, shockwaves_w, flashlight_w, flashlight_bounce_w, flashlight_contacts_w, flashlight_dust_w, flashlight_dust_no_vacuum_w, flashlight_flicker_w, flashlight_distance_softness_w, fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
 		fog_animated_w, fog_depth_w, fog_black_w, fog_darken_w, fog_haze_w, fog_volume_w, ceiling_fog_cones_w, fog_light_coronas_w, fog_projectile_coronas_w, fog_scenery_coronas_w
 	};
 	for (w_select *widget : graphics_select_widgets)
@@ -2461,6 +2465,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
                 gpu+=(shadows?5:2)*(q==0?1:q==1?2:q==2?8:16);
             }
         }
+        if(enhanced_splashes_w->get_selection()){cpu+=1;gpu+=2;} // estimate while splashes are active
         if(enhanced_explosions_w->get_selection()){cpu+=1;gpu+=6;} // estimate while explosions are active
         if(shockwaves_w->get_selection() && shockwave_strength_w->get_selection()>0){cpu+=1;gpu+=4;} // while explosions are active
         if(procedural_space_sky_w->get_selection())gpu+=5; // estimated sky-shader cost, Space levels only
@@ -2648,6 +2653,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
     graphics_preferences->flashlight_bounce_saturation = flashlight_bounce_saturation_w->get_selection();
     graphics_preferences->flashlight_dust_no_vacuum = flashlight_dust_no_vacuum_w->get_selection();
     graphics_preferences->enhanced_explosions = enhanced_explosions_w->get_selection();
+    graphics_preferences->enhanced_splashes = enhanced_splashes_w->get_selection();
     graphics_preferences->explosion_shockwaves = shockwaves_w->get_selection();
     graphics_preferences->explosion_shockwave_strength = shockwave_strength_w->get_selection();
     graphics_preferences->flashlight_dust = flashlight_dust_w->get_selection();
@@ -7102,6 +7108,7 @@ InfoTree graphics_preferences_tree()
     root.put_attr("flashlight_bounce_saturation",graphics_preferences->flashlight_bounce_saturation);
     root.put_attr("flashlight_dust_no_vacuum",graphics_preferences->flashlight_dust_no_vacuum);
     root.put_attr("enhanced_explosions",graphics_preferences->enhanced_explosions);
+    root.put_attr("enhanced_splashes",graphics_preferences->enhanced_splashes);
     root.put_attr("explosion_shockwaves",graphics_preferences->explosion_shockwaves);
     root.put_attr("explosion_shockwave_strength",graphics_preferences->explosion_shockwave_strength);
     root.put_attr("flashlight_dust",graphics_preferences->flashlight_dust);
@@ -7812,6 +7819,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
     preferences->flashlight_offset = 100;
     preferences->flashlight_fog_intensity = 100;
     preferences->enhanced_explosions = true;
+    preferences->enhanced_splashes = true;
     preferences->explosion_shockwaves = true;
     preferences->explosion_shockwave_strength = 100;
     preferences->flashlight_dust = true;
@@ -8429,6 +8437,9 @@ void parse_graphics_preferences(InfoTree root, std::string version)
     // Older preferences inherit the new effect from their selected preset.
     graphics_preferences->enhanced_explosions = graphics_preferences->graphics_preset >= 3;
     root.read_attr("enhanced_explosions",graphics_preferences->enhanced_explosions);
+    // Preserve the previous linked setting when migrating existing preferences.
+    graphics_preferences->enhanced_splashes = graphics_preferences->enhanced_explosions;
+    root.read_attr("enhanced_splashes",graphics_preferences->enhanced_splashes);
     root.read_attr("explosion_shockwaves",graphics_preferences->explosion_shockwaves);
     root.read_attr_bounded<int16>("explosion_shockwave_strength",graphics_preferences->explosion_shockwave_strength,0,200);
     root.read_attr("flashlight_dust",graphics_preferences->flashlight_dust);

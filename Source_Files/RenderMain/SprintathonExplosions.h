@@ -191,8 +191,9 @@ void main(){
 }
 inline bool replacementReady(){return SprintathonExplosionEvents::enabled() && program()!=0;}
 inline bool update(bool allowed){
- SprintathonExplosionEvents::sync();if(!allowed || !SprintathonExplosionEvents::enabled())return false;
+ SprintathonExplosionEvents::sync();if(!allowed)return false;
  const auto now=sprintathon_projectile_render_tick();
+ if(SprintathonRocketSmoke::program() && !SprintathonExplosionEvents::state().splashes.empty())return true;
  if(SprintathonRocketSmoke::program())
   for(const auto& b:SprintathonExplosionEvents::state().trails)
    if(now>=b.start && now-b.start<(b.rocket?60:45))return true;

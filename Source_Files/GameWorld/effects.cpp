@@ -141,6 +141,7 @@ short new_effect(
 						SET_OBJECT_OWNER(object, _object_is_effect);
 						object->permutation = effect_index;
 						object->sound_pitch= definition->sound_pitch;
+                        SprintathonExplosionEvents::observeLiquidEffect(type,effect_index,polygon_index,*origin);
                         if(!effect->delay)SprintathonExplosionEvents::emit(type,effect_index,object_index,polygon_index,*origin);
 						if (effect->delay) SET_OBJECT_INVISIBILITY(object, true);
 						if (definition->flags&_media_effect) SET_OBJECT_IS_MEDIA_EFFECT(object);

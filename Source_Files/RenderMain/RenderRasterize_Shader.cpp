@@ -8080,6 +8080,8 @@ static bool sprintathon_skip_world_object_helper(bool mainWorld)
 }
 
 void RenderRasterize_Shader::_render_node_object_helper(render_object_data *object, RenderStep renderStep) {
+    if(SprintathonExplosionEvents::replacesSplash(object->explosion_effect_index) &&
+       SprintathonRocketSmoke::program())return;
     if(SprintathonExplosionEvents::replacesTrail(object->explosion_effect_index) &&
        SprintathonRocketSmoke::program())return;
     if(SprintathonExplosions::replacementReady() &&
