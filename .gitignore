@@ -53,3 +53,5 @@ flatpak-repo/
 /flatpak-repo-*/
 /releases/
 /sprintathon-*.patch
+
+/Sprintathon-*.flatpak.sha256
