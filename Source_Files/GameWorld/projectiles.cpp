@@ -1,3 +1,5 @@
+// Explicit projectile splash binding v1
+// Directional grenade splashes v1
 #include "../RenderMain/SprintathonTerrainRuntime.h"
 #include "shell_options.h"
 /*
@@ -700,17 +702,19 @@ void move_projectiles(
                                          projectile->type == _projectile_shotgun_bullet ||
                                          projectile->type == _projectile_trooper_bullet ||
                                          projectile->type == _projectile_smg_bullet);
-                                    if (definition->area_of_effect > 0 || bullet) {
+                                    const bool grenade = projectile->type == _projectile_grenade || projectile->type == _projectile_trooper_grenade;
+                                    const bool rocket = projectile->type == _projectile_rocket || projectile->type == _projectile_juggernaut_rocket;
+                                    if (grenade || rocket || definition->area_of_effect > 0 || bullet) {
                                         const auto* liquid = get_media_data(get_polygon_data(obstruction_index)->media_index);
                                         if (liquid && liquid->type != _media_lava) {
                                             world_point3d surface = new_location;
                                             surface.z = liquid->height;
-                                            const bool rocket = projectile->type == _projectile_rocket || projectile->type == _projectile_juggernaut_rocket;
                                             const bool small_splash = bullet && definition->area_of_effect <= 0;
                                             const bool emitted = SprintathonExplosionEvents::emitSplash(surface, obstruction_index, rocket, small_splash,
                                                 float(intended_location.x)-old_location.x,
                                                 float(intended_location.y)-old_location.y,
-                                                float(intended_location.z)-old_location.z);
+                                                float(intended_location.z)-old_location.z,
+                                                grenade);
                                             // Every admitted enhanced splash replaces its original effect sprite.
                                             // Scenario bullets may have area damage and use the large splash.
                                             replace_bullet_splash = emitted;
@@ -745,6 +749,7 @@ void move_projectiles(
 								}
 								
 								if (detonation_effect!=NONE) {
+                                    SprintathonExplosionEvents::ScopedSplashBinding splashBinding(replace_bullet_splash);
                                     const short effect = new_effect(&new_location, new_polygon_index, detonation_effect, object->facing);
                                     if (replace_bullet_splash) SprintathonExplosionEvents::replaceSplashSprite(effect);
                                 }

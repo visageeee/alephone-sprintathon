@@ -1,3 +1,4 @@
+// FX submission optimization v1
 #ifndef SPRINTATHON_EXPLOSIONS_H
 #define SPRINTATHON_EXPLOSIONS_H
 #include "SprintathonFlashlightShadow.h"
@@ -109,6 +110,7 @@ void main(){
    // Fix the turbulence to world axes so it does not turn with the camera.
    vec3 p=vec3(dot(local,worldX),dot(local,worldY),dot(local,worldUp));
    float radial=length(p);
+   if(radial>=1.0)continue; // Outside both fire and smoke envelopes.
    // Differential rotation and a rolling cross-section deform the gas,
    // instead of translating an almost unchanged noise pattern upward.
    vec3 advected=p;
@@ -204,9 +206,10 @@ inline bool update(bool allowed){
 }
 inline void draw(const view_data* camera,GLuint color,GLuint depth,int width,int height,const GLfloat* projection,const GLfloat* modelview,bool emissionOnly=false){
  if(!color || !depth || width<=0 || height<=0 || !replacementReady())return;
- struct Item {float x,y,z,r,age,seed;};std::vector<Item> items;
+ struct Item {float x,y,z,r,age,seed;};static std::vector<Item> items;items.clear();
  const auto now=sprintathon_projectile_render_tick();
  for(const auto& b:SprintathonExplosionEvents::state().blasts){
+  if(now<b.start || now-b.start>=54)continue;
   world_point3d from=camera->origin,to=b.position;
   if(line_is_obstructed(camera->origin_polygon_index,&from,b.polygon,&to))continue;
   const float age=float(now-b.start)/TICKS_PER_SECOND;

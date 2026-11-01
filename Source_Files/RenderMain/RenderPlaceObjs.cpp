@@ -51,6 +51,7 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 #include "cseries.h"
 
 #include "map.h"
+#include "effects.h"
 #include "lightsource.h"
 #include "media.h"
 #include "RenderPlaceObjs.h"
@@ -421,6 +422,14 @@ render_object_data *RenderPlaceObjsClass::build_render_object(
 				
 				render_object->rectangle.ambient_shade= MAX(shape_information->minimum_light_intensity, floor_intensity);
 				render_object->rectangle.ceiling_light= MAX(shape_information->minimum_light_intensity, ceiling_intensity);
+
+                // Bullet ricochet sparks emit their own light.
+                if (GET_OBJECT_OWNER(object) == _object_is_effect &&
+                    get_effect_data(object->permutation)->type == _effect_bullet_ricochet) {
+                    render_object->rectangle.flags |= _SHADELESS_BIT;
+                    render_object->rectangle.ambient_shade = FIXED_ONE;
+                    render_object->rectangle.ceiling_light = FIXED_ONE;
+                }
 
 				if (view->shading_mode==_shading_infravision) render_object->rectangle.flags|= _SHADELESS_BIT;
 				

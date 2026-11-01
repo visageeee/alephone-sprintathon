@@ -1,3 +1,6 @@
+// Explicit projectile splash binding v1
+// Distinct grenade plume v2
+// Directional grenade splashes v1
 #ifndef SPRINTATHON_EXPLOSION_EVENTS_H
 #define SPRINTATHON_EXPLOSION_EVENTS_H
 #include "map.h"
@@ -13,7 +16,7 @@ namespace SprintathonExplosionEvents {
 inline bool enabled(){return graphics_preferences && graphics_preferences->enhanced_explosions;}
 inline bool splashesEnabled(){return graphics_preferences && graphics_preferences->enhanced_splashes;}
 struct Blast {world_point3d position;short polygon,effect,object;uint64_t start;bool rocket;};
-struct Splash {world_point3d position;short polygon;uint64_t start;bool rocket,bullet;float dx,dy,steepness;short effect;};
+struct Splash {world_point3d position;short polygon;uint64_t start;bool rocket,bullet;float dx,dy,steepness;short effect;bool grenade;};
 struct State {std::vector<Blast> blasts,trails;std::vector<Splash> splashes;std::vector<short> splashSprites;long tick=-1;int level=-1;};
 inline State& state(){static State s;return s;}
 inline void sync(){auto& s=state();const auto now=sprintathon_projectile_render_tick();
@@ -28,7 +31,7 @@ inline void sync(){auto& s=state();const auto now=sprintathon_projectile_render_
  }),s.trails.end());
 }
 // Visual-only surface impacts; never consume gameplay RNG or allocate map objects.
-inline bool emitSplash(const world_point3d& surface,short polygon,bool rocket,bool bullet=false,float dx=0,float dy=0,float dz=-1){
+inline bool emitSplash(const world_point3d& surface,short polygon,bool rocket,bool bullet=false,float dx=0,float dy=0,float dz=-1,bool grenade=false){
  if(!splashesEnabled())return false;
  sync();auto& s=state();
  const auto count=std::count_if(s.splashes.begin(),s.splashes.end(),
@@ -41,7 +44,7 @@ inline bool emitSplash(const world_point3d& surface,short polygon,bool rocket,bo
  const float length=std::sqrt(dx*dx+dy*dy+dz*dz);
  const float steepness=length>.001f?std::abs(dz)/length:1.0f;
  if(horizontal>.001f){dx/=horizontal;dy/=horizontal;}else{dx=1;dy=0;}
- s.splashes.push_back({surface,polygon,sprintathon_projectile_render_tick(),rocket,bullet,dx,dy,steepness,-1});
+ s.splashes.push_back({surface,polygon,sprintathon_projectile_render_tick(),rocket,bullet,dx,dy,steepness,-1,grenade});
  return true;
 }
 // Keep the original effect alive for animation sounds and normal cleanup.
@@ -52,9 +55,27 @@ inline bool replacesSplash(short effect){
  const auto& sprites=state().splashSprites;
  return effect>=0 && splashesEnabled() && std::find(sprites.begin(),sprites.end(),effect)!=sprites.end();
 }
+// Bind the effect callback to the splash emitted by this exact impact.
+inline int& pendingSplashIndex(){static int index=-1;return index;}
+struct ScopedSplashBinding {
+ int previous;
+ explicit ScopedSplashBinding(bool emitted):previous(pendingSplashIndex()){
+  pendingSplashIndex()=emitted && !state().splashes.empty()?int(state().splashes.size()-1):-1;
+ }
+ ~ScopedSplashBinding(){pendingSplashIndex()=previous;}
+ ScopedSplashBinding(const ScopedSplashBinding&)=delete;
+ ScopedSplashBinding& operator=(const ScopedSplashBinding&)=delete;
+};
 // Called for every new effect, including delayed and scenario-remapped splashes.
 inline void observeLiquidEffect(short type,short effect,short polygon,const world_point3d& position){
- if(!splashesEnabled() || polygon<0 || effect<0)return;
+ if(!splashesEnabled() || effect<0)return;
+ const int pending=pendingSplashIndex();
+ if(pending>=0 && pending<int(state().splashes.size())){
+  state().splashes[pending].effect=effect;
+  replaceSplashSprite(effect);
+  return;
+ }
+ if(polygon<0)return;
  sync();
  const short media_index=get_polygon_data(polygon)->media_index;
  if(media_index<0)return;

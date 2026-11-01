@@ -1,3 +1,6 @@
+// Distinct grenade plume v2
+// Directional grenade splashes v1
+// FX submission optimization v1
 #ifndef SPRINTATHON_ROCKET_SMOKE_H
 #define SPRINTATHON_ROCKET_SMOKE_H
 #include "SprintathonFlashlightShadow.h"
@@ -13,22 +16,26 @@ uniform vec4 viewProjection;
 uniform vec2 depthProjection;
 varying vec2 uv;
 varying float eyeDepth;
+varying vec4 puff;
+varying vec2 smokeStyle;
+varying float splashMode;
 void main(){
  vec3 p=gl_Vertex.xyz;
  gl_Position=vec4(viewProjection.xy*p.xy-viewProjection.zw*p.z,
      depthProjection.x*p.z+depthProjection.y,-p.z);
  uv=gl_MultiTexCoord0.xy;eyeDepth=-p.z;
+ puff=gl_MultiTexCoord1;smokeStyle=gl_MultiTexCoord2.xy;splashMode=gl_MultiTexCoord2.z;
 }
 )FX";
  const char* fragment=R"FX(#version 120
 #extension GL_ARB_texture_rectangle : enable
 uniform sampler2DRect sceneDepth;
 uniform vec2 depthProjection;
-uniform float splashMode;
-uniform vec2 smokeStyle; // lifetime in seconds, brightness
-uniform vec4 puff; // radius, age, stable seed, opacity
 varying vec2 uv;
 varying float eyeDepth;
+varying vec4 puff;
+varying vec2 smokeStyle;
+varying float splashMode;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
 float noise(vec2 p){
  vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
@@ -44,6 +51,9 @@ void main(){
   float sceneZ=abs(depthProjection.y/(2.0*raw-1.0+depthProjection.x));
   // Surface-aligned foam and spray sheets use their true interpolated depth.
   float intersection=clamp((sceneZ-eyeDepth)/max(puff.x*.08,1.0),0.0,1.0);
+  if(intersection<=0.0 || puff.w<=0.0)discard;
+  if(splashMode>2.5 && radial>=.90)discard;
+  if(splashMode>1.5 && splashMode<2.5 && uv.y<=smokeStyle.x)discard;
   float body=0.0;
   if(splashMode>2.5){
    float r=length(q);
@@ -110,7 +120,7 @@ inline void draw(const view_data* camera,GLuint depth,int width,int height,
     const GLfloat* projection,const GLfloat* modelview){
  if(!depth || width<=0 || height<=0 || (!SprintathonExplosionEvents::enabled() && !SprintathonExplosionEvents::splashesEnabled()))return;
  const auto shader=program();if(!shader)return;
- struct Puff{float x,y,z,r,age,seed,alpha,lifetime,brightness,splash;float right[3],up[3];};std::vector<Puff> puffs;
+ struct Puff{float x,y,z,r,age,seed,alpha,lifetime,brightness,splash;float right[3],up[3];};static std::vector<Puff> puffs;puffs.clear();
  const auto now=sprintathon_projectile_render_tick();
  for(const auto& b:SprintathonExplosionEvents::state().trails){
   if(now<b.start || now-b.start>=(b.rocket?60:45))continue;
@@ -131,7 +141,7 @@ inline void draw(const view_data* camera,GLuint depth,int width,int height,
   const float age=float(now-b.start)/TICKS_PER_SECOND;
   world_point3d from=camera->origin,to=b.position;
   if(line_is_obstructed(camera->origin_polygon_index,&from,b.polygon,&to))continue;
-  const float size=WORLD_ONE*(b.bullet?.60f:(b.rocket?1.60f:1.10f));
+  const float size=WORLD_ONE*(b.grenade?.70f:(b.bullet?.60f:(b.rocket?1.60f:1.10f)));
   const float motionAge=age*(b.bullet?3.6f:1.0f);
   const float fade=std::max(0.0f,1.0f-motionAge/1.8f);
   const float seed=float((b.start*17+unsigned(b.polygon)*13+unsigned(b.position.x)*31+unsigned(b.position.y)*73)%997);
@@ -155,8 +165,8 @@ inline void draw(const view_data* camera,GLuint depth,int width,int height,
     const float norm=std::sqrt(modelview[8]*modelview[8]+modelview[9]*modelview[9]);
     p.right[0]=norm>.001f?modelview[9]/norm*width:width;
     p.right[1]=norm>.001f?-modelview[8]/norm*width:0;
-    for(int r=0;r<3;++r)p.up[r]=(b.bullet?axis[r]:modelview[8+r])*height;
-    if(b.bullet){
+    for(int r=0;r<3;++r)p.up[r]=((b.bullet || b.grenade)?axis[r]:modelview[8+r])*height;
+    if((b.bullet || b.grenade)){
      const float norm=std::sqrt(axis[0]*axis[0]+axis[1]*axis[1]);
      p.right[0]=norm>.001f?axis[1]/norm*width:width;
      p.right[1]=norm>.001f?-axis[0]/norm*width:0;
@@ -220,17 +230,20 @@ inline void draw(const view_data* camera,GLuint depth,int width,int height,
   const float fallTime=std::max(0.0f,motionAge-.18f);
   const float fall=size*2.8f*fallTime*fallTime;
   if(fall<plumeHeight && collapse>0){
-   for(int k=0;k<(b.bullet?1:3);++k){
+   for(int k=0;k<3;++k){
     const float angle=seed+k*2.3999632f;
     const float h=plumeHeight*(1.0f-k*.12f);
     const float w=size*(.56f+age*.28f)*(1.0f-k*.10f);
-    add(std::cos(angle)*size*.08f,std::sin(angle)*size*.08f,h*.5f+size*.015f-fall,
-        w,h*.5f,collapse*.95f,seed+k*31,2.0f,0,0,1);
+    // Grenades retain a full falling plume, tilted along their impact direction.
+    const float lean=b.grenade?1.2f*(1.0f-b.steepness):0.0f;
+    add(std::cos(angle)*size*.08f+b.dx*lean*h*.5f,
+        std::sin(angle)*size*.08f+b.dy*lean*h*.5f,h*.5f+size*.015f-fall,
+        w,h*.5f,collapse*.95f,seed+k*31,2.0f,b.dx*lean,b.dy*lean,1);
    }
   }
   // Droplets share the sheet launch and fall, rather than trailing its rise.
   const float launchVelocity=motionAge<.18f?41.8f*std::exp(-motionAge*22.0f):0.0f;
-  for(int k=0;k<(b.bullet?4:56);++k){
+  for(int k=0;k<(b.grenade?24:56);++k){
    const float jitter=std::sin(seed+float(k)*23.71f)*.5f+.5f;
    const float angle=k*2.3999632f+seed;
    const float speed=.35f+jitter*.85f;
@@ -239,13 +252,30 @@ inline void draw(const view_data* camera,GLuint depth,int width,int height,
    const float z=size*1.9f*rise*heightScale-fall;
    if(z<0)continue;
    const float reach=size*(.035f+motionAge*speed);
-   const float radius=size*(b.bullet?.028f:(.004f+jitter*.006f));
-   add(std::cos(angle)*reach,std::sin(angle)*reach,z+radius,
-       radius,radius*(1.0f+std::min(4.0f,.35f*std::sqrt(speed*speed+vz*vz))),fade,seed+k*11,1.0f,
-       std::cos(angle)*speed,std::sin(angle)*speed,vz);
+   const float radius=size*(.004f+jitter*.006f);
+   const float bias=b.grenade?1.5f*(1.0f-b.steepness):0.0f;
+   const float spread=b.grenade?.65f:1.0f;
+   const float dx=std::cos(angle)*spread+b.dx*bias;
+   const float dy=std::sin(angle)*spread+b.dy*bias;
+   const float horizontalSpeed2=speed*speed*(dx*dx+dy*dy);
+   add(dx*reach,dy*reach,z+radius,
+       radius,radius*(1.0f+std::min(4.0f,.35f*std::sqrt(horizontalSpeed2+vz*vz))),fade,seed+k*11,1.0f,
+       dx*speed,dy*speed,vz);
   }
-  const float ringRadius=size*(.24f+motionAge*1.35f);
-  add(0,0,size*.018f,ringRadius,ringRadius,fade*1.5f,seed,3.0f,0,0,0);
+  // One fixed lifecycle for grenade and generic non-rocket explosion rings.
+  // Continue expanding while fading; never hold a fully expanded ring.
+  if(!b.rocket){
+   const float ringTime=age/.75f;
+   if(ringTime<1.0f){
+    const float ringSize=WORLD_ONE*.70f;
+    const float ringRadius=ringSize*(.24f+.95f*ringTime);
+    add(0,0,ringSize*.018f,ringRadius,ringRadius,
+        1.5f*(1.0f-ringTime),seed,3.0f,0,0,0);
+   }
+  }else{
+   const float ringRadius=size*(.24f+motionAge*1.35f);
+   add(0,0,size*.018f,ringRadius,ringRadius,fade*1.5f,seed,3.0f,0,0,0);
+  }
  }
  if(puffs.empty())return;
  std::sort(puffs.begin(),puffs.end(),[](const Puff& a,const Puff& b){return a.z<b.z;});
@@ -262,20 +292,19 @@ inline void draw(const view_data* camera,GLuint depth,int width,int height,
  glUniform1iARB(loc("sceneDepth"),0);
  glUniform2fARB(loc("depthProjection"),projection[10],projection[14]);
  glUniform4fARB(loc("viewProjection"),projection[0],projection[5],projection[8],projection[9]);
- const GLint puffLocation=loc("puff"),styleLocation=loc("smokeStyle"),splashLocation=loc("splashMode");
+ // Keep depth-sorted order while submitting all smoke and splash quads together.
+ glBegin(GL_QUADS);
  for(const auto& p:puffs){
-  glUniform1fARB(splashLocation,p.splash);
-  glUniform2fARB(styleLocation,p.lifetime,p.brightness);
-  glUniform4fARB(puffLocation,p.r,p.age,p.seed,p.alpha);
-  glBegin(GL_QUADS);
+  glMultiTexCoord4fARB(GL_TEXTURE1_ARB,p.r,p.age,p.seed,p.alpha);
+  glMultiTexCoord4fARB(GL_TEXTURE2_ARB,p.lifetime,p.brightness,p.splash,0);
   const float corners[4][2]={{-1,-1},{1,-1},{1,1},{-1,1}};
   for(const auto& c:corners){
    glTexCoord2f((c[0]+1)*.5f,(c[1]+1)*.5f);
    glVertex3f(p.x+c[0]*p.right[0]+c[1]*p.up[0],
        p.y+c[0]*p.right[1]+c[1]*p.up[1],p.z+c[0]*p.right[2]+c[1]*p.up[2]);
   }
-  glEnd();
  }
+ glEnd();
  glUseProgramObjectARB(previous);glPopAttrib();glActiveTextureARB(active);
 }
 }
