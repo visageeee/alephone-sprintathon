@@ -192,6 +192,7 @@ public:
 		U_LiquidEdge7,
         U_FlashlightParams, U_FlashlightProjection, U_FlashlightDepth, U_FlashlightViewport,
         U_FlashlightShadowMap, U_FlashlightShadowMatrix, U_FlashlightShadowParams,
+        U_GeneratedNormalStrength,
 		NUMBER_OF_UNIFORM_LOCATIONS
 	};
 

@@ -75,6 +75,8 @@ struct TextureState
 	bool IsUsed;						// Is the texture set being used?
 	bool IsGlowing;						// Does the texture have a glow map?
 	bool IsBumped;						// Does the texture have a bump map?
+    GLuint GeneratedNormalID = 0;
+    size_t GeneratedNormalBytes = 0;
 	bool IsUpscaled;					// Keep costly upscaled textures resident for this level
 	bool SkyColorValid;
 	float SkyAmbient[3], SkySun[3];
@@ -301,6 +303,11 @@ public:
     // Read already-allocated wall material IDs without synchronous GL queries.
     bool GetOpaqueBatchMaterial(GLuint& normal, GLuint& bump, bool& swapped) const;
 	void RenderNormal();
+    // Prepare CPU normals only during the explicit level-loading pass.
+    bool PrepareGeneratedNormalCache();
+    bool HasGeneratedNormal() const { return TxtrStatePtr && TxtrStatePtr->GeneratedNormalID != 0; }
+    GLuint GeneratedNormalTexture() const { return HasGeneratedNormal() ? TxtrStatePtr->GeneratedNormalID : 0; }
+    void BindGeneratedNormal() const { glBindTexture(GL_TEXTURE_2D, GeneratedNormalTexture()); }
 	// Call this one after RenderNormal()
 	void RenderGlowing();
 	void RenderBump();

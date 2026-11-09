@@ -1811,6 +1811,8 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	static const char *wall_upscaling_labels[] = {"Off", "2xSaI", "2xSaI + Bilinear", nullptr};
 	w_select *wall_upscaling_w = new w_select(
 		graphics_preferences->OGL_Configure.WallTextureUpscaling, wall_upscaling_labels);
+    w_toggle* generated_normals_w = new w_toggle(graphics_preferences->generated_normal_maps);
+    w_percentage_slider* generated_normal_strength_w = new w_percentage_slider(101, graphics_preferences->generated_normal_strength);
 	w_select *texture_quality_w[OGL_NUMBER_OF_TEXTURE_TYPES];
 	w_select *texture_near_w[OGL_NUMBER_OF_TEXTURE_TYPES];
 	w_select *texture_far_w[OGL_NUMBER_OF_TEXTURE_TYPES] = {};
@@ -1841,6 +1843,11 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	textures->dual_add(wall_upscaling_w->label("Wall Texture Upscaling"), d);
 	textures->dual_add(wall_upscaling_w, d);
     preferences_help(textures,"Smooths low-resolution wall textures.",d);
+    preferences_checkbox(textures,"Generated normal maps",generated_normals_w,d);
+    preferences_help(textures,"Adds subtle relief to textures without authored normal maps.",d);
+    preferences_help(textures,"Most visible under moving lights; texture colours may be interpreted as bumps.",d);
+    textures->dual_add(generated_normal_strength_w->label("Generated normal strength"),d);
+    textures->dual_add(generated_normal_strength_w,d);
 	for (int i = 0; i < OGL_NUMBER_OF_TEXTURE_TYPES; ++i)
 	{
 		texture_near_w[i] = new w_select(
@@ -1981,6 +1988,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 
     auto update_light_controls = [&]() {
         world_texture_arrays_w->set_enabled(batched_world_rendering_w->get_selection());
+        generated_normal_strength_w->set_enabled(generated_normals_w->get_selection());
         lens_flares_enabled_w->set_selection(ogl_anamorphic_lens_flares_w->get_selection()!=0);
         if(ogl_anamorphic_lens_flares_w->get_selection())last_lens_flare_style=ogl_anamorphic_lens_flares_w->get_selection();
         all_dynamic_lights_w->set_selection(projectile_lights_per_pixel_w->get_selection() ||
@@ -2329,7 +2337,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 		ogl_refractive_invisibility_w, ogl_sprite_shadows_w,
 		ogl_ambient_occlusion_w, ogl_landscape_light_shafts_w,
 		ogl_anamorphic_lens_flares_w, ogl_vsync_w, ogl_npot_w,
-		ogl_effects_w, ogl_aniso_w, sprite_upscaling_w, wall_upscaling_w,
+		ogl_effects_w, ogl_aniso_w, sprite_upscaling_w, wall_upscaling_w, generated_normals_w,
 		model_quality_w, liquid_transparency_w, underwater_distortion_w, liquid_depth_fog_w,
 		liquid_ripples_w, baked_landscape_lighting_w, baked_texture_lights_w, baked_scenery_lights_w, liquid_caustics_w, liquid_specular_w, liquid_sprite_reflections_w,
 		enhanced_explosions_w, enhanced_splashes_w, shockwaves_w, flashlight_w, flashlight_bounce_w, flashlight_contacts_w, flashlight_dust_w, flashlight_dust_no_vacuum_w, flashlight_flicker_w, flashlight_distance_softness_w, fog_enabled_w, fog_force_w, fog_media_w, fog_weather_w,
@@ -2345,6 +2353,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 			texture_far_w[i]->set_selection_changed_callback(custom_select_changed);
 	}
 	w_slider *graphics_slider_widgets[] = {
+        generated_normal_strength_w,
         visor_strength_w,
         liquid_depth_fog_density_w,
         visible_sun_brightness_w,
@@ -2603,6 +2612,9 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 		display_mode.width = width;
 		display_mode.height = height;
 	}
+    const bool generated_normals_changed = graphics_preferences->generated_normal_maps != bool(generated_normals_w->get_selection());
+    graphics_preferences->generated_normal_maps = generated_normals_w->get_selection();
+    graphics_preferences->generated_normal_strength = generated_normal_strength_w->get_selection();
 	graphics_preferences->sprintathon_render_scale =
 		render_scale_values[graphics_render_scale_w->get_selection()];
 	graphics_preferences->sprintathon_nearest_upscale = graphics_upscale_w->get_selection();
@@ -3083,6 +3095,10 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
         return;
     }
 	write_preferences();
+    if (generated_normals_changed && in_game) {
+        extern void ReloadViewContext();
+        ReloadViewContext();
+    }
 	if (embedded_graphics_changed)
 	{
 		change_screen_mode(&graphics_preferences->screen_mode, true);
@@ -7184,6 +7200,8 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("sprintathon_volume_fog", graphics_preferences->sprintathon_volume_fog);
     root.put_attr("sprintathon_volume_fog_quality",graphics_preferences->sprintathon_volume_fog_quality);
 	root.put_attr("sprintathon_render_scale", graphics_preferences->sprintathon_render_scale);
+    root.put_attr("generated_normal_maps", graphics_preferences->generated_normal_maps);
+    root.put_attr("generated_normal_strength", graphics_preferences->generated_normal_strength);
 	root.put_attr("sprintathon_nearest_upscale", graphics_preferences->sprintathon_nearest_upscale);
 	root.put_attr("sprintathon_tracker_compass", graphics_preferences->sprintathon_tracker_compass);
 	root.put_attr("scmode_hud_scale", graphics_preferences->screen_mode.hud_scale_level);
@@ -7891,6 +7909,8 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->sprintathon_volume_fog = false;
     preferences->sprintathon_volume_fog_quality=0;
 	preferences->sprintathon_render_scale = 100;
+    preferences->generated_normal_maps = false;
+    preferences->generated_normal_strength = 25;
 	preferences->sprintathon_nearest_upscale = false;
 	preferences->sprintathon_tracker_compass = false;
 	preferences->screen_mode.hud_scale_level = 0;
@@ -8502,6 +8522,8 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_volume_fog", graphics_preferences->sprintathon_volume_fog);
     root.read_attr_bounded<int16>("sprintathon_volume_fog_quality",graphics_preferences->sprintathon_volume_fog_quality,0,3);
 	root.read_attr("sprintathon_render_scale", graphics_preferences->sprintathon_render_scale);
+    root.read_attr("generated_normal_maps", graphics_preferences->generated_normal_maps);
+    root.read_attr_bounded<int16>("generated_normal_strength", graphics_preferences->generated_normal_strength, 0, 100);
 	graphics_preferences->sprintathon_render_scale = std::max(50, std::min(100, graphics_preferences->sprintathon_render_scale));
 	root.read_attr("sprintathon_nearest_upscale", graphics_preferences->sprintathon_nearest_upscale);
 	root.read_attr("sprintathon_tracker_compass", graphics_preferences->sprintathon_tracker_compass);

@@ -5569,7 +5569,7 @@ static void sprintathon_set_liquid_flow(Shader* shader,short mediaIndex,float x,
     shader->setVector4(Shader::U_LiquidFlow,float(flow.u),float(flow.v),0,0);
 }
 
-std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const shape_descriptor& Texture, short transferMode, float pulsate, float wobble, float intensity, float offset, RenderStep renderStep, int16 mediaType) {
+std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const shape_descriptor& Texture, short transferMode, float pulsate, float wobble, float intensity, float offset, RenderStep renderStep, int16 mediaType, bool allowGenerated) {
     SprintathonSetupScope setupTime(SprintathonSetupTrace::WallTexture);
     SprintathonShaftCpuScope trace_time(sprintathon_shaft_trace.wall_ms);
     if(sprintathon_shaft_trace.enabled) {
@@ -5722,6 +5722,27 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupWallTexture(const s
 		TMgr->ShapeDesc = UNONE;
 		return TMgr;
 	}
+    const bool generatedNormal = graphics_preferences->generated_normal_maps && allowGenerated &&
+        mediaType==NONE && renderStep==kDiffuse && !current_player->infravision_duration &&
+        TMgr->TextureType==OGL_Txtr_Wall && !TMgr->IsBlended() && TMgr->HasGeneratedNormal() &&
+        (s==Shader::get(Shader::S_Wall) || s==Shader::get(Shader::S_Bump));
+    if(graphics_preferences->generated_normal_maps && generatedNormal) {
+        static bool reported=false, litReported=false;
+        const bool lit=SprintathonFlashlight::frame().params[0]>0.0f;
+        if(!reported || (lit && !litReported)) {
+            logAnomaly("Generated normals draw: original renderer, mapped surface, strength %d%%, flashlight %s",
+                int(graphics_preferences->generated_normal_strength),lit?"on":"off");
+            reported=true;
+            if(lit)litReported=true;
+        }
+    }
+    if(generatedNormal) {
+        glActiveTextureARB(GL_TEXTURE1_ARB);
+        TMgr->BindGeneratedNormal();
+        glActiveTextureARB(GL_TEXTURE0_ARB);
+    }
+    s->setFloat(Shader::U_GeneratedNormalStrength, generatedNormal ?
+        graphics_preferences->generated_normal_strength/25.0f : -1.0f);
 
     // Reset for every material, including non-emitting textures and media.
     float emitterShade = 1.0f;
@@ -5977,6 +5998,10 @@ bool setupGlow(struct view_data *view, Owner& TMgr, float wobble, float intensit
 		}
 
 		TMgr->RenderGlowing();
+        if(TMgr->TextureType==OGL_Txtr_Wall && TMgr->HasGeneratedNormal() &&
+           TEST_FLAG(Get_OGL_ConfigureData().Flags,OGL_Flag_BumpMap)) {
+            glActiveTextureARB(GL_TEXTURE1_ARB);FlatBumpTexture();glActiveTextureARB(GL_TEXTURE0_ARB);
+        }
 		setupBlendFunc(TMgr->GlowBlend());
 		glEnable(GL_TEXTURE_2D);
 		glEnable(GL_BLEND);
@@ -5984,6 +6009,7 @@ bool setupGlow(struct view_data *view, Owner& TMgr, float wobble, float intensit
 		glAlphaFunc(GL_GREATER, 0.001);
 
 		s->enable();
+        s->setFloat(Shader::U_GeneratedNormalStrength,-1.0f);
         s->setFloat(Shader::U_TextureBakeEnabled, 0);
         s->setFloat(Shader::U_SkyBakeEnabled, 0);
 		s->setVector4(Shader::U_LiquidSpecLight,0,0,1,0);
@@ -6605,6 +6631,12 @@ static bool side(clipping_window_data* window,vertical_surface_data* surface,boo
     if(h<=surface->h0 || surface->length<=0){++fallback;return false;}
     auto* m=material(AnimTxtr_Translate(surface->texture_definition->texture));
     if(!m){++skippedMaterials;return false;}
+    if(m->generated) {
+        const auto* owner=surface->blend_polygon;
+        if(!owner || surface->blend_edge<0 || surface->blend_edge>=owner->vertex_count) { ++fallback; return false; }
+        const short sideIndex=owner->side_indexes[surface->blend_edge];
+        if(sideIndex==NONE || surface->texture_definition==&get_side_data(sideIndex)->transparent_texture) { ++fallback; return false; }
+    }
     float scale=WORLD_ONE*m->manager->TileRatio();
     if(surface->transfer_mode==_xfer_2x)scale*=2;
     if(surface->transfer_mode==_xfer_4x)scale*=4;
@@ -6800,7 +6832,7 @@ void RenderRasterize_Shader::render_node_floor_or_ceiling(clipping_window_data *
     }
     SprintathonResolvedWallScope resolvedScope(resolvedMaterial);
 	auto TMgr = setupWallTexture(texture, surface->transfer_mode, wobble * 4.0,
-		0, intensity, offset, renderStep, surface->media_type);
+		0, intensity, offset, renderStep, surface->media_type, !surface->is_media);
     if (!graphics_preferences->projectile_lights_per_pixel)
         glColor4f(std::min(1.0f, intensity + projectile_rgb[0]),
               std::min(1.0f, intensity + projectile_rgb[1]),
@@ -7439,7 +7471,12 @@ void RenderRasterize_Shader::render_node_side(clipping_window_data *window, vert
         }
     }
     SprintathonResolvedWallScope resolvedScope(resolvedMaterial);
-	auto TMgr = setupWallTexture(texture, surface->transfer_mode, pulsate, wobble, intensity, offset, renderStep);
+    bool allowGenerated=false;
+    if(surface->blend_polygon && surface->blend_edge>=0 && surface->blend_edge<surface->blend_polygon->vertex_count) {
+        const short sideIndex=surface->blend_polygon->side_indexes[surface->blend_edge];
+        if(sideIndex!=NONE) allowGenerated=surface->texture_definition!=&get_side_data(sideIndex)->transparent_texture;
+    }
+	auto TMgr = setupWallTexture(texture, surface->transfer_mode, pulsate, wobble, intensity, offset, renderStep, NONE, allowGenerated);
     if (!graphics_preferences->projectile_lights_per_pixel)
         glColor4f(std::min(1.0f, intensity + projectile_rgb[0]),
               std::min(1.0f, intensity + projectile_rgb[1]),
@@ -7760,6 +7797,7 @@ bool RenderModel(rectangle_definition& RenderRectangle, short Collection,
         s->setFloat(Shader::U_Pulsate,0.0f);
         canGlow=false;
     }
+    s->setFloat(Shader::U_GeneratedNormalStrength,-1.0f);
 	if (renderStep == kGlow) {
 		s->setFloat(Shader::U_BloomScale, SkinPtr->BloomScale);
 		s->setFloat(Shader::U_BloomShift, SkinPtr->BloomShift);

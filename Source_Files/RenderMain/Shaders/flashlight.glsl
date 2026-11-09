@@ -105,4 +105,67 @@ vec3 sprintathonFlashlight(float surfaceAngle) {
         (1.0+pow(distance/max(flashlightParams.z*0.25,1.0),2.0));
     return vec3(1.0,0.96,0.88)*flashlightParams.x*profile*attenuation*incidence*sprintathonFlashlightVisibility(eye);
 }
+// Perturb the lighting incidence only. The visibility and shadow calculation
+// in sprintathonFlashlight continues to use the geometric surface position.
+vec3 sprintathonFlashlightMapped(float surfaceAngle, vec2 uv, vec3 encodedNormal, float detailWeight,
+                                 float contrast, float specularWeight, out vec3 specular) {
+    specular = vec3(0.0);
+    vec3 lighting = sprintathonFlashlight(surfaceAngle);
+    if (flashlightParams.x <= 0.0 || surfaceAngle <= 0.0) return lighting;
+    vec3 eye = flashlightEye;
+    // Compute derivatives before per-fragment branches.
+    vec3 dx = dFdx(eye), dy = dFdy(eye);
+    vec2 ux = dFdx(uv), uy = dFdy(uv);
+    // The engine's fallback bump texture is exactly (128,128,255).
+    if (detailWeight <= 0.0 || (abs(encodedNormal.r-128.0/255.0)<0.0001 &&
+        abs(encodedNormal.g-128.0/255.0)<0.0001 && encodedNormal.b>0.9999)) return lighting;
+    float determinant = ux.x*uy.y-ux.y*uy.x;
+    vec3 geometric = cross(dx,dy);
+    float geometricLength = length(geometric);
+    // A fixed determinant cutoff incorrectly rejects valid UV bases when a
+    // texture covers only a small fraction of the screen. Test the angle
+    // between derivatives instead; the result is independent of UV scale.
+    float uvScale = length(ux)*length(uy);
+    if (uvScale<1.0e-20 || abs(determinant)<uvScale*0.00001 || geometricLength<0.000001) return lighting;
+    geometric /= geometricLength;
+    vec3 tangent = (dx*uy.y-dy*ux.y)/determinant;
+    vec3 bitangent = (dy*ux.x-dx*uy.x)/determinant;
+    tangent -= geometric*dot(geometric,tangent);
+    float tangentLength=length(tangent), bitangentLength=length(bitangent);
+    if(tangentLength<0.000001 || bitangentLength<0.000001) return lighting;
+    tangent /= tangentLength;
+    float handedness = dot(cross(geometric,tangent),bitangent)<0.0 ? -1.0 : 1.0;
+    bitangent = cross(geometric,tangent)*handedness;
+    vec3 sampled = encodedNormal*2.0-1.0;
+    vec3 mapped = tangent*sampled.x+bitangent*sampled.y+geometric*sampled.z;
+    float mappedLength = length(mapped);
+    if(mappedLength<0.000001) return lighting;
+    vec3 direction = normalize(sprintathonFlashlightOrigin()-eye);
+    float oldIncidence = abs(dot(geometric,direction));
+    float newIncidence = abs(dot(mapped/mappedLength,direction));
+    float oldFactor = mix(1.0,0.2+0.8*oldIncidence,surfaceAngle);
+    float newFactor = mix(1.0,0.2+0.8*newIncidence,surfaceAngle);
+    // Generated height-from-colour normals can have a subtle effect with a
+    // near-camera flashlight. Expand only their directional response, leaving
+    // geometric visibility, shadow bias and other lights unchanged. Authored
+    // normals pass contrast=1 and retain their original response.
+    float mappedRatio = newFactor/oldFactor;
+    float response = max(0.0,1.0+(mappedRatio-1.0)*contrast);
+    if(specularWeight>0.0) {
+        // A broad, restrained dielectric highlight, in eye space. Reuse the
+        // flashlight radiance and geometric shadowing already computed above;
+        // perturbed normals never alter shadow visibility or shadow bias.
+        vec3 normal = mapped/mappedLength;
+        normal *= dot(geometric,direction)<0.0 ? -1.0 : 1.0;
+        vec3 viewDirection = normalize(-eye);
+        vec3 halfSum = direction+viewDirection;
+        float halfLength=length(halfSum);
+        if(halfLength>0.000001) {
+            float facing=max(dot(normal,direction),0.0);
+            float highlight=pow(max(dot(normal,halfSum/halfLength),0.0),20.0)*facing;
+            specular=lighting*(specularWeight*highlight*clamp(detailWeight,0.0,1.0)/oldFactor);
+        }
+    }
+    return mix(lighting,lighting*response,clamp(detailWeight,0.0,1.0));
+}
 )GLSL"

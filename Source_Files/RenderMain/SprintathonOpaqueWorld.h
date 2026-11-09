@@ -1,8 +1,10 @@
 #ifndef SPRINTATHON_OPAQUE_WORLD_H
 #define SPRINTATHON_OPAQUE_WORLD_H
 #include "SprintathonFlashlight.h"
+#include "SprintathonGeneratedNormals.h"
 #include "SprintathonBatchLightTiming.h"
 #include "SprintathonFlashlightBounce.h"
+#include "Logging.h"
 #include <array>
 #include <algorithm>
 #include <tuple>
@@ -35,10 +37,12 @@ inline bool requested(){
 using ArrayImage3D=void(SPRINTATHON_WORLD_CALL *)(GLenum,GLint,GLint,GLsizei,GLsizei,GLsizei,GLint,GLenum,GLenum,const void*);
 using ArraySubImage3D=void(SPRINTATHON_WORLD_CALL *)(GLenum,GLint,GLint,GLint,GLint,GLsizei,GLsizei,GLsizei,GLenum,GLenum,const void*);
 using MultiDraw=void(SPRINTATHON_WORLD_CALL *)(GLenum,const GLint*,const GLsizei*,GLsizei);
+using CopyImage=void(SPRINTATHON_WORLD_CALL *)(GLuint,GLenum,GLint,GLint,GLint,GLint,GLuint,GLenum,GLint,GLint,GLint,GLint,GLsizei,GLsizei,GLsizei);
 #undef SPRINTATHON_WORLD_CALL
 static MultiDraw multiDraw=nullptr;
 static ArrayImage3D arrayImage3D=nullptr;
 static ArraySubImage3D arraySubImage3D=nullptr;
+static CopyImage copyImage=nullptr;
 static constexpr GLenum arrayTarget=0x8C1A,arrayBinding=0x8C1D,arrayMaxLayers=0x88FF;
 static bool arrayMode=false;
 static GLint arrayLocation=-1;
@@ -68,6 +72,7 @@ inline bool rotateParameters(){static const bool on=[](){
 }();return on;}
 static GLhandleARB program=0;
 static bool active=false,earlyClip=false;
+static bool normalDrawReported=false, normalLitDrawReported=false;
 inline bool earlyClipRequested(){static const bool on=[](){
     const char* v=std::getenv("SPRINTATHON_OPAQUE_EARLY_CLIP");return !v || v[0]!='0';
 }();return on;}
@@ -100,12 +105,12 @@ struct InstanceKey {
 };
 struct Entry{GLint first=0;GLsizei count=0;unsigned row=0;};
 struct Group{std::vector<GLint> first;std::vector<GLsizei> count;};
-struct Material{std::shared_ptr<TextureManager> manager;GLuint texture=0,bump=0;bool swapped=false;GLuint arrayTexture=0,arrayBump=0;int layer=0;};
+struct Material{std::shared_ptr<TextureManager> manager;GLuint texture=0,bump=0;bool swapped=false,generated=false;GLuint arrayTexture=0,arrayBump=0;int layer=0;};
 static std::map<InstanceKey,Entry> geometry;
 static std::map<GeometryKey,unsigned> instances;
 struct GroupKey {
-    GLuint texture=0,bump=0;int page=-1;bool arrays=false;
-    bool operator<(const GroupKey& b)const{return arrays!=b.arrays?arrays<b.arrays:(texture!=b.texture?texture<b.texture:(bump!=b.bump?bump<b.bump:page<b.page));}
+    GLuint texture=0,bump=0;int page=-1;bool arrays=false,generated=false;
+    bool operator<(const GroupKey& b)const{return arrays!=b.arrays?arrays<b.arrays:(generated!=b.generated?generated<b.generated:(texture!=b.texture?texture<b.texture:(bump!=b.bump?bump<b.bump:page<b.page)));}
 };
 static std::map<GroupKey,Group> groups;
 static std::map<shape_descriptor,Material> materials;
@@ -190,7 +195,7 @@ static std::map<std::array<float,11>,std::array<float,32>> dynamicPreparation;
 static unsigned surfacePrepHits=0,surfacePrepMisses=0,dynamicPrepHits=0,dynamicPrepMisses=0;
 inline void prepareSurface(SurfaceRecord&,const polygon_data*,const horizontal_surface_data*,bool,
     const vertical_surface_data*,const view_data*);
-static GLint bumpLocation=-1,detailLocation=-1;
+static GLint bumpLocation=-1,detailLocation=-1,generatedNormalLocation=-1;
 
 // Atlas construction is loading-only. Missing/invalid entries fall back to the
 // normal surface path; never read textures back or repack during gameplay.
@@ -470,6 +475,10 @@ uniform sampler2DArray bumpArray;
 uniform float useArrays;
 #endif
 uniform float useBump;
+uniform float generatedNormalStrength;
+// Opt-in loading-time diagnostic: 1 shows sampled normals; 2 shows the
+// flashlight contribution gained or lost to those normals.
+uniform float generatedNormalDebug;
 uniform float distantDetail;
 uniform sampler2DRect surfaceData;
 uniform sampler2DRect dynamicLights;
@@ -611,7 +620,23 @@ void main(){
     float detail=distantDetail>.5?1.0-smoothstep(16384.0,32768.0,distance):1.0;
     detail*=surfaceDetailWeight;
     vec2 texUV=uv;float diffuse=1.0;
-    if(useBump>.5 && surfaceDetailWeight>0.0){
+    vec3 flashlightNormal=vec3(128.0/255.0,128.0/255.0,1.0);
+    if(generatedNormalDebug>0.5 && useBump>.5 && generatedNormalStrength>0.0) {
+        vec3 sampled=surfaceBump(texUV).rgb;
+        if(generatedNormalDebug<1.5) {
+            // Amplify only for display; mid-grey means a flat tangent axis.
+            gl_FragColor=vec4(clamp(vec3(0.5)+(sampled-vec3(0.5,0.5,1.0))*3.0,0.0,1.0),1.0);
+        } else {
+            sampled.xy=vec2(0.5)+(sampled.xy-vec2(0.5))*generatedNormalStrength;
+            vec3 flatLight=sprintathonFlashlight(1.0);
+            vec3 unusedSpecular;
+            vec3 mappedLight=sprintathonFlashlightMapped(1.0,texUV,sampled,detail,1.0+0.75*generatedNormalStrength,0.0,unusedSpecular);
+            vec3 delta=(mappedLight-flatLight)*12.0;
+            gl_FragColor=vec4(clamp(vec3(max(-delta.r,0.0),max(delta.r,0.0),0.0),0.0,1.0),1.0);
+        }
+        return;
+    }
+    if(useBump>.5 && surfaceDetailWeight>0.0 && generatedNormalStrength<0.0){
         vec3 viewv=normalize(tangentView);
         if(detail>0.0)for(int i=0;i<4;++i){
             float height=(surfaceBump(texUV).a*.010-.005)*detail;
@@ -619,9 +644,14 @@ void main(){
         }
         diffuse=.5+abs(viewv.z)*.5;
         if(detail>0.0){
-            vec3 normal=(surfaceBump(texUV).rgb-.5)*2.0;
+            flashlightNormal=surfaceBump(texUV).rgb;
+            vec3 normal=(flashlightNormal-.5)*2.0;
             diffuse=mix(diffuse,.5+abs(dot(normal,viewv))*.5,detail);
         }
+    }
+    if(useBump>.5 && generatedNormalStrength>0.0 && flashlightParams.x>0.0 && detail>0.0) {
+        flashlightNormal=surfaceBump(texUV).rgb;
+        flashlightNormal.xy=vec2(0.5)+(flashlightNormal.xy-vec2(0.5))*generatedNormalStrength;
     }
     diffuse=mix(1.0,diffuse,surfaceDetailWeight);
     vec4 texel=surfaceColor(texUV);
@@ -661,8 +691,11 @@ void main(){
         vec3 beforeLights=intensity;surfaceLights(intensity,caustic);
         intensity=mix(beforeLights,intensity,surfaceDetailWeight);caustic*=surfaceDetailWeight;
     }
-    intensity=clamp(intensity+sprintathonFlashlight(1.0)+sprintathonBounceLight(dynamicWorld),0.0,1.0);
-    vec3 color=clamp(texel.rgb*intensity,0.0,1.0);
+    vec3 flashlightSpecular=vec3(0.0);
+    vec3 flashlight = useBump>.5 && generatedNormalStrength!=0.0 ?
+        sprintathonFlashlightMapped(1.0,texUV,flashlightNormal,detail,generatedNormalStrength>0.0?1.0+0.75*generatedNormalStrength:1.0,0.10*clamp(generatedNormalStrength,0.0,1.0),flashlightSpecular) : sprintathonFlashlight(1.0);
+    intensity=clamp(intensity+flashlight+sprintathonBounceLight(dynamicWorld),0.0,1.0);
+    vec3 color=clamp(texel.rgb*intensity+flashlightSpecular,0.0,1.0);
     caustic*=dot(texel.rgb,vec3(.299,.587,.114));
     vec3 headroom=(vec3(1.0)-color)/max(caustic,vec3(.00001));
     color+=caustic*clamp(min(headroom.r,min(headroom.g,headroom.b)),0.0,1.0);
@@ -692,6 +725,7 @@ inline GLhandleARB compile(GLenum type,const char* source){
     return shader;
 }
 inline void preload(){
+    normalDrawReported=false; normalLitDrawReported=false;
     retainedSurfaces.clear();retainedState.clear();retainedNextState.clear();retainedPolygonState.clear();retainedPolygonVersions.clear();
     clearAtlas();
     if(context==SDL_GL_GetCurrentContext()){
@@ -726,6 +760,11 @@ inline void preload(){
     GLint fragmentUnits=0;glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS,&fragmentUnits);
     arrayImage3D=reinterpret_cast<ArrayImage3D>(SDL_GL_GetProcAddress("glTexImage3D"));
     arraySubImage3D=reinterpret_cast<ArraySubImage3D>(SDL_GL_GetProcAddress("glTexSubImage3D"));
+    copyImage=nullptr;
+    if(major>4 || (major==4 && minor>=3) || SDL_GL_ExtensionSupported("GL_ARB_copy_image")) {
+        copyImage=reinterpret_cast<CopyImage>(SDL_GL_GetProcAddress("glCopyImageSubData"));
+        if(!copyImage)copyImage=reinterpret_cast<CopyImage>(SDL_GL_GetProcAddress("glCopyImageSubDataARB"));
+    }
     arrayMode=arraysRequested && major>=3 && units>=9 && fragmentUnits>=9 && arrayImage3D && arraySubImage3D;
     if(arraysRequested && !arrayMode)std::fprintf(stderr,"World texture arrays unsupported; using ordinary materials\n");
     if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,"Opaque world portal clipping: %s\n",
@@ -754,6 +793,11 @@ inline void preload(){
         glUniform1iARB(glGetUniformLocationARB(program,"bumpArray"),8);
     }
     bumpLocation=glGetUniformLocationARB(program,"useBump");
+    generatedNormalLocation=glGetUniformLocationARB(program,"generatedNormalStrength");
+    const char* normalDebug=std::getenv("SPRINTATHON_NORMAL_DEBUG");
+    const int normalDebugMode=normalDebug && (normalDebug[0]=='1' || normalDebug[0]=='2') ? normalDebug[0]-'0' : 0;
+    glUniform1fARB(glGetUniformLocationARB(program,"generatedNormalDebug"),float(normalDebugMode));
+    if(normalDebugMode)logAnomaly("Generated normal visual diagnostic mode %d is active",normalDebugMode);
     detailLocation=glGetUniformLocationARB(program,"distantDetail");
     glUniform1iARB(glGetUniformLocationARB(program,"surfaceData"),6);
     glUniform1iARB(glGetUniformLocationARB(program,"dynamicLights"),7);
@@ -805,6 +849,13 @@ inline void preload(){
     }
     preloadAtlas();
     if(arrayMode)preloadArrays();
+    if(graphics_preferences->generated_normal_maps) {
+        size_t mapped=0;
+        for(const auto& binding:arrayMaterials)
+            if(SprintathonGeneratedNormals::staging().count(binding.second.sourceBump))++mapped;
+        logAnomaly("Generated normals batch: strength uniform %s, %zu staged textures, %zu array materials",
+            generatedNormalLocation>=0 ? "available" : "missing",SprintathonGeneratedNormals::staging().size(),mapped);
+    }
     if (std::getenv("SPRINTATHON_DIAGNOSTICS") && std::getenv("SPRINTATHON_DIAGNOSTICS")[0]=='1') std::fprintf(stderr,"Opaque world prototype: baked + dynamic lighting; persistent 8 MiB geometry, %u surface rows; shader compiled during loading; parameter textures %u\n",rowLimit,parameterCount);
 }
 inline bool begin(){
@@ -834,9 +885,11 @@ inline Material* material(shape_descriptor shape){
         if(t.Texture && t.Setup() && !t.IsBlended() && !t.IsGlowMapped()){
             t.RenderNormal();
             const bool bump=TEST_FLAG(Get_OGL_ConfigureData().Flags,OGL_Flag_BumpMap);
-            if(bump){glActiveTextureARB(GL_TEXTURE1_ARB);t.RenderBump();glActiveTextureARB(GL_TEXTURE0_ARB);}
+            m.generated=graphics_preferences->generated_normal_maps && t.HasGeneratedNormal();
+            if(bump && !m.generated){glActiveTextureARB(GL_TEXTURE1_ARB);t.RenderBump();glActiveTextureARB(GL_TEXTURE0_ARB);}
             if(!t.GetOpaqueBatchMaterial(m.texture,m.bump,m.swapped))m.texture=0;
-            if(!bump)m.bump=0;
+            if(m.generated)m.bump=t.GeneratedNormalTexture();
+            else if(!bump)m.bump=0;
         }
     }
     auto binding=arrayMaterials.find(shape);
@@ -897,7 +950,17 @@ inline bool arraySpec(GLuint texture,ArraySpec& spec,bool anisotropy){
     }
     return true;
 }
-inline GLuint makeArray(const ArraySpec& spec,const std::vector<GLuint>& sources,bool anisotropy){
+inline GLuint makeArray(const ArraySpec& spec,const std::vector<GLuint>& sources,bool anisotropy,bool generated=false,bool noReadback=false){
+    if(noReadback) {
+        if(!copyImage)return 0;
+        for(GLuint source:sources) {
+            GLint sourceFormat=0;glBindTexture(GL_TEXTURE_2D,source);
+            glGetTexLevelParameteriv(GL_TEXTURE_2D,0,GL_TEXTURE_INTERNAL_FORMAT,&sourceFormat);
+            if(sourceFormat!=spec.format)return 0;
+        }
+    }
+    // Do not attribute errors left by earlier rendering setup to this array.
+    for(int i=0;i<16 && glGetError()!=GL_NO_ERROR;++i) {}
     GLuint texture=0;glGenTextures(1,&texture);glBindTexture(arrayTarget,texture);
     glTexParameteri(arrayTarget,GL_TEXTURE_MIN_FILTER,spec.minFilter);
     glTexParameteri(arrayTarget,GL_TEXTURE_MAG_FILTER,spec.magFilter);
@@ -913,10 +976,30 @@ inline GLuint makeArray(const ArraySpec& spec,const std::vector<GLuint>& sources
         glGetTexLevelParameteriv(arrayTarget,level,GL_TEXTURE_WIDTH,&actualWidth);
         glGetTexLevelParameteriv(arrayTarget,level,GL_TEXTURE_DEPTH,&actualDepth);
         if(actualWidth!=w || actualDepth!=int(sources.size())){glDeleteTextures(1,&texture);return 0;}
-        std::vector<unsigned char> pixels(size_t(w)*h*4);
+        std::vector<unsigned char> pixels;
+        if(!generated && !noReadback)pixels.resize(size_t(w)*h*4);
         for(size_t layer=0;layer<sources.size();++layer){
-            glBindTexture(GL_TEXTURE_2D,sources[layer]);glGetTexImage(GL_TEXTURE_2D,level,GL_RGBA,GL_UNSIGNED_BYTE,pixels.data());
-            arraySubImage3D(arrayTarget,level,0,0,GLint(layer),w,h,1,GL_RGBA,GL_UNSIGNED_BYTE,pixels.data());
+            if(noReadback) {
+                copyImage(sources[layer],GL_TEXTURE_2D,level,0,0,0,texture,arrayTarget,level,0,0,GLint(layer),w,h,1);
+                if(glGetError()!=GL_NO_ERROR){glDeleteTextures(1,&texture);return 0;}
+                continue;
+            }
+            const unsigned char* data=pixels.data();
+            if(generated) {
+                const auto found=SprintathonGeneratedNormals::staging().find(sources[layer]);
+                if(found==SprintathonGeneratedNormals::staging().end() || size_t(level)>=found->second.levels.size()) {glDeleteTextures(1,&texture);return 0;}
+                const auto& mip=found->second.levels[level];
+                if(mip.width!=w || mip.height!=h) {glDeleteTextures(1,&texture);return 0;}
+                data=found->second.pixels.data()+mip.offset;
+            } else {
+                glBindTexture(GL_TEXTURE_2D,sources[layer]);glGetTexImage(GL_TEXTURE_2D,level,GL_RGBA,GL_UNSIGNED_BYTE,pixels.data());
+            }
+            arraySubImage3D(arrayTarget,level,0,0,GLint(layer),w,h,1,GL_RGBA,GL_UNSIGNED_BYTE,data);
+            const GLenum uploadError=glGetError();
+            if(uploadError!=GL_NO_ERROR){
+                logWarning("World texture array upload failed (GL error 0x%x, mip %d); using 2D textures",unsigned(uploadError),level);
+                glDeleteTextures(1,&texture);return 0;
+            }
         }
         w=std::max(1,w/2);h=std::max(1,h/2);
     }
@@ -943,14 +1026,14 @@ inline void preloadArrays(){
             const auto* side=get_side_data(p->side_indexes[e]);add(side->primary_texture.texture);add(side->secondary_texture.texture);
         }
     }
-    struct Candidate {shape_descriptor shape;GLuint color,bump;ArraySpec colorSpec,bumpSpec;};
+    struct Candidate {shape_descriptor shape;GLuint color,bump;bool generated=false;ArraySpec colorSpec,bumpSpec;};
     std::map<std::vector<float>,std::vector<Candidate>> compatible;
     const bool aniso=SDL_GL_ExtensionSupported("GL_EXT_texture_filter_anisotropic");
     for(const auto& shape:shapes){
         auto* m=material(shape.first);if(!m)continue;
-        Candidate c;c.shape=shape.first;c.color=m->texture;c.bump=m->bump;
+        Candidate c;c.shape=shape.first;c.color=m->texture;c.bump=m->bump;c.generated=m->generated;
         if(!arraySpec(c.color,c.colorSpec,aniso) || (c.bump && !arraySpec(c.bump,c.bumpSpec,aniso)))continue;
-        auto key=c.colorSpec.key();key.push_back(c.bump?1.0f:0.0f);
+        auto key=c.colorSpec.key();key.push_back(c.bump?1.0f:0.0f);key.push_back(c.generated?1.0f:0.0f);
         if(c.bump){auto normalKey=c.bumpSpec.key();key.insert(key.end(),normalKey.begin(),normalKey.end());}
         compatible[key].push_back(c);
     }
@@ -962,8 +1045,8 @@ inline void preloadArrays(){
             if(count<2)break;
             std::vector<GLuint> colors,normals;
             for(size_t i=0;i<count;++i){colors.push_back(candidates[start+i].color);normals.push_back(candidates[start+i].bump);}
-            const GLuint color=makeArray(candidates[start].colorSpec,colors,aniso);
-            const GLuint normal=color && normals[0]?makeArray(candidates[start].bumpSpec,normals,aniso):0;
+            const GLuint color=makeArray(candidates[start].colorSpec,colors,aniso,false,candidates[start].generated);
+            const GLuint normal=color && normals[0]?makeArray(candidates[start].bumpSpec,normals,aniso,candidates[start].generated):0;
             if(!color || (normals[0] && !normal)){
                 if(color)glDeleteTextures(1,&color);
                 std::fprintf(stderr,"World texture arrays: allocation failed; retaining ordinary materials\n");break;
@@ -1053,12 +1136,26 @@ inline bool submit(Material& m,int count,const float* vertices,const float* uv,f
     firstUploadRow=std::min(firstUploadRow,e.row);
     uploadRows=std::max(uploadRows,e.row+1);
     if(m.arrayTexture)++arrayQueued;
-    auto& g=groups[GroupKey{m.arrayTexture?m.arrayTexture:m.texture,m.arrayTexture?m.arrayBump:m.bump,bake?bake->page:-1,m.arrayTexture!=0}];g.first.push_back(e.first);g.count.push_back(e.count);++queued;return true;
+    auto& g=groups[GroupKey{m.arrayTexture?m.arrayTexture:m.texture,m.arrayTexture?m.arrayBump:m.bump,bake?bake->page:-1,m.arrayTexture!=0,m.generated}];g.first.push_back(e.first);g.count.push_back(e.count);++queued;return true;
 }
 inline void finish(void (*traceDraw)()=nullptr){
     if(!active)return;
     const auto submitStart=std::chrono::steady_clock::now();
     if(queued){
+        if(graphics_preferences->generated_normal_maps &&
+           (!normalDrawReported || (!normalLitDrawReported && SprintathonFlashlight::frame().params[0]>0.0f))) {
+            unsigned mapped=0, mappedArrays=0;
+            for(const auto& pair:groups) if(pair.first.generated && pair.first.bump) {
+                mapped+=unsigned(pair.second.first.size());
+                if(pair.first.arrays)mappedArrays+=unsigned(pair.second.first.size());
+            }
+            const bool lit=SprintathonFlashlight::frame().params[0]>0.0f;
+            logAnomaly("Generated normals draw: batch, %u/%u surfaces mapped (%u array), strength %d%%, uniform %s, flashlight %s",
+                mapped,queued,mappedArrays,int(graphics_preferences->generated_normal_strength),
+                generatedNormalLocation>=0?"available":"missing",lit?"on":"off");
+            normalDrawReported=true;
+            if(lit)normalLitDrawReported=true;
+        }
         glPushAttrib(GL_ENABLE_BIT|GL_COLOR_BUFFER_BIT|GL_TEXTURE_BIT|GL_CURRENT_BIT|GL_DEPTH_BUFFER_BIT);
         glPushClientAttrib(GL_CLIENT_VERTEX_ARRAY_BIT);
         GLint oldActive=0;glGetIntegerv(GL_ACTIVE_TEXTURE_ARB,&oldActive);
@@ -1109,6 +1206,7 @@ inline void finish(void (*traceDraw)()=nullptr){
             }
             glActiveTextureARB(GL_TEXTURE1_ARB);glBindTexture(GL_TEXTURE_2D,pair.first.arrays?0:pair.first.bump);
             glUniform1fARB(bumpLocation,pair.first.bump?1.0f:0.0f);
+            glUniform1fARB(generatedNormalLocation,pair.first.generated ? graphics_preferences->generated_normal_strength/25.0f : -1.0f);
             glActiveTextureARB(GL_TEXTURE0_ARB);
             glBindTexture(GL_TEXTURE_2D,pair.first.arrays?0:pair.first.texture);const auto& g=pair.second;
             if(pair.first.arrays)++arrayDrawCalls;

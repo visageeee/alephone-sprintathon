@@ -3,6 +3,8 @@
 R"(
 
 uniform sampler2D texture0;
+uniform sampler2D texture1;
+uniform float generatedNormalStrength;
 uniform sampler2D textureBakeMap;
 uniform float textureBakeEnabled;
 #if defined(SPRINTATHON_VERTEX_LIGHTS) && !defined(SPRINTATHON_NO_DYNAMIC_LIGHTS)
@@ -1193,7 +1195,14 @@ R"(        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPositio
     }
     sprintathonApplySurfaceLights(intensity);
     sprintathonApplyAllScenery(intensity);
-	intensity = clamp(intensity * rippleHighlight + sprintathonFlashlight(1.0), glow, 1.0);
+    vec3 flashlight;
+    vec3 flashlightSpecular=vec3(0.0);
+    if(generatedNormalStrength>0.0 && flashlightParams.x>0.0) {
+        vec3 generated=texture2D(texture1,texCoords.xy).rgb;
+        generated.xy=vec2(0.5)+(generated.xy-vec2(0.5))*generatedNormalStrength;
+        flashlight=sprintathonFlashlightMapped(1.0,texCoords.xy,generated,surfaceDetail,1.0+0.75*generatedNormalStrength,0.10*clamp(generatedNormalStrength,0.0,1.0),flashlightSpecular);
+    } else flashlight=sprintathonFlashlight(1.0);
+	intensity = clamp(intensity * rippleHighlight + flashlight, glow, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)
 #endif
@@ -1218,7 +1227,7 @@ R"(        vec3 lightDelta = (sprintathonWorldPosition - sprintathonLightPositio
 	}
     // An unpowered fixture still reflects received light. Its animated
     // self-illumination is controlled by the glow floor, not a cap on lighting.
-	vec3 shadedColor = clamp(color.rgb * intensity, 0.0, 1.0);
+	vec3 shadedColor = clamp(color.rgb * intensity + flashlightSpecular, 0.0, 1.0);
 	float fogFactor = getFogFactor(viewDistance);
 	if (mediaFogEnabled > 0.0) {
 		float heightFog = clamp((mediaFogTop - worldZ) / mediaFogSoftness, 0.0, 1.0);

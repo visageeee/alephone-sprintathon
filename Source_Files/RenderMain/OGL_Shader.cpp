@@ -214,7 +214,8 @@ const char* Shader::_uniform_names[NUMBER_OF_UNIFORM_LOCATIONS] =
 	"liquidEdge5",
 	"liquidEdge6",
 	"liquidEdge7",
-    "flashlightParams", "flashlightProjection", "flashlightDepth", "flashlightViewport", "flashlightShadowMap", "flashlightShadowMatrix", "flashlightShadowParams"
+    "flashlightParams", "flashlightProjection", "flashlightDepth", "flashlightViewport", "flashlightShadowMap", "flashlightShadowMatrix", "flashlightShadowParams",
+    "generatedNormalStrength"
 };
 
 const char* Shader::_shader_names[NUMBER_OF_SHADER_TYPES] = 

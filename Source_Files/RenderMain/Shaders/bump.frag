@@ -39,6 +39,7 @@ uniform vec4 liquidFogColor;
 R"(
 uniform vec4 skyBakeU, skyBakeV;
 uniform sampler2D texture1;
+uniform float generatedNormalStrength;
 uniform sampler2DRect texture2;
 uniform float pulsate;
 uniform float wobble;
@@ -922,7 +923,7 @@ if(liquidSpecLight.w>0.0 && (rippleStrength>0.001 || refractionStrength>0.001)) 
 	vec3 viewv = normalize(viewDir);
     // Far surfaces skip the four height-map samples entirely. Scale the
     // displacement to zero first, including bloom and shaft-source alpha.
-    if (surfaceDetail > 0.0) {
+    if (surfaceDetail > 0.0 && generatedNormalStrength < 0.0) {
         float scale = 0.010;
         float bias = -0.005;
         for (int i = 0; i < 4; ++i) {
@@ -940,10 +941,15 @@ if(liquidSpecLight.w>0.0 && (rippleStrength>0.001 || refractionStrength>0.001)) 
 		return;
 	}
     float diffuse = 0.5 + abs(viewv.z) * 0.5;
-    if (surfaceDetail > 0.0) {
-        vec3 norm = (texture2D(texture1, texCoords.xy).rgb - 0.5) * 2.0;
+    vec3 flashlightNormal = vec3(128.0/255.0,128.0/255.0,1.0);
+    if (surfaceDetail > 0.0 && generatedNormalStrength < 0.0) {
+        flashlightNormal = texture2D(texture1, texCoords.xy).rgb;
+        vec3 norm = (flashlightNormal - 0.5) * 2.0;
         float detailedDiffuse = 0.5 + abs(dot(norm, viewv)) * 0.5;
         diffuse = mix(diffuse, detailedDiffuse, surfaceDetail);
+    } else if (surfaceDetail > 0.0 && generatedNormalStrength > 0.0 && flashlightParams.x > 0.0) {
+        flashlightNormal = texture2D(texture1,texCoords.xy).rgb;
+        flashlightNormal.xy = vec2(0.5)+(flashlightNormal.xy-vec2(0.5))*generatedNormalStrength;
     }
 	if (glow > 0.001) {
 		diffuse = 1.0;
@@ -1239,7 +1245,10 @@ if (sprintathonLightColor.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
     }
     sprintathonApplySurfaceLights(intensity);
     sprintathonApplyAllScenery(intensity);
-	intensity = clamp(intensity * rippleHighlight + sprintathonFlashlight(1.0), glow, 1.0);
+    vec3 flashlightSpecular=vec3(0.0);
+    vec3 flashlight = generatedNormalStrength == 0.0 ? sprintathonFlashlight(1.0) :
+        sprintathonFlashlightMapped(1.0,texCoords.xy,flashlightNormal,surfaceDetail,generatedNormalStrength>0.0?1.0+0.75*generatedNormalStrength:1.0,0.10*clamp(generatedNormalStrength,0.0,1.0),flashlightSpecular);
+	intensity = clamp(intensity * rippleHighlight + flashlight, glow, 1.0);
 #ifdef GAMMA_CORRECTED_BLENDING
 	intensity = intensity * intensity; // approximation of pow(intensity, 2.2)
 #endif
@@ -1248,7 +1257,7 @@ if (sprintathonLightColor.a > 0.0 && any(lessThan(intensity, vec3(1.0)))) {
     intensity=clamp(intensity+sprintathonBounceLight(sprintathonWorldPosition),0.0,1.0);
     // An unpowered fixture still reflects received light. Its animated
     // self-illumination is controlled by the glow floor, not a cap on lighting.
-	vec3 shadedColor = clamp(color.rgb * intensity, 0.0, 1.0);
+	vec3 shadedColor = clamp(color.rgb * intensity + flashlightSpecular, 0.0, 1.0);
 	float fogFactor = getFogFactor(viewDistance);
 	if (mediaFogEnabled > 0.0) {
 		float heightFog = clamp((mediaFogTop - worldZ) / mediaFogSoftness, 0.0, 1.0);

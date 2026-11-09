@@ -156,6 +156,7 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 #include "OGL_Render.h"
 #include "SprintathonTimeOfDay.h"
 #include "OGL_Textures.h"
+#include "SprintathonGeneratedNormals.h"
 #include <chrono>
 #include <cstdio>
 extern void OGL_ReportUpscaleCache(bool reset);
@@ -184,6 +185,10 @@ static bool _OGL_IsActive = false;
 // Reads off of the current map;
 // call it to avoid lazy loading of textures
 typedef std::pair<shape_descriptor,int16> TextureWithTransferMode;
+// Exclude descriptors shared with media and transparent surfaces.
+static std::set<shape_descriptor> generated_normal_excluded;
+static bool generated_normal_preparation = false;
+
 static void PreloadTextures();
 static void PreloadWallTexture(const TextureWithTransferMode& inTexture);
 static int CountSpriteTexturesToPreload();
@@ -687,6 +692,7 @@ bool OGL_StartRun(bool retain_sprites)
 	OGL_SetProgressMessage("preparing post-processing buffers");
     sprintathon_preload_post_buffers();
     sprintathon_preload_opaque_geometry();
+    SprintathonGeneratedNormals::releaseStaging();
     OGL_SetProgressRange(98,99,0);
 	OGL_SetProgressMessage("warming shader draws");
     Shader::warmupDraws();
@@ -723,6 +729,10 @@ bool OGL_StopRun()
 void PreloadTextures()
 {
     sprintathon_reset_landscape_cubes();
+    const char* prepareNormals=std::getenv("SPRINTATHON_PREPARE_GENERATED_NORMALS");
+    generated_normal_preparation=graphics_preferences->generated_normal_maps || (prepareNormals && prepareNormals[0]=='1');
+    generated_normal_excluded.clear();
+    if(generated_normal_preparation) SprintathonGeneratedNormals::preparationStats()=SprintathonGeneratedNormals::PreparationStats{};
 	typedef std::set<TextureWithTransferMode> TextureWithTransferModeSet;
 
 	TextureWithTransferModeSet theSetOfTexturesUsed;
@@ -731,6 +741,11 @@ void PreloadTextures()
 	for (int n=0; n<dynamic_world->polygon_count; n++)
 	{
 		polygon_data *polygon = map_polygons + n;
+        if (generated_normal_preparation && polygon->media_index != NONE) {
+            const media_data* media=get_media_data(polygon->media_index);
+            if(media && media->texture!=UNONE)
+                generated_normal_excluded.insert(AnimTxtr_Translate(media->texture));
+        }
 		
 		theSetOfTexturesUsed.insert(TextureWithTransferMode(polygon->floor_texture,polygon->floor_transfer_mode));
 		theSetOfTexturesUsed.insert(TextureWithTransferMode(polygon->ceiling_texture,polygon->ceiling_transfer_mode));
@@ -740,6 +755,8 @@ void PreloadTextures()
 			short side_index= polygon->side_indexes[i];
 			if (side_index == NONE) continue;
 			side_data *side= get_side_data(side_index);
+            if (generated_normal_preparation && side->transparent_texture.texture!=UNONE)
+                generated_normal_excluded.insert(AnimTxtr_Translate(side->transparent_texture.texture));
 			switch (side->type)
 			{
 			case _full_side:
@@ -762,6 +779,15 @@ void PreloadTextures()
 
 	// ZZZ: now we have a fairly (we hope) minimal set of texture stuffs, let's load them in.
 	for_each(theSetOfTexturesUsed.begin(), theSetOfTexturesUsed.end(), PreloadWallTexture);
+    if(generated_normal_preparation) {
+        const auto& stats=SprintathonGeneratedNormals::preparationStats();
+        std::fprintf(stderr,"Generated normals: %u uploaded, %u reused, %u authored, %u ineligible, %u unavailable, %u upload errors (%u pre-existing GL errors); %zu excluded descriptors\n",
+            stats.uploaded,stats.existing,stats.authored,stats.ineligible,stats.unavailable,stats.gpuErrors,stats.priorGpuErrors,generated_normal_excluded.size());
+        logAnomaly("Generated normals: %u uploaded, %u reused, %u authored, %u ineligible, %u unavailable, %u upload errors (%u pre-existing GL errors); %zu excluded descriptors",
+            stats.uploaded,stats.existing,stats.authored,stats.ineligible,stats.unavailable,stats.gpuErrors,stats.priorGpuErrors,generated_normal_excluded.size());
+        if(!stats.uploaded && !stats.existing && graphics_preferences->generated_normal_maps)
+            logWarning("Generated normals enabled but no generated textures were uploaded; inspect preparation counts.");
+    }
 
 	// Native sprites were historically left to load lazily. With CPU-side
 	// upscaling enabled, that creates a visible hitch the first time each frame
@@ -948,6 +974,9 @@ void PreloadWallTexture(const TextureWithTransferMode& inTexture)
             if(TMgr.GetSkyColor(ambient,sunlight)) sprintathon_preload_sky_palette(ambient,sunlight);
         }
 		TMgr.RenderNormal();
+        if (generated_normal_preparation && !IsLandscape && TMgr_TransferMode==_textured_transfer &&
+            !generated_normal_excluded.count(TMgr.ShapeDesc))
+            TMgr.PrepareGeneratedNormalCache();
         const char* cubeOption=std::getenv("SPRINTATHON_LANDSCAPE_CUBEMAP");
         const bool cubeRequested=cubeOption && (cubeOption[0]=='0' || cubeOption[0]=='1')
             ? cubeOption[0]=='1' : graphics_preferences->landscape_cubemaps;

@@ -89,6 +89,7 @@ May 3, 2003 (Br'fin (Jeremy Parsons))
 
 #include "preferences.h"
 #include "SprintathonUpscaleCache.h"
+#include "SprintathonGeneratedNormals.h"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_endian.h>
@@ -408,6 +409,8 @@ struct InfravisionData IVDataList[NUMBER_OF_COLLECTIONS] =
 static bool InfravisionActive = false;
 
 static std::list<TextureState*> sgActiveTextureStates;
+static size_t generated_normal_gpu_bytes = 0;
+static const size_t generated_normal_gpu_budget = size_t(128)*1024*1024;
 
 
 // Allocate some textures and indicate whether an allocation had happened.
@@ -448,6 +451,11 @@ void TextureState::Reset()
             ++SprintathonStartupTiming::get().evictions;
 		glDeleteTextures(NUMBER_OF_TEXTURES,IDs);
 	}
+    if (GeneratedNormalID) {
+        glDeleteTextures(1,&GeneratedNormalID);
+        generated_normal_gpu_bytes -= std::min(generated_normal_gpu_bytes,GeneratedNormalBytes);
+        GeneratedNormalID=0; GeneratedNormalBytes=0;
+    }
 	IsUsed = IsGlowing = IsBumped = IsUpscaled = TexGened[Normal] = TexGened[Glowing] = TexGened[Bump] = false;
 	IDUsage[Normal] = IDUsage[Glowing] = IDUsage[Bump] = unusedFrames = 0;
 	BrightEmission = false;
@@ -474,7 +482,7 @@ void TextureState::FrameTick() {
 		assert(TextureType != NONE);
 		// 2xSaI conversion is deliberately done during level loading. Do not
 		// discard that work a few seconds later and recreate the first-use hitch.
-		if (IsUpscaled) return;
+		if (IsUpscaled || GeneratedNormalID) return;
 		switch (TextureType) {
 		case OGL_Txtr_Wall:
 				if (unusedFrames > 300) Reset(); // at least 10 seconds till wall textures are released
@@ -1912,6 +1920,63 @@ bool TextureManager::GetOpaqueBatchMaterial(GLuint& normal, GLuint& bump, bool& 
     bump = TxtrStatePtr->IsBumped ? TxtrStatePtr->IDs[TextureState::Bump] : flatBumpTextureID;
     swapped = TxtrOptsPtr->Substitution;
     return normal != 0;
+}
+
+bool TextureManager::PrepareGeneratedNormalCache()
+{
+    // Authored offset images always win. Only opaque world textures are
+    // candidates, and the caller further excludes media and transparent sides.
+    auto& stats=SprintathonGeneratedNormals::preparationStats();
+    ++stats.candidates;
+    if (TextureType != OGL_Txtr_Wall || !TxtrStatePtr || !TxtrOptsPtr) { ++stats.ineligible; return false; }
+    if (TxtrStatePtr->IsBumped) { ++stats.authored; return false; }
+    if (IsBlended()) { ++stats.ineligible; return false; }
+    if (TxtrStatePtr->GeneratedNormalID) { ++stats.existing; return true; }
+    if (!NormalImage.get() || !NormalImage.get()->IsPresent()) { ++stats.unavailable; return false; }
+    try {
+        auto image=SprintathonGeneratedNormals::prepare(*NormalImage.get());
+        if(image.levels.empty() || image.pixels.empty() || image.pixels.size()>generated_normal_gpu_budget-generated_normal_gpu_bytes) { ++stats.unavailable; return false; }
+        GLint maxSize=0; glGetIntegerv(GL_MAX_TEXTURE_SIZE,&maxSize);
+        if(image.levels[0].width>maxSize || image.levels[0].height>maxSize) { ++stats.unavailable; return false; }
+        // Attribute errors to this upload, not to unrelated preceding GL work.
+        for(int i=0;i<16;++i) { if(glGetError()==GL_NO_ERROR)break; ++stats.priorGpuErrors; }
+        GLuint id=0; glGenTextures(1,&id); if(!id) { ++stats.gpuErrors; return false; }
+        glBindTexture(GL_TEXTURE_2D,id);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_REPEAT);
+        const auto& options=TxtrTypeInfoList[TextureType];
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,options.NearFilter);
+        glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,options.FarFilter);
+        glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
+        glPixelStorei(GL_UNPACK_ALIGNMENT,1);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
+        glPixelStorei(GL_UNPACK_SKIP_ROWS,0);
+        glPixelStorei(GL_UNPACK_SKIP_PIXELS,0);
+        for(size_t i=0;i<image.levels.size();++i) {
+            const auto& level=image.levels[i];
+            glTexImage2D(GL_TEXTURE_2D,GLint(i),GL_RGBA8,level.width,level.height,0,GL_RGBA,GL_UNSIGNED_BYTE,image.pixels.data()+level.offset);
+        }
+        glPopClientAttrib();
+        if(glGetError()!=GL_NO_ERROR) {
+            ++stats.gpuErrors;
+            glDeleteTextures(1,&id);
+            glBindTexture(GL_TEXTURE_2D,TxtrStatePtr->IDs[TextureState::Normal]);
+            return false;
+        }
+        ++stats.uploaded;
+        TxtrStatePtr->GeneratedNormalID=id;
+        TxtrStatePtr->GeneratedNormalBytes=image.pixels.size();
+        generated_normal_gpu_bytes+=image.pixels.size();
+        glBindTexture(GL_TEXTURE_2D,TxtrStatePtr->IDs[TextureState::Normal]);
+        // If staging allocation fails, keep the ordinary 2D texture; array
+        // preparation will fall back without affecting rendering.
+        try { SprintathonGeneratedNormals::staging().emplace(id,std::move(image)); }
+        catch (const std::bad_alloc&) {}
+        return true;
+    } catch (const std::bad_alloc&) {
+        ++stats.unavailable;
+        return false; // Cache preparation must not prevent the level loading.
+    }
 }
 
 void TextureManager::RenderNormal()
