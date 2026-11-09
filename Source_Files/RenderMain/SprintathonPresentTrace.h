@@ -1,6 +1,7 @@
 #ifndef SPRINTATHON_PRESENT_TRACE_H
 #define SPRINTATHON_PRESENT_TRACE_H
 #include "OGL_Headers.h"
+#include "../SprintathonAutoBenchmark.h"
 #ifdef HAVE_OPENGL
 #include <SDL2/SDL.h>
 #include <chrono>
@@ -39,14 +40,14 @@ inline void updateBenchmark(int level){
     b.phase=phase;
 }
 inline bool suppressHUD(){return benchmarkRequested() && benchmark().started && benchmark().phase==2;}
-struct Sample { GLuint q[6]={}; bool pending=false,valid=true; unsigned next=0; int phase=0; Clock::time_point cpu[6]; };
+struct Sample { GLuint q[6]={}; bool pending=false,valid=true,measured=false; uint64_t frame_id=0; unsigned next=0; int phase=0; Clock::time_point cpu[6]; };
 struct Totals { double gpu[5]={},cpu[5]={}; unsigned count=0; };
 struct State {
     SDL_GLContext context=nullptr;
     bool initialized=false,supported=false;
     Gen gen=nullptr; Stamp stamp=nullptr; Available available=nullptr; Result result=nullptr;
     Sample samples[32]; int current=-1;
-    Totals totals[5]; unsigned skipped=0;
+    Totals totals[5]; unsigned skipped=0; FILE* benchmarkFile=nullptr;
     Clock::time_point published=Clock::now();
 };
 inline State& state(){static State s;return s;}
@@ -93,6 +94,21 @@ inline void begin(){
         if(!ready)continue;
         uint64_t ns[6]={};for(int i=0;i<6;++i)s.result(sample.q[i],0x8866,&ns[i]);
         bool valid=sample.valid;for(int i=0;i<5;++i)if(ns[i+1]<ns[i])valid=false;
+        if(valid && sample.measured && SprintathonAutoBenchmark::enabled()) {
+            if (!s.benchmarkFile) {
+                const char* csv=std::getenv("SPRINTATHON_BENCHMARK_CSV");
+                if (csv && *csv) {
+                    const std::string path=std::string(csv)+".presentation.csv";
+                    s.benchmarkFile=std::fopen(path.c_str(),"w");
+                    if (s.benchmarkFile) std::fprintf(s.benchmarkFile,"frame_id,gpu_world_ms,gpu_final_scene_ms,gpu_overlays_ms,gpu_hud_ms,gpu_tail_ms,cpu_world_ms,cpu_final_scene_ms,cpu_overlays_ms,cpu_hud_ms,cpu_tail_ms\n");
+                }
+            }
+            if (s.benchmarkFile) {
+                std::fprintf(s.benchmarkFile,"%llu,",static_cast<unsigned long long>(sample.frame_id));
+                for(int i=0;i<5;++i) std::fprintf(s.benchmarkFile,"%.6f,",double(ns[i+1]-ns[i])/1e6);
+                for(int i=0;i<5;++i) std::fprintf(s.benchmarkFile,i==4 ? "%.6f\n" : "%.6f,",std::chrono::duration<double,std::milli>(sample.cpu[i+1]-sample.cpu[i]).count());
+            }
+        }
         if(valid){auto& totals=s.totals[sample.phase];for(int i=0;i<5;++i){
             totals.gpu[i]+=double(ns[i+1]-ns[i])/1e6;
             totals.cpu[i]+=std::chrono::duration<double,std::milli>(sample.cpu[i+1]-sample.cpu[i]).count();
@@ -111,7 +127,7 @@ inline void begin(){
         }
         s.skipped=0;s.published=now;
     }
-    for(int i=0;i<32;++i)if(!s.samples[i].pending){s.current=i;s.samples[i].next=0;s.samples[i].valid=true;s.samples[i].phase=benchmarkRequested()?benchmark().phase:0;mark(0);return;}
+    for(int i=0;i<32;++i)if(!s.samples[i].pending){s.current=i;s.samples[i].next=0;s.samples[i].valid=true;s.samples[i].measured=SprintathonAutoBenchmark::state().measuring && !SprintathonAutoBenchmark::state().done;s.samples[i].frame_id=SprintathonAutoBenchmark::state().frame+1;s.samples[i].phase=benchmarkRequested()?benchmark().phase:0;mark(0);return;}
     ++s.skipped;
 }
 struct WorldScope { WorldScope(){begin();} ~WorldScope(){mark(1);} };

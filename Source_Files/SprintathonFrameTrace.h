@@ -1,6 +1,8 @@
+// Automatic stationary benchmark v1
 #ifndef SPRINTATHON_FRAME_TRACE_H
 #define SPRINTATHON_FRAME_TRACE_H
 #include <chrono>
+#include "SprintathonAutoBenchmark.h"
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
@@ -8,7 +10,7 @@
 // Main-thread wall-clock accounting. Nested scopes are exclusive; no GPU waits
 // are introduced. A frame is the interval between completed presentation calls.
 namespace SprintathonFrameTrace {
-enum Stage { Other, Events, Timers, Update, Interpolation, Render, Swap, Limiter, Count };
+enum Stage { Other, Events, Timers, Update, Interpolation, Render, Swap, Limiter, Visibility, Hud, Count };
 struct Trace {
     typedef std::chrono::steady_clock Clock;
     typedef Clock::time_point Time;
@@ -22,7 +24,7 @@ struct Trace {
         stage(Other), ticks(0), loops(0), total(0), maximum(0), frames(0),
         tick_frames(0), sum_ticks(0), sum_loops(0) {
         const char* value = std::getenv("SPRINTATHON_FRAME_TRACE");
-        enabled = value && value[0] == '1';
+        enabled = (value && value[0] == '1') || SprintathonAutoBenchmark::enabled();
         stamp = origin = previous = report = Clock::now();
         clear(bins); clear(sums); clear(worst);
     }
@@ -32,11 +34,11 @@ struct Trace {
     }
     void charge(Time now) { bins[stage] += ms(stamp, now); stamp = now; }
     void output(Time now) {
-        if (!frames) return;
+        if (!frames || SprintathonAutoBenchmark::enabled()) return;
         std::fprintf(stderr, "Whole frame: t=%.3fs mode=%d level=%d tick=%d frames=%u avg=%.3f max=%.3f ms; ticks=%d frames-with-ticks=%u loops=%d\n",
             ms(origin,now)/1000.0, mode, level, tick, frames, total/frames, maximum,
             sum_ticks, tick_frames, sum_loops);
-        const char* names[Count] = {"other", "events", "timers", "update", "interpolation", "render", "swap", "limiter"};
+        const char* names[Count] = {"other", "events", "timers", "update", "interpolation", "render", "swap", "limiter", "visibility", "hud"};
         std::fprintf(stderr, "Whole frame stages (exclusive wall ms):");
         for (int i=0;i<Count;++i) std::fprintf(stderr," %s=%.3f",names[i],sums[i]/frames);
         std::fprintf(stderr, "; worst-frame:");
@@ -47,6 +49,7 @@ struct Trace {
     }
     void context(int new_mode, int new_level, int new_tick) {
         if (!enabled) return;
+        SprintathonAutoBenchmark::context(new_mode,new_level);
         tick=new_tick;
         if (mode==new_mode && level==new_level) return;
         Time now=Clock::now(); charge(now); output(now);
@@ -58,6 +61,7 @@ struct Trace {
     void present() {
         if (!enabled || mode<0 || mode==4) return;
         Time now=Clock::now(); charge(now);
+        SprintathonAutoBenchmark::present(mode,level,tick,bins);
         if (started) {
             double duration=ms(previous,now);
             ++frames; total+=duration; sum_ticks+=ticks; sum_loops+=loops;

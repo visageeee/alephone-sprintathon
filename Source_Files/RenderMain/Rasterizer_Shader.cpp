@@ -64,6 +64,9 @@ void Rasterizer_Shader_Class::SetView(view_data& view) {
 		view_height = view.screen_height;
 		swapper.reset();
 		swapper.reset(new FBOSwapper(render_width, render_height, false));
+        if (SprintathonAutoBenchmark::enabled())
+            std::fprintf(stderr,"Benchmark render target: width=%u height=%u\n",
+                swapper->current_contents()._w, swapper->current_contents()._h);
 	}
 	
 	float aspect = view.screen_width / float(view.screen_height);

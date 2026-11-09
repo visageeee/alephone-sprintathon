@@ -1,3 +1,4 @@
+// Automatic stationary benchmark v1
 #include "../SprintathonFrameTrace.h"
 /*
 	INTERFACE.C
@@ -1051,6 +1052,29 @@ bool handle_open_replay(FileSpecifier& File)
 	success= begin_game(_replay_from_file, false);
 	if(!success) display_main_menu();
 	return success;
+}
+
+bool sprintathon_begin_benchmark(){
+    // A remembered custom map can override the scenario's campaign map.
+    std::fprintf(stderr,"Benchmark: previously selected map: %s\n",get_map_file().GetPath());
+    const char* overrideMap=std::getenv("SPRINTATHON_BENCHMARK_MAP");
+    if(overrideMap && *overrideMap){
+        FileSpecifier benchmarkMap(overrideMap);
+        if(!benchmarkMap.Exists()){
+            std::fprintf(stderr,"Benchmark: explicit map does not exist: %s\n",overrideMap);
+            return false;
+        }
+        set_map_file(benchmarkMap);
+    }else{
+        set_to_default_map();
+    }
+    std::fprintf(stderr,"Benchmark: campaign map: %s\n",get_map_file().GetPath());
+    force_system_colors(true);
+    return begin_game(_single_player,false);
+}
+void sprintathon_end_benchmark(){
+    if(get_game_state()==_game_in_progress)finish_game(false);
+    game_state.state=_quit_game;
 }
 
 bool handle_edit_map()
@@ -2774,7 +2798,14 @@ static bool begin_game(
 			break;
 			
 		case _single_player:
-			if(cheat)
+            if(SprintathonAutoBenchmark::enabled()){
+                // Campaign progression does not require a single-player entry flag.
+                const char* requested = std::getenv("SPRINTATHON_BENCHMARK_LEVEL");
+                const int level = requested ? std::atoi(requested) : 3;
+                entry.level_number=level-1;
+                std::fprintf(stderr,"Benchmark: loading level %d (map index %d)\n",level,entry.level_number);
+            }
+            else if(cheat)
 			{
 				entry.level_number= get_level_number_from_user();
 				if(entry.level_number==NONE) success= false; /* Cancelled */
@@ -2796,13 +2827,13 @@ static bool begin_game(
 			game_information.kill_limit = 0;
 			game_information.game_type= _game_of_kill_monsters;
 			game_information.game_options= _burn_items_on_death|_ammo_replenishes|_weapons_replenish|_monsters_replenish;
-			game_information.initial_random_seed= machine_tick_count();
+			game_information.initial_random_seed= SprintathonAutoBenchmark::enabled() ? 12345 : machine_tick_count();
 			game_information.difficulty_level= get_difficulty_level();
 			std::fill_n(game_information.parameters, 2, 0);
 				
                         // ZZZ: until film files store player behavior flags, we must require
                         // that all films recorded be made with standard behavior.
-			record_game= is_player_behavior_standard();
+			record_game= !SprintathonAutoBenchmark::enabled() && is_player_behavior_standard();
 
 			switch (player_preferences->solo_profile)
 			{
@@ -2854,7 +2885,7 @@ static bool begin_game(
 		}
 
 		/* Try to display the first chapter screen.. */
-		if (user != _network_player && user != _demo && !is_saved_game_replay())
+		if (!SprintathonAutoBenchmark::enabled() && user != _network_player && user != _demo && !is_saved_game_replay())
 		{
 			FindLevelMovie(entry.level_number);
 			show_movie(entry.level_number);

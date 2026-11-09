@@ -1,3 +1,4 @@
+// Automatic stationary benchmark v1
 #include "SprintathonFrameTrace.h"
 /*
 
@@ -1036,12 +1037,28 @@ short get_level_number_from_user(void)
 }
 
 const uint32 TICKS_BETWEEN_EVENT_POLL = 16; // 60 Hz
+extern bool sprintathon_begin_benchmark();
+extern void sprintathon_end_benchmark();
 void main_event_loop(void)
 {
+    const char* prepare_preset = std::getenv("SPRINTATHON_BENCHMARK_PREPARE");
+    if (SprintathonAutoBenchmark::enabled() && prepare_preset && prepare_preset[0] == '1') {
+        handle_preferences(false);
+        return;
+    }
+    if(SprintathonAutoBenchmark::enabled()){
+        if(!sprintathon_begin_benchmark()){
+            SprintathonAutoBenchmark::finish("load_failed");
+            sprintathon_end_benchmark();return;
+        }
+    }
 	uint32 last_event_poll = 0;
 	short game_state;
 
 	while ((game_state = get_game_state()) != _quit_game) {
+        if(SprintathonAutoBenchmark::enabled() && SprintathonAutoBenchmark::state().done){
+            sprintathon_end_benchmark();break;
+        }
 		SprintathonFrameTrace::Scope frame_events(SprintathonFrameTrace::Events);
 		if (SprintathonFrameTrace::get().enabled) {
 			++SprintathonFrameTrace::get().loops;

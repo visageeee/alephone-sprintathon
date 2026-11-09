@@ -658,14 +658,17 @@ void Shader::init() {
 }
 
 bool Shader::opaqueBatchRequested() {
-    const char* bake=std::getenv("SPRINTATHON_TEXTURE_BAKE");
-    if(bake ? bake[0]=='1' : (graphics_preferences && (graphics_preferences->baked_texture_lights || graphics_preferences->baked_scenery_lights)))
-        return false; // The baked-light atlas has a separate texture binding.
     static const bool requested = []() {
         const char* value = std::getenv("SPRINTATHON_OPAQUE_BATCH");
         return value && value[0] == '1';
     }();
-    return requested;
+    // Uniform setters call this for every surface. The opt-in prototype is
+    // normally disabled, so avoid an environment lookup on every setter.
+    if (!requested) return false;
+    const char* bake=std::getenv("SPRINTATHON_TEXTURE_BAKE");
+    if(bake ? bake[0]=='1' : (graphics_preferences && (graphics_preferences->baked_texture_lights || graphics_preferences->baked_scenery_lights)))
+        return false; // The baked-light atlas has a separate texture binding.
+    return true;
 }
 
 void Shader::restoreUniformState(const UniformState& state) {

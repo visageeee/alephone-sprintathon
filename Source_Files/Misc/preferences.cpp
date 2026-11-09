@@ -164,6 +164,8 @@ static bool validate_input_preferences(input_preferences_data *preferences);
 static void default_environment_preferences(environment_preferences_data *preferences);
 static bool validate_environment_preferences(environment_preferences_data *preferences);
 
+InfoTree graphics_preferences_tree();
+InfoTree input_preferences_tree();
 void parse_graphics_preferences(InfoTree root, std::string version);
 void parse_player_preferences(InfoTree root, std::string version);
 void parse_input_preferences(InfoTree root, std::string version);
@@ -2524,8 +2526,23 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 
 	d.set_widget_placer(root);
 
-	// Clear menu screen
-	clear_screen();
+    const char* prepare_preset = std::getenv("SPRINTATHON_BENCHMARK_PREPARE");
+    const bool preparing_benchmark_preset = prepare_preset && prepare_preset[0] == '1';
+    // The helper process uses exactly the dialog's preset callback, but never
+    // runs the modal UI or writes the user's preferences.
+    if (preparing_benchmark_preset) {
+        const char* requested = std::getenv("SPRINTATHON_BENCHMARK_PRESET");
+        const int preset = requested ? std::atoi(requested) : 0;
+        if (preset < 1 || preset > 4) {
+            std::fprintf(stderr, "Benchmark preset preparation: invalid preset\n");
+            std::exit(2);
+        }
+        graphics_preset_w->set_selection(0, true);
+        graphics_preset_w->set_selection(preset, true);
+    } else {
+        // Clear menu screen only for an interactive preferences dialog.
+        clear_screen();
+    }
 
     // Defaults populate widgets only. Restore live settings before the dialog
     // runs so Cancel is a true no-op and Save compares against the old values.
@@ -2534,10 +2551,13 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
         *input_preferences=saved_input;
         *sound_preferences=saved_sound;
     }
-	// Run dialog
-	enter_joystick();
-	const int preferences_result = d.run();
-	exit_joystick();
+	// A preset helper commits the selections without running the modal dialog.
+    int preferences_result = 0;
+    if (!preparing_benchmark_preset) {
+        enter_joystick();
+        preferences_result = d.run();
+        exit_joystick();
+    }
     if(preferences_result==2){reset_requested=true;return;}
 	if (preferences_result != 0)
 	{
@@ -3040,6 +3060,28 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 		sprint_drain_w->get_selection() + 10;
 	input_preferences->sprintathon_oxygen_recovery_percent =
 		oxygen_recovery_w->get_selection() + 10;
+    if (preparing_benchmark_preset) {
+        const char* output = std::getenv("SPRINTATHON_BENCHMARK_PROFILE_OUT");
+        if (!output || !*output) {
+            std::fprintf(stderr,"Benchmark preset preparation: missing profile path\n");
+            std::exit(2);
+        }
+        try {
+            InfoTree profile;
+            profile.put_child("graphics", graphics_preferences_tree());
+            profile.put_child("input", input_preferences_tree());
+            InfoTree root;
+            root.put_attr("version", A1_DATE_VERSION);
+            root.put_child("sprintathon_settings", profile);
+            FileSpecifier destination(output);
+            root.save_xml(destination);
+        } catch (const std::exception& error) {
+            std::fprintf(stderr,"Benchmark preset preparation: could not save profile: %s\n",error.what());
+            std::exit(2);
+        }
+        std::fprintf(stderr,"Benchmark preset preparation: applied preset %d\n", graphics_preferences->graphics_preset);
+        return;
+    }
 	write_preferences();
 	if (embedded_graphics_changed)
 	{
@@ -6883,6 +6925,78 @@ void initialize_preferences(
 		Console::instance()->register_command("preferences", PreferenceCommandParser);
 		
 		read_preferences ();
+        const char* benchmark_mode = std::getenv("SPRINTATHON_AUTO_BENCHMARK");
+        const char* transient_mode = std::getenv("SPRINTATHON_TRANSIENT_SETTINGS");
+        if ((benchmark_mode && benchmark_mode[0] == '1') ||
+            (transient_mode && transient_mode[0] == '1')) {
+            const char* profile_path = std::getenv("SPRINTATHON_SETTINGS_PROFILE");
+            if (profile_path && *profile_path) {
+                try {
+                    FileSpecifier profile_file(profile_path);
+                    InfoTree root = InfoTree::load_xml(profile_file);
+                    InfoTree profile = root.get_child("sprintathon_settings");
+                    for (const InfoTree& child : profile.children_named("graphics"))
+                        parse_graphics_preferences(child, A1_DATE_VERSION);
+                    for (const InfoTree& child : profile.children_named("input"))
+                        parse_input_preferences(child, A1_DATE_VERSION);
+                    std::fprintf(stderr, "Benchmark: loaded private settings profile\n");
+                } catch (const std::exception& error) {
+                    std::fprintf(stderr, "Benchmark: could not load settings profile: %s\n", error.what());
+                    std::exit(2);
+                }
+            }
+            // Tests can use generic SPRINTATHON_SETTING_* values. Benchmark
+            // command-line options have priority over generic environment values.
+            auto integer = [](const char* name, int fallback, int minimum, int maximum) {
+                const char* value = std::getenv(name);
+                const char* label = name;
+                std::string generic = "SPRINTATHON_SETTING_" + std::string(name + sizeof("SPRINTATHON_BENCHMARK_") - 1);
+                if (!value) { value = std::getenv(generic.c_str()); label = generic.c_str(); }
+                if (!value) return fallback;
+                char* end = nullptr;
+                const long parsed = std::strtol(value, &end, 10);
+                if (!*value || !end || *end || parsed < minimum || parsed > maximum) {
+                    std::fprintf(stderr, "Invalid transient setting %s: expected %d..%d\n", label, minimum, maximum);
+                    std::exit(2);
+                }
+                return static_cast<int>(parsed);
+            };
+            auto& mode = graphics_preferences->screen_mode;
+            const int width = integer("SPRINTATHON_BENCHMARK_WIDTH", 0, 320, 16384);
+            const int height = integer("SPRINTATHON_BENCHMARK_HEIGHT", 0, 320, 16384);
+            if ((width == 0) != (height == 0)) {
+                std::fprintf(stderr, "Transient settings require both WIDTH and HEIGHT\n");
+                std::exit(2);
+            }
+            if (width && height) { mode.width = width; mode.height = height; mode.auto_resolution = false; mode.fullscreen = false; }
+            mode.fullscreen = integer("SPRINTATHON_BENCHMARK_FULLSCREEN", mode.fullscreen, 0, 1);
+            graphics_preferences->sprintathon_render_scale = integer("SPRINTATHON_BENCHMARK_RENDER_SCALE", graphics_preferences->sprintathon_render_scale, 50, 100);
+            graphics_preferences->fps_target = integer("SPRINTATHON_BENCHMARK_FPS_CAP", graphics_preferences->fps_target, 0, 1000);
+            graphics_preferences->OGL_Configure.WaitForVSync = integer("SPRINTATHON_BENCHMARK_VSYNC", graphics_preferences->OGL_Configure.WaitForVSync, 0, 1);
+            graphics_preferences->batched_world_rendering = integer("SPRINTATHON_BENCHMARK_BATCH", graphics_preferences->batched_world_rendering, 0, 1);
+            graphics_preferences->world_texture_arrays = integer("SPRINTATHON_BENCHMARK_ARRAYS", graphics_preferences->world_texture_arrays, 0, 1);
+            graphics_preferences->soft_sector_light_edges = integer("SPRINTATHON_BENCHMARK_SOFT_EDGES", graphics_preferences->soft_sector_light_edges, 0, 1);
+            graphics_preferences->bright_texture_lights = integer("SPRINTATHON_BENCHMARK_TEXTURE_LIGHT_SOURCES", graphics_preferences->bright_texture_lights, 0, 1);
+            graphics_preferences->projectile_lights_per_pixel = integer("SPRINTATHON_BENCHMARK_PER_PIXEL_LIGHTING", graphics_preferences->projectile_lights_per_pixel, 0, 1);
+            graphics_preferences->baked_texture_lights = integer("SPRINTATHON_BENCHMARK_BAKED_TEXTURE_LIGHTING", graphics_preferences->baked_texture_lights, 0, 1);
+            graphics_preferences->colored_light_intensity = integer("SPRINTATHON_BENCHMARK_COLORED_LIGHT_INTENSITY", graphics_preferences->colored_light_intensity, 0, 200);
+            graphics_preferences->texture_light_intensity = integer("SPRINTATHON_BENCHMARK_TEXTURE_LIGHT_INTENSITY", graphics_preferences->texture_light_intensity, 0, 200);
+            graphics_preferences->texture_light_limit = integer("SPRINTATHON_BENCHMARK_TEXTURE_LIGHT_LIMIT", graphics_preferences->texture_light_limit, 0, 20);
+            mode.hud = integer("SPRINTATHON_BENCHMARK_HUD", mode.hud, 0, 1);
+            const int required_preset = integer("SPRINTATHON_BENCHMARK_PRESET", -1, 1, 4);
+            const char* prepare_preset = std::getenv("SPRINTATHON_BENCHMARK_PREPARE");
+            if (!(prepare_preset && prepare_preset[0] == '1') && required_preset >= 0 && required_preset != graphics_preferences->graphics_preset) {
+                std::fprintf(stderr, "Benchmark: prepared settings do not match the requested preset.\n");
+                std::exit(2);
+            }
+            std::fprintf(stderr, "Benchmark settings: preset=%d width=%d height=%d auto_resolution=%d fullscreen=%d render_scale=%d fps_cap=%d vsync=%d batch=%d arrays=%d hud=%d soft_edges=%d texture_light_sources=%d per_pixel_lighting=%d baked_texture_lights=%d colored_light_intensity=%d texture_light_intensity=%d texture_light_limit=%d\n",
+                graphics_preferences->graphics_preset, mode.width, mode.height, mode.auto_resolution, mode.fullscreen,
+                graphics_preferences->sprintathon_render_scale, graphics_preferences->fps_target,
+                graphics_preferences->OGL_Configure.WaitForVSync, graphics_preferences->batched_world_rendering,
+                graphics_preferences->world_texture_arrays, mode.hud, graphics_preferences->soft_sector_light_edges,
+                graphics_preferences->bright_texture_lights, graphics_preferences->projectile_lights_per_pixel,
+                graphics_preferences->baked_texture_lights, graphics_preferences->colored_light_intensity, graphics_preferences->texture_light_intensity, graphics_preferences->texture_light_limit);
+        }
 	}
 }
 
@@ -7721,6 +7835,9 @@ InfoTree environment_preferences_tree()
 
 void write_preferences()
 {
+    const char* benchmark = std::getenv("SPRINTATHON_AUTO_BENCHMARK");
+    const char* transient = std::getenv("SPRINTATHON_TRANSIENT_SETTINGS");
+    if ((benchmark && benchmark[0] == '1') || (transient && transient[0] == '1')) return;
 	InfoTree root;
 	root.put_attr("version", A1_DATE_VERSION);
 	

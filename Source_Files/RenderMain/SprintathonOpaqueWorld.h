@@ -532,10 +532,14 @@ void surfaceLights(inout vec3 intensity,out vec3 caustic){
     caustic=vec3(0.0);
     vec4 info=texture2DRect(surfaceData,vec2(8.5,surfaceRow));
     vec4 liquid=texture2DRect(surfaceData,vec2(15.5,surfaceRow));
+    // Four consecutive IDs share a surface-data texel. Fetch it once per
+    // group rather than once for every light, preserving order and all lights.
+    vec4 ids=vec4(0.0);
     for(int i=0;i<20;++i){
         if(float(i)>=info.x || all(greaterThanEqual(intensity,vec3(1.0))))break;
-        vec4 ids=texture2DRect(surfaceData,vec2(9.5+floor(float(i)/4.0),surfaceRow));
-        int component=i-(i/4)*4;float id=ids[component];if(id<.5)continue;
+        int component=i-(i/4)*4;
+        if(component==0)ids=texture2DRect(surfaceData,vec2(9.5+float(i/4),surfaceRow));
+        float id=ids[component];if(id<.5)continue;
         vec4 position=texture2DRect(dynamicLights,vec2(.5,id+.5));
         vec3 delta=(dynamicWorld-position.xyz)*position.w;float d2=dot(delta,delta);
         if(d2>=1.0)continue;

@@ -1678,6 +1678,21 @@ void render_screen(short ticks_elapsed)
     if(screen_mode.acceleration!=_no_acceleration)
         SprintathonPresentTrace::updateBenchmark(dynamic_world->current_level_number);
 #endif
+#ifdef HAVE_OPENGL
+    if (SprintathonAutoBenchmark::enabled() && OGL_IsActive()) {
+        static bool benchmarkDetailsPrinted = false;
+        if (!benchmarkDetailsPrinted) {
+            benchmarkDetailsPrinted = true;
+            std::fprintf(stderr,"Benchmark display: framebuffer=%dx%d view=%dx%d estimated_render=%dx%d swap_interval=%d\n",
+                MainScreenPixelWidth(), MainScreenPixelHeight(), world_view->screen_width, world_view->screen_height,
+                int(world_view->screen_width * MainScreenPixelScale() * graphics_preferences->sprintathon_render_scale / 100.0f),
+                int(world_view->screen_height * MainScreenPixelScale() * graphics_preferences->sprintathon_render_scale / 100.0f),
+                SDL_GL_GetSwapInterval());
+            std::fprintf(stderr,"Benchmark GL: vendor=%s renderer=%s version=%s\n",
+                glGetString(GL_VENDOR),glGetString(GL_RENDERER),glGetString(GL_VERSION));
+        }
+    }
+#endif
 	// Render world view
 	render_view(world_view, software_render_dest.get());
 
@@ -1750,6 +1765,7 @@ void render_screen(short ticks_elapsed)
 #ifdef HAVE_OPENGL
         SprintathonPresentTrace::mark(3);
         // Skip only HUD rendering, without resizing the view or changing prefs.
+        { SprintathonFrameTrace::Scope hudTiming(SprintathonFrameTrace::Hud);
         if (Screen::instance()->hud() && !SprintathonPresentTrace::suppressHUD()) {
 			if (Screen::instance()->lua_hud()) {
                 const bool curved = !world_view->terminal_mode_active && !world_view->overhead_map_active &&
@@ -1763,6 +1779,7 @@ void render_screen(short ticks_elapsed)
 			}
 		}
 		
+        }
         // Independent of the selected HUD plugin and the visor post effect.
         {
             SprintathonSuitDiagnostics::Input status;

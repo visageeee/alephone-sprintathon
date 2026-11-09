@@ -1,3 +1,4 @@
+#include "../SprintathonFrameTrace.h"
 #include <cstdio>
 #include <cstdlib>
 #include "../GameWorld/SprintathonZeroG.h"
@@ -534,7 +535,7 @@ void render_view(
             RenderVisTree.conservative_full_circle=true;
 #endif
 		SprintathonSceneCpuProfile cpu_profile(!view->overhead_map_active);
-		RenderVisTree.build_render_tree();
+		{ SprintathonFrameTrace::Scope visibility(SprintathonFrameTrace::Visibility); RenderVisTree.build_render_tree(); }
 		cpu_profile.mark(0);
 		
 		/* do something complicated and difficult to explain */
@@ -544,13 +545,13 @@ void render_view(
 			/* sort the render tree (so we have a depth-ordering of polygons) and accumulate
 				clipping information for each polygon */
 			RenderSortPoly.view = view;
-			RenderSortPoly.sort_render_tree();
+			{ SprintathonFrameTrace::Scope visibility(SprintathonFrameTrace::Visibility); RenderSortPoly.sort_render_tree(); }
 			cpu_profile.mark(1);
 			
 			// LP: now from the object-placement class
 			/* build the render object list by looking at the sorted render tree */
 			RenderPlaceObjs.view = view;
-			RenderPlaceObjs.build_render_object_list();
+			{ SprintathonFrameTrace::Scope visibility(SprintathonFrameTrace::Visibility); RenderPlaceObjs.build_render_object_list(); }
 			cpu_profile.mark(2, RenderVisTree.Nodes.size(), RenderSortPoly.SortedNodes.size());
 			
 			// LP addition: set the current rasterizer to whichever is appropriate here
