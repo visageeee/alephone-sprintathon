@@ -91,6 +91,7 @@ struct graphics_preferences_data
     int16 sprintathon_volume_fog_quality;
     int sprintathon_render_scale; // percentage of native 3D resolution
     bool sprintathon_nearest_upscale;
+    bool sprintathon_light_adaptation;
     bool generated_normal_maps;
     int16 generated_normal_strength;
     bool sprintathon_tracker_compass;

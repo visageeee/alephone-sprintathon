@@ -1497,6 +1497,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	w_toggle *ogl_perspective_w = new w_toggle(!ogl_flag(OGL_Flag_MimicSW));
 	w_toggle *ogl_billboard_w = new w_toggle(graphics_preferences->OGL_Configure.BillboardXY);
 	w_toggle *ogl_bloom_w = new w_toggle(ogl_flag(OGL_Flag_Blur));
+    w_toggle *light_adaptation_w = new w_toggle(graphics_preferences->sprintathon_light_adaptation);
 	w_toggle *projectile_lights_per_pixel_w = new w_toggle(graphics_preferences->projectile_lights_per_pixel);
 	w_toggle *bright_texture_lights_w = new w_toggle(graphics_preferences->bright_texture_lights);
 	w_toggle *bright_scenery_lights_w = new w_toggle(graphics_preferences->bright_scenery_lights);
@@ -1654,6 +1655,8 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
     preferences_checkbox(light_fx,"Player Light Circle",player_light_circle_w,d);
     preferences_help(light_fx,"Adds the classic view-centred pool of brightness.",d);
     preferences_checkbox(light_fx,"Bloom Effects",ogl_bloom_w,d);
+    preferences_checkbox(light_fx,"Automatic Exposure",light_adaptation_w,d);
+    preferences_help(light_fx,"Gradually adjusts brightness when moving between light and dark areas. Adds GPU work.",d);
     preferences_checkbox(world_lighting,"Baked Landscape Lighting",baked_landscape_lighting_w,d);
     preferences_help(world_lighting,"Precomputes sunlight from sky openings during level loading.",d);
     preferences_checkbox(world_lighting,"Baked Texture Lighting",baked_texture_lights_w,d);
@@ -2330,7 +2333,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 		graphics_windowed_w, graphics_gamma_w, graphics_fps_w,
 		graphics_skip_intro_w, graphics_limit_vertical_w,
 		graphics_bobbing_w, ogl_fader_w, ogl_models_w, ogl_perspective_w,
-		ogl_billboard_w, ogl_bloom_w, ogl_bump_w, simplify_distant_surfaces_w,
+		ogl_billboard_w, ogl_bloom_w, light_adaptation_w, ogl_bump_w, simplify_distant_surfaces_w,
 	batched_world_rendering_w, world_texture_arrays_w, procedural_space_sky_w, landscape_cubemaps_w, reuse_refraction_capture_w,
 		projectile_motion_blur_w,
 		projectile_lights_per_pixel_w, bright_texture_lights_w, bright_scenery_lights_w, all_visible_scenery_lights_w, per_pixel_light_quality_w, player_light_circle_w, soft_sector_light_edges_w,
@@ -2664,6 +2667,7 @@ static void handle_preferences_page(bool in_game,bool defaults,bool& reset_reque
 	store_ogl_flag(OGL_Flag_3D_Models, ogl_models_w->get_selection());
 	store_ogl_flag(OGL_Flag_MimicSW, !ogl_perspective_w->get_selection());
 	store_ogl_flag(OGL_Flag_Blur, ogl_bloom_w->get_selection());
+    graphics_preferences->sprintathon_light_adaptation = light_adaptation_w->get_selection();
 	graphics_preferences->projectile_lights_per_pixel = projectile_lights_per_pixel_w->get_selection();
 	graphics_preferences->graphics_preset = graphics_preset_w->get_selection();
     graphics_preferences->horror_mode=horror_w->get_selection();
@@ -7203,6 +7207,7 @@ InfoTree graphics_preferences_tree()
     root.put_attr("generated_normal_maps", graphics_preferences->generated_normal_maps);
     root.put_attr("generated_normal_strength", graphics_preferences->generated_normal_strength);
 	root.put_attr("sprintathon_nearest_upscale", graphics_preferences->sprintathon_nearest_upscale);
+    root.put_attr("sprintathon_light_adaptation", graphics_preferences->sprintathon_light_adaptation);
 	root.put_attr("sprintathon_tracker_compass", graphics_preferences->sprintathon_tracker_compass);
 	root.put_attr("scmode_hud_scale", graphics_preferences->screen_mode.hud_scale_level);
 	root.put_attr("scmode_term_scale", graphics_preferences->screen_mode.term_scale_level);
@@ -7912,6 +7917,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
     preferences->generated_normal_maps = false;
     preferences->generated_normal_strength = 25;
 	preferences->sprintathon_nearest_upscale = false;
+    preferences->sprintathon_light_adaptation = false;
 	preferences->sprintathon_tracker_compass = false;
 	preferences->screen_mode.hud_scale_level = 0;
 	preferences->screen_mode.term_scale_level = 2;
@@ -8526,6 +8532,7 @@ void parse_graphics_preferences(InfoTree root, std::string version)
     root.read_attr_bounded<int16>("generated_normal_strength", graphics_preferences->generated_normal_strength, 0, 100);
 	graphics_preferences->sprintathon_render_scale = std::max(50, std::min(100, graphics_preferences->sprintathon_render_scale));
 	root.read_attr("sprintathon_nearest_upscale", graphics_preferences->sprintathon_nearest_upscale);
+    root.read_attr("sprintathon_light_adaptation", graphics_preferences->sprintathon_light_adaptation);
 	root.read_attr("sprintathon_tracker_compass", graphics_preferences->sprintathon_tracker_compass);
 	root.read_attr("scmode_hud_scale", graphics_preferences->screen_mode.hud_scale_level);
 	root.read_attr("scmode_term_scale", graphics_preferences->screen_mode.term_scale_level);

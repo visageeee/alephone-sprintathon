@@ -64,6 +64,7 @@
 #include "SprintathonShockwaves.h"
 #include "SprintathonExplosions.h"
 #include "SprintathonVisor.h"
+#include "SprintathonLightAdaptation.h"
 #include "SprintathonWorldSplit.h"
 #include "SprintathonObjectOps.h"
 #include <cstring>
@@ -5049,6 +5050,12 @@ void RenderRasterize_Shader::render_tree() {
 			}
 		}
 	}
+
+    // Experimental automatic exposure, before visor and HUD composition.
+    if(passTest.other() && SprintathonLightAdaptation::enabled()){
+        const GLuint adaptation_scene=sprintathon_capture_scene_color(framebuffer_width,framebuffer_height);
+        SprintathonLightAdaptation::draw(adaptation_scene,framebuffer_width,framebuffer_height);
+    }
 
     if(visor_active && scene_depth){
         const GLuint visor_scene=sprintathon_capture_scene_color(framebuffer_width,framebuffer_height);

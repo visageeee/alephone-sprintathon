@@ -79,10 +79,20 @@ void main(){
    float edge=1.0-smoothstep(width-.07,width+.09,abs(q.x-centre)/taper+torn);
    float tip=1.0-smoothstep(.70,.98,y+(coarse-.5)*.23);
    float holes=smoothstep(.29+y*.10,.65,coarse*.40+fine*.42+micro*.18);
+   if(splashMode>2.01 && splashMode<2.1){
+    // The explosion sheet tears into islands before its separate drops emerge.
+    float breakup=smoothstep(.10,.48,puff.y);
+    float islands=noise(flow*1.7+vec2(puff.z*.13,0.0));
+    holes*=mix(1.0,smoothstep(.28,.72,islands),breakup);
+   }
    // A brief dense impact core breaks up into the existing spray.
    float impact=(1.0-smoothstep(.04,.18,puff.y))*(1.0-smoothstep(.08,.32,y));
    body=edge*tip*mix(holes,.95,impact)*(.85+micro*.15);
    body*=smoothstep(smokeStyle.x,smokeStyle.x+.035,y);
+  }else if(splashMode>1.1){
+   // Soft, broken-up mist puffs rather than elongated ballistic droplets.
+   float grain=noise(q*3.5+vec2(puff.z,puff.z*.37));
+   body=(1.0-smoothstep(.05,1.0,radial))*mix(.35,1.0,grain);
   }else{
    float grain=noise(q*vec2(9.0,3.0)+vec2(puff.z));
    body=(1.0-smoothstep(.18,1.0,radial+(grain-.5)*.16))*mix(.5,1.0,grain);
@@ -165,8 +175,8 @@ inline void draw(const view_data* camera,GLuint depth,int width,int height,
     const float norm=std::sqrt(modelview[8]*modelview[8]+modelview[9]*modelview[9]);
     p.right[0]=norm>.001f?modelview[9]/norm*width:width;
     p.right[1]=norm>.001f?-modelview[8]/norm*width:0;
-    for(int r=0;r<3;++r)p.up[r]=((b.bullet || b.grenade)?axis[r]:modelview[8+r])*height;
-    if((b.bullet || b.grenade)){
+    for(int r=0;r<3;++r)p.up[r]=((b.bullet || b.grenade || b.rocket)?axis[r]:modelview[8+r])*height;
+    if(b.bullet || b.grenade || b.rocket){
      const float norm=std::sqrt(axis[0]*axis[0]+axis[1]*axis[1]);
      p.right[0]=norm>.001f?axis[1]/norm*width:width;
      p.right[1]=norm>.001f?-axis[0]/norm*width:0;
@@ -222,6 +232,74 @@ inline void draw(const view_data* camera,GLuint depth,int width,int height,
    add(0,0,size*.018f,ringRadius,ringRadius,fade*1.0f,seed,3.0f,0,0,0);
    continue;
   }
+  if(b.rocket || b.grenade){
+   // Grenades retain their original rising and falling sheet; rockets tear
+   // apart quickly. Both share the additional independent spray below.
+   const float riseRate=b.grenade?22.0f:34.0f;
+   const float rise=1.0f-std::exp(-age*riseRate);
+   const float sheetRise=b.grenade?1.0f-std::exp(-std::min(motionAge,.18f)*22.0f):rise;
+   const float plumeHeight=size*(.15f+1.9f*sheetRise);
+   const float sheetFallTime=std::max(0.0f,motionAge-.18f);
+   const float sheetFall=b.grenade?size*2.8f*sheetFallTime*sheetFallTime:0.0f;
+   const float sheetAlpha=b.grenade?std::max(0.0f,1.0f-sheetFallTime):
+       std::max(0.0f,std::min(1.0f,(.60f-age)/.38f));
+   const float lean=(b.grenade?1.2f:.45f)*(1.0f-b.steepness);
+   if(sheetAlpha>0.0f && sheetFall<plumeHeight){
+    for(int k=0;k<3;++k){
+     const float angle=seed+k*2.3999632f;
+     const float h=plumeHeight*(1.0f-k*.12f);
+     const float w=size*(.56f+age*.28f)*(1.0f-k*.10f);
+     add(std::cos(angle)*size*.08f+b.dx*lean*h*.5f,
+         std::sin(angle)*size*.08f+b.dy*lean*h*.5f,h*.5f+size*.015f-sheetFall,
+         w,h*.5f,sheetAlpha*.95f,seed+k*31,b.grenade?2.0f:2.05f,b.dx*lean,b.dy*lean,1);
+    }
+   }
+   // Independent trajectories fan out while falling at different rates. A
+   // shallow hit carries some momentum forward, but retains radial spread.
+   const int particleCount=b.grenade?44:80;
+   const int fragmentCount=b.grenade?14:24;
+   const int mistStart=b.grenade?28:56;
+   for(int k=0;k<particleCount;++k){
+    const bool fragment=k<fragmentCount, mist=k>=mistStart;
+    const float jitter=std::sin(seed+float(k)*23.71f)*.5f+.5f;
+    const float variation=std::sin(seed*.37f+float(k)*11.17f)*.5f+.5f;
+    const float angle=k*2.3999632f+seed;
+    const float heightScale=.48f+jitter*.65f;
+    const float fallTime=std::max(0.0f,age-(.10f+variation*.20f));
+    const float gravity=1.8f+variation*2.0f;
+    const float z=size*(1.9f*rise*heightScale-gravity*fallTime*fallTime);
+    if(z<0.0f)continue;
+    const float vz=1.9f*riseRate*std::exp(-age*riseRate)*heightScale-2.0f*gravity*fallTime;
+    const float speed=(mist?.65f:1.0f)*(b.grenade?.70f:1.0f)*(1.0f+jitter*.9f);
+    const float reach=size*age*speed;
+    const float bias=(b.grenade?1.5f:.65f)*(1.0f-b.steepness);
+    const float spread=b.grenade?.65f:1.0f;
+    const float dx=std::cos(angle)*spread+b.dx*bias,dy=std::sin(angle)*spread+b.dy*bias;
+    // Big, bright fragments initially occupy the sheet; finer droplets and
+    // mist remain as they separate. Fade fragments in as the sheet tears.
+    const float radius=size*(mist?(.035f+variation*.030f):
+        (fragment?(.022f+jitter*.020f):(.008f+jitter*.009f)));
+    const float mistIn=std::max(0.0f,std::min(1.0f,(age-.06f)*9.0f));
+    const float fragmentIn=std::max(0.0f,std::min(1.0f,(age-.08f)*10.0f));
+    const float fragmentOut=std::max(0.0f,std::min(1.0f,(1.10f-age)*2.0f));
+    const float alpha=fade*(mist?.40f*mistIn:(fragment?fragmentIn*fragmentOut:1.0f));
+    const float stretch=mist?1.0f:1.0f+std::min(4.0f,.35f*std::sqrt(speed*speed*(dx*dx+dy*dy)+vz*vz));
+    add(dx*reach,dy*reach,z+radius,radius,radius*stretch,alpha,seed+k*11,
+        mist?1.25f:1.0f,dx*speed,dy*speed,vz);
+   }
+   if(b.rocket){
+    const float ringRadius=size*(.24f+motionAge*1.35f);
+    add(0,0,size*.018f,ringRadius,ringRadius,fade*1.5f,seed,3.0f,0,0,0);
+   }else{
+    const float ringTime=age/.75f;
+    if(ringTime<1.0f){
+     const float ringSize=WORLD_ONE*.70f;
+     const float ringRadius=ringSize*(.24f+.95f*ringTime);
+     add(0,0,ringSize*.018f,ringRadius,ringRadius,1.5f*(1.0f-ringTime),seed,3.0f,0,0,0);
+    }
+   }
+   continue;
+  }
   // Grow only during launch. Then translate the intact sheet downward
   // under gravity, letting its submerged portion disappear at the surface.
   const float rise=1.0f-std::exp(-std::min(motionAge,.18f)*22.0f);
@@ -234,8 +312,9 @@ inline void draw(const view_data* camera,GLuint depth,int width,int height,
     const float angle=seed+k*2.3999632f;
     const float h=plumeHeight*(1.0f-k*.12f);
     const float w=size*(.56f+age*.28f)*(1.0f-k*.10f);
-    // Grenades retain a full falling plume, tilted along their impact direction.
-    const float lean=b.grenade?1.2f*(1.0f-b.steepness):0.0f;
+    // Lean the spray in the direction of travel. Rockets retain a broader,
+    // more explosive plume than grenades; near-vertical impacts stay upright.
+    const float lean=(b.grenade?1.2f:(b.rocket?.45f:0.0f))*(1.0f-b.steepness);
     add(std::cos(angle)*size*.08f+b.dx*lean*h*.5f,
         std::sin(angle)*size*.08f+b.dy*lean*h*.5f,h*.5f+size*.015f-fall,
         w,h*.5f,collapse*.95f,seed+k*31,2.0f,b.dx*lean,b.dy*lean,1);
@@ -253,7 +332,7 @@ inline void draw(const view_data* camera,GLuint depth,int width,int height,
    if(z<0)continue;
    const float reach=size*(.035f+motionAge*speed);
    const float radius=size*(.004f+jitter*.006f);
-   const float bias=b.grenade?1.5f*(1.0f-b.steepness):0.0f;
+   const float bias=(b.grenade?1.5f:(b.rocket?.65f:0.0f))*(1.0f-b.steepness);
    const float spread=b.grenade?.65f:1.0f;
    const float dx=std::cos(angle)*spread+b.dx*bias;
    const float dy=std::sin(angle)*spread+b.dy*bias;
